@@ -1,0 +1,919 @@
+/* Centering container for Desktop, Fullscreen on Mobile */
+.mobile-app-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  background-color: #030303;
+  background-image: 
+    radial-gradient(circle at 15% 20%, rgba(170, 51, 255, 0.05) 0%, transparent 45%),
+    radial-gradient(circle at 85% 80%, rgba(34, 230, 123, 0.05) 0%, transparent 45%);
+  box-sizing: border-box;
+}
+
+.phone-container {
+  width: 380px;
+  height: 800px;
+  backgroundColor: #000000;
+  border-radius: 40px;
+  border: 8px solid #1c1c1f;
+  box-shadow: 0 30px 60px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.03);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  user-select: none;
+  font-family: var(--font-body);
+}
+
+.phone-home-indicator {
+  height: 5px;
+  width: 120px;
+  background-color: #ffffff;
+  border-radius: 10px;
+  position: absolute;
+  bottom: 6px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9999;
+  pointer-events: none;
+}
+
+/* Media Queries for full mobile viewport */
+@media (max-width: 480px) {
+  .mobile-app-wrapper {
+    padding: 0;
+    background: #000000;
+  }
+  
+  .phone-container {
+    width: 100vw;
+    height: 100vh;
+    border-radius: 0;
+    border: none;
+    box-shadow: none;
+  }
+  
+  .phone-home-indicator {
+    bottom: 8px;
+  }
+}
+
+/* --- Payit Carousel Wheel Navbar --- */
+
+.payit-navbar-container {
+  height: 94px;
+  background-color: #000000;
+  border-top: 1px solid rgba(255, 255, 255, 0.02);
+  position: relative;
+  overflow: hidden;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding-bottom: 20px; /* Space for home indicator */
+  z-index: 999;
+}
+
+.payit-navbar-track {
+  display: flex;
+  align-items: center;
+  transition: transform 0.45s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: transform;
+}
+
+/* Fixed spacing item wrapper */
+.nav-item-wrapper {
+  width: 64px;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.45s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Translucent Grey Circle Buttons */
+.nav-circle-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background-color: rgba(255, 255, 255, 0.08);
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #7c7c7e;
+  cursor: pointer;
+  transition: all 0.45s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.nav-circle-btn:hover {
+  background-color: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+}
+
+/* Active State - Centered and Enlarged */
+.nav-circle-btn.active {
+  width: 58px;
+  height: 58px;
+  background-color: #2c2c30;
+  color: #ffffff;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+
+/* Active QR Scanner button state - matches center white double border button */
+.nav-circle-btn.active.scanner-active {
+  background-color: #ffffff;
+  color: #000000;
+  border: 4px solid #000000;
+  box-shadow: 0 0 0 2px #ffffff, 0 8px 24px rgba(255, 255, 255, 0.15);
+}
+
+/* Icon Animations */
+
+/* 1. Banking Pillar Icon Animation */
+.nav-circle-btn.active .anim-pillar-roof {
+  animation: pillarRoof 0.6s ease-out;
+}
+.nav-circle-btn.active .anim-pillar-bar1 {
+  animation: pillarBar 0.5s ease-out 0.1s;
+}
+.nav-circle-btn.active .anim-pillar-bar2 {
+  animation: pillarBar 0.5s ease-out 0.2s;
+}
+.nav-circle-btn.active .anim-pillar-bar3 {
+  animation: pillarBar 0.5s ease-out 0.3s;
+}
+
+@keyframes pillarRoof {
+  0% { transform: translateY(0); }
+  50% { transform: translateY(-3px); }
+  100% { transform: translateY(0); }
+}
+
+@keyframes pillarBar {
+  0% { transform: scaleY(1); }
+  50% { transform: scaleY(1.3) translateY(-1px); }
+  100% { transform: scaleY(1); }
+}
+
+/* 2. Explore Brackets Animation */
+.nav-circle-btn.active .anim-bracket-left {
+  animation: bracketLeft 0.5s ease-out;
+}
+.nav-circle-btn.active .anim-bracket-right {
+  animation: bracketRight 0.5s ease-out;
+}
+.nav-circle-btn.active .anim-bracket-center {
+  animation: bracketCenter 0.6s ease-out;
+}
+
+@keyframes bracketLeft {
+  0% { transform: translateX(0); }
+  50% { transform: translateX(-2px); }
+  100% { transform: translateX(0); }
+}
+
+@keyframes bracketRight {
+  0% { transform: translateX(0); }
+  50% { transform: translateX(2px); }
+  100% { transform: translateX(0); }
+}
+
+@keyframes bracketCenter {
+  0% { transform: scale(1) rotate(0deg); }
+  50% { transform: scale(1.3) rotate(90deg); }
+  100% { transform: scale(1) rotate(90deg); }
+}
+
+/* 3. QR Laser scanner animation */
+.nav-scanner-btn.active .anim-scanner-laser {
+  animation: laserScanLine 2s infinite ease-in-out;
+}
+
+@keyframes laserScanLine {
+  0%, 100% { transform: translateY(-3px); }
+  50% { transform: translateY(3px); }
+}
+
+/* 4. Shield Pulse Animation */
+.nav-circle-btn.active .anim-shield-main {
+  animation: shieldPulse 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+@keyframes shieldPulse {
+  0% { transform: scale(1) rotate(0); }
+  50% { transform: scale(1.2) rotate(5deg); }
+  100% { transform: scale(1) rotate(0); }
+}
+
+/* 5. Activity List Lines Animation */
+.nav-circle-btn.active .anim-list-line1 {
+  animation: lineSlide 0.5s ease-out;
+}
+.nav-circle-btn.active .anim-list-line2 {
+  animation: lineSlide 0.5s ease-out 0.1s;
+}
+.nav-circle-btn.active .anim-list-line3 {
+  animation: lineSlide 0.5s ease-out 0.2s;
+}
+
+@keyframes lineSlide {
+  0% { transform: scaleX(1); }
+  50% { transform: scaleX(1.3); }
+  100% { transform: scaleX(1); }
+}
+
+/* --- 3D Virtual Card Styling --- */
+
+.virtual-card-perspective {
+  perspective: 1000px;
+  width: 100%;
+  height: 220px;
+  margin-bottom: 12px;
+}
+
+.virtual-card-inner {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  transform-style: preserve-3d;
+  transition: transform 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  cursor: pointer;
+}
+
+.virtual-card-inner.is-flipped {
+  transform: rotateY(180deg);
+}
+
+.virtual-card-front,
+.virtual-card-back {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+  border-radius: 24px;
+  padding: 20px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 15px 35px rgba(0, 0, 0, 0.5), inset 0 1px 1px rgba(255, 255, 255, 0.15);
+  overflow: hidden;
+}
+
+.virtual-card-front {
+  background: linear-gradient(135deg, #131317 0%, #0d0d0f 50%, #1c1324 100%);
+}
+
+.virtual-card-front::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: radial-gradient(circle at 80% 20%, rgba(235, 59, 136, 0.08) 0%, transparent 50%),
+              radial-gradient(circle at 20% 80%, rgba(34, 230, 123, 0.05) 0%, transparent 50%);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.virtual-card-back {
+  background: linear-gradient(135deg, #0d0d0f 0%, #150f1b 100%);
+  transform: rotateY(180deg);
+  padding: 16px 0; /* Align contents differently */
+}
+
+/* Card Components styling */
+.card-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  z-index: 2;
+}
+
+.card-brand-logo {
+  font-size: 20px;
+  font-weight: 800;
+  color: #ffffff;
+  font-style: italic;
+  letter-spacing: -0.5px;
+}
+
+.card-brand-pink {
+  color: var(--accent-pink);
+}
+
+.card-type-label {
+  font-size: 10px;
+  color: var(--text-secondary);
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.card-middle-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  z-index: 2;
+}
+
+.card-chip {
+  width: 38px;
+  height: 28px;
+  background: linear-gradient(135deg, #e5c07b 0%, #c19e5d 50%, #ab8847 100%);
+  border-radius: 6px;
+  position: relative;
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.3);
+}
+
+.card-chip::before {
+  content: '';
+  position: absolute;
+  top: 4px;
+  left: 0;
+  right: 0;
+  bottom: 4px;
+  border-top: 1px solid rgba(0, 0, 0, 0.2);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.2);
+}
+
+.card-chip::after {
+  content: '';
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  top: 0;
+  bottom: 0;
+  border-left: 1px solid rgba(0, 0, 0, 0.2);
+  border-right: 1px solid rgba(0, 0, 0, 0.2);
+}
+
+.card-contactless {
+  display: flex;
+  gap: 3px;
+  align-items: center;
+}
+
+.card-contactless-wave {
+  width: 2px;
+  background-color: var(--text-secondary);
+  border-radius: 2px;
+}
+
+.card-number-display {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 2px;
+  color: #ffffff;
+  font-family: var(--font-display);
+  z-index: 2;
+  margin: 12px 0 6px 0;
+}
+
+.card-bottom-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  z-index: 2;
+}
+
+.card-holder-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.card-holder-title {
+  font-size: 8px;
+  color: var(--text-muted);
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.card-holder-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: #ffffff;
+  letter-spacing: 0.5px;
+}
+
+.card-expiry-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: flex-end;
+}
+
+.card-expiry-title {
+  font-size: 8px;
+  color: var(--text-muted);
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.card-expiry-date {
+  font-size: 12px;
+  font-weight: 600;
+  color: #ffffff;
+}
+
+/* Balance overlays on card front */
+.card-balance-display {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  z-index: 2;
+}
+
+.card-balance-label {
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.card-balance-value {
+  font-size: 26px;
+  font-weight: 800;
+  color: #ffffff;
+  font-family: var(--font-display);
+  line-height: 1.1;
+}
+
+/* Card Back specifics */
+.card-magnetic-strip {
+  width: 100%;
+  height: 38px;
+  background-color: #050506;
+  margin-top: 10px;
+}
+
+.card-back-details {
+  padding: 0 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex: 1;
+  justify-content: center;
+}
+
+.card-signature-area {
+  display: flex;
+  align-items: center;
+  margin-top: 8px;
+}
+
+.card-signature-strip {
+  flex: 1;
+  height: 32px;
+  background: repeating-linear-gradient(
+    45deg,
+    #dddddd,
+    #dddddd 10px,
+    #eeeeee 10px,
+    #eeeeee 20px
+  );
+  border-radius: 4px;
+}
+
+.card-cvv-box {
+  width: 48px;
+  height: 32px;
+  background-color: #ffffff;
+  color: #000000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  font-family: var(--font-display);
+  border-radius: 4px;
+  margin-left: -4px;
+  box-shadow: inset 0 1px 3px rgba(0,0,0,0.3);
+}
+
+.card-back-text {
+  font-size: 8px;
+  color: var(--text-muted);
+  line-height: 1.4;
+  text-align: center;
+  padding: 0 20px;
+}
+
+/* Card Lock State Overlay */
+.card-lock-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(5, 5, 6, 0.85);
+  backdrop-filter: blur(8px);
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: #ffffff;
+  animation: fadeIn 0.25s ease-out;
+}
+
+.card-lock-text {
+  font-size: 13px;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.card-lock-sub {
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+
+/* Card controls container */
+.card-controls-container {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+
+.card-control-btn {
+  flex: 1;
+  background-color: #121214;
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  height: 38px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: all 0.2s;
+}
+
+.card-control-btn:hover {
+  background-color: #1c1c21;
+  color: #ffffff;
+}
+
+.card-control-btn.active {
+  background-color: rgba(235, 59, 136, 0.08);
+  border-color: rgba(235, 59, 136, 0.3);
+  color: var(--accent-pink);
+}
+
+/* --- Stacked Card Deck Styling --- */
+
+.virtual-card-stack-wrapper {
+  position: relative;
+  width: 100%;
+  height: 255px;
+  margin-top: 24px;
+  margin-bottom: 12px;
+}
+
+/* Base stack position transitions */
+.virtual-card-perspective {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.5s, z-index 0.5s;
+  margin-bottom: 0; /* Reset */
+}
+
+/* Stack Rank Classes */
+.stack-rank-0 {
+  transform: translateY(0px) scale(1) translateZ(0px);
+  opacity: 1;
+  z-index: 5;
+  pointer-events: auto;
+}
+
+.stack-rank-1 {
+  transform: translateY(-24px) scale(0.93) translateZ(-20px);
+  opacity: 0.8;
+  z-index: 4;
+  pointer-events: auto;
+}
+
+.stack-rank-2 {
+  transform: translateY(-46px) scale(0.86) translateZ(-40px);
+  opacity: 0.5;
+  z-index: 3;
+  pointer-events: auto;
+}
+
+/* Hover effects for background cards to prompt clicking */
+.virtual-card-perspective.stack-rank-1:hover {
+  transform: translateY(-28px) scale(0.95) translateZ(-15px);
+  opacity: 0.9;
+}
+
+.virtual-card-perspective.stack-rank-2:hover {
+  transform: translateY(-50px) scale(0.88) translateZ(-35px);
+  opacity: 0.7;
+}
+
+/* Card Theme Overrides */
+
+/* 1. Savings Theme (Dark Obsidian with Green/Pink Subtle Glow) */
+.theme-savings {
+  background: linear-gradient(135deg, #131317 0%, #0d0d0f 50%, #1c1324 100%);
+}
+
+.theme-savings::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: radial-gradient(circle at 80% 20%, rgba(235, 59, 136, 0.08) 0%, transparent 50%),
+              radial-gradient(circle at 20% 80%, rgba(34, 230, 123, 0.05) 0%, transparent 50%);
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* 2. Credit Theme (Hot Purple & Indigo with Pink Glow) */
+.theme-credit {
+  background: linear-gradient(135deg, #20081d 0%, #0d0611 50%, #130a21 100%);
+  border-color: rgba(235, 59, 136, 0.15);
+}
+
+.theme-credit::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: radial-gradient(circle at 80% 20%, rgba(235, 59, 136, 0.16) 0%, transparent 60%),
+              radial-gradient(circle at 20% 80%, rgba(170, 51, 255, 0.08) 0%, transparent 60%);
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* 3. Rewards Theme (Deep Emerald and Teal Glow) */
+.theme-rewards {
+  background: linear-gradient(135deg, #071512 0%, #050b0b 50%, #0b1510 100%);
+  border-color: rgba(34, 230, 123, 0.15);
+}
+
+.theme-rewards::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: radial-gradient(circle at 80% 20%, rgba(34, 230, 123, 0.15) 0%, transparent 60%),
+              radial-gradient(circle at 20% 80%, rgba(0, 136, 255, 0.08) 0%, transparent 60%);
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* --- Quick Send Carousel Styling --- */
+
+.quick-send-section {
+  margin-top: 26px;
+  animation: fadeIn 0.3s ease-out;
+}
+
+.quick-send-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  font-family: var(--font-display);
+}
+
+.quick-send-carousel {
+  display: flex;
+  gap: 16px;
+  overflow-x: auto;
+  padding: 8px 4px;
+  width: 100%;
+  scrollbar-width: none; /* Firefox */
+}
+
+.quick-send-carousel::-webkit-scrollbar {
+  display: none; /* Chrome/Safari */
+}
+
+.quick-send-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  min-width: 58px;
+}
+
+.quick-send-avatar,
+.quick-send-avatar-add {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  font-size: 15px;
+  font-weight: 700;
+  color: #ffffff;
+  font-family: var(--font-display);
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3), inset 0 1px 1px rgba(255, 255, 255, 0.1);
+  transition: transform 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275), box-shadow 0.25s, border-color 0.25s;
+}
+
+.quick-send-avatar-add {
+  background-color: #121214;
+  color: var(--text-secondary);
+  border: 1.5px dashed var(--border-color);
+  font-size: 22px;
+  font-weight: 300;
+  box-shadow: none;
+}
+
+.quick-send-avatar:hover,
+.quick-send-avatar-add:hover {
+  transform: scale(1.08) translateY(-2px);
+  border-color: rgba(255,255,255,0.2);
+}
+
+.quick-send-avatar:active,
+.quick-send-avatar-add:active {
+  transform: scale(0.96);
+}
+
+.quick-send-avatar:hover {
+  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.4), 0 0 12px rgba(235, 59, 136, 0.15);
+}
+
+/* --- Bill Reminders Styling --- */
+
+.quick-send-name {
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-weight: 600;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 58px;
+}
+
+.bill-reminders-section {
+  margin-top: 22px;
+  animation: fadeIn 0.3s ease-out;
+}
+
+.bill-reminders-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  font-family: var(--font-display);
+}
+
+.bill-reminders-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+}
+
+.bill-reminder-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background-color: var(--surface-color);
+  border: 1px solid var(--border-color);
+  border-radius: 18px;
+  padding: 12px 16px;
+  box-sizing: border-box;
+  width: 100%;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
+}
+
+.bill-reminder-row:hover {
+  transform: translateY(-1px);
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
+}
+
+.bill-row-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.bill-icon-wrapper {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background-color: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.02);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.bill-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.bill-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: #ffffff;
+  line-height: 1.2;
+}
+
+.bill-status-indicator {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.bill-status-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.bill-status-dot.dot-soon {
+  background-color: #ffaa00;
+  box-shadow: 0 0 6px #ffaa00;
+}
+
+.bill-status-dot.dot-overdue {
+  background-color: #ff3333;
+  box-shadow: 0 0 6px #ff3333;
+  animation: pulse-glow 1.5s infinite;
+}
+
+@keyframes pulse-glow {
+  0% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.4); opacity: 0.6; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.bill-due-text {
+  font-size: 8px;
+  color: var(--text-secondary);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.bill-row-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.bill-amount {
+  font-size: 14px;
+  font-weight: 800;
+  color: #ffffff;
+  font-family: var(--font-display);
+}
+
+.bill-pay-btn {
+  background-color: var(--accent-pink);
+  color: #ffffff;
+  border: none;
+  border-radius: 10px;
+  padding: 6px 18px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 4px 10px rgba(235, 59, 136, 0.25);
+  transition: transform 0.1s;
+}
+
+.bill-pay-btn:active {
+  transform: scale(0.94);
+}
+
+
+
+

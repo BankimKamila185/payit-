@@ -4,9 +4,10 @@
   "description": "",
   "main": "dist/app/server.js",
   "scripts": {
-    "test": "jest",
-    "start": "ts-node app/server.ts",
-    "dev": "nodemon --watch 'app/**/*.ts' --exec 'ts-node' app/server.ts"
+    "build": "tsc",
+    "start": "node dist/app/server.js",
+    "dev": "nodemon --watch 'app/**/*.ts' --exec 'ts-node' app/server.ts",
+    "test": "jest"
   },
   "keywords": [],
   "author": "",

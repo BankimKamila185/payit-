@@ -5,6 +5,7 @@ import {
   AlertRepository
 } from './repositories';
 import { FraudService } from './services/fraudService';
+import { IpReputationService } from './services/ipReputationService';
 
 const app = express();
 app.use(express.json());
@@ -26,6 +27,9 @@ app.post('/api/transactions', async (req: Request, res: Response): Promise<void>
   }
 
   try {
+    // Ensure IP reputation is registered
+    await IpReputationService.ensureIpRegistered(ip_address);
+
     // Check if accounts exist
     const senderAccount = await AccountRepository.findById(sender_account_id);
     const receiverAccount = await AccountRepository.findById(receiver_account_id);

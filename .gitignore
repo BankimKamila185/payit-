@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+env/
+venv/
+ENV/
+dist/
+node_modules/
+.DS_Store
+temp_unzip/
+*.zip
+.claude/

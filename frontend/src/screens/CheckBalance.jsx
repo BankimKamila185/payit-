@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { RefreshCw, Delete } from 'lucide-react';
 
-const CheckBalance = ({ onBack, upiId = "bankimkamila23@payit" }) => {
+const CheckBalance = ({ onBack, upiId = "you@payit", realBalance = 0 }) => {
   const [pin, setPin] = useState("");
   const [loading, setLoading] = useState(false);
   const [balance, setBalance] = useState(null);
@@ -28,7 +28,7 @@ const CheckBalance = ({ onBack, upiId = "bankimkamila23@payit" }) => {
     setLoading(true);
     setTimeout(() => {
       setLoading(false);
-      setBalance(14580); // Mock balance returned
+      setBalance(Math.round(Number(realBalance) || 0)); // REAL logged-in balance
     }, 1500);
   };
 

@@ -1,0 +1,152 @@
+"""
+UPI Fraud Shield — Rule Layer
+=============================
+Fast, transparent rule-based signals with weights grounded in our research
+(SIGNALS_MASTER.md / FRAUD_CASES). Catches known patterns instantly and gives
+plain-English reasons WITHOUT needing the model — a reliable safety net that
+also stays explainable.
+
+Each rule adds points to a 0-100 rule score + a human reason.
+This complements (not replaces) the XGBoost model + graph module.
+"""
+
+from __future__ import annotations
+
+# weights (from SIGNALS_MASTER research) — tuned, not arbitrary
+W = {
+    "amount_spike_high": 35,     # amount >= 10x user's normal
+    "amount_spike_mid": 20,      # amount >= 5x
+    "odd_hour": 15,              # night-time, unusual for user
+    "new_device": 25,           # unrecognised device
+    "first_time_payee": 15,     # never paid this receiver before
+    "velocity": 20,             # burst of transfers
+    "fan_in": 20,               # receiver getting money from many senders
+    "forwards_recent": 20,      # receiver forwards money quickly (mule)
+    "new_receiver": 15,         # receiver account < 7 days old
+    "blacklisted": 40,          # receiver on blacklist
+    "name_mismatch": 20,        # VPA brand/name mismatch
+    "high_drawdown": 15,        # sending > 90% of balance
+    "screen_share": 30,         # remote-access / screen-share active (AnyDesk)
+    "reverse": 25,              # overpayment / reverse-transfer scam
+    "mandate_unknown": 25,      # AutoPay mandate to an unknown payee
+    "qr_new": 15,               # QR debit to first-time payee
+    "rooted": 30,               # rooted / Xposed / emulator device (Digital Lutera)
+    "sim_mismatch": 30,         # SIM-reported number != carrier (SIM-swap / spoof)
+    "jumped_deposit": 30,       # tiny credit then collect-request (jumped-deposit scam)
+}
+
+
+def score(f: dict) -> dict:
+    """
+    f = transaction feature dict (same keys as our dataset columns).
+    Returns dict(score 0-100, reasons[list]).
+    """
+    pts = 0
+    reasons = []
+
+    ratio = f.get("amount_to_avg_ratio", 0)
+    if ratio >= 10:
+        pts += W["amount_spike_high"]
+        reasons.append(f"Amount is {ratio:.0f}x the user's usual")
+    elif ratio >= 5:
+        pts += W["amount_spike_mid"]
+        reasons.append(f"Amount is {ratio:.0f}x higher than normal")
+
+    if f.get("odd_hour"):
+        pts += W["odd_hour"]
+        reasons.append("Unusual night-time transaction")
+
+    if f.get("is_new_device"):
+        pts += W["new_device"]
+        reasons.append("New / unrecognised device")
+
+    # first-time payee matters mainly for P2P; paying a NEW shop is normal
+    if f.get("first_time_payee") and not f.get("receiver_is_merchant"):
+        pts += W["first_time_payee"]
+        reasons.append("First-time payee")
+
+    # velocity — EXEMPT corporate accounts (payroll/reimbursement is legit fan-out)
+    if f.get("sender_velocity_60s", 0) >= 4 and not f.get("sender_is_corporate"):
+        pts += W["velocity"]
+        reasons.append(f"Velocity spike: {int(f['sender_velocity_60s'])+1} transfers in <60s")
+
+    # fan-out (smurfing) — also exempt corporate
+    if f.get("sender_fan_out_60s", 0) >= 8 and not f.get("sender_is_corporate"):
+        pts += W["velocity"]
+        reasons.append(f"Fan-out to {int(f['sender_fan_out_60s'])} receivers (smurfing)")
+
+    # fan-in — EXEMPT verified merchants (shop getting many payments is normal)
+    if f.get("receiver_fan_in_60s", 0) >= 5 and not f.get("receiver_is_merchant"):
+        pts += W["fan_in"]
+        reasons.append(f"Receiver getting money from {int(f['receiver_fan_in_60s'])} senders (fan-in)")
+
+    if f.get("receiver_forwards_recent") and not f.get("receiver_is_merchant"):
+        pts += W["forwards_recent"]
+        reasons.append("Receiver forwarding money quickly (mule pattern)")
+
+    if f.get("receiver_account_age_days", 999) < 7:
+        pts += W["new_receiver"]
+        reasons.append(f"Receiver account only {int(f.get('receiver_account_age_days',0))} days old")
+
+    if f.get("receiver_blacklisted"):
+        pts += W["blacklisted"]
+        reasons.append("Receiver is on the fraud blacklist")
+
+    if f.get("name_vpa_mismatch"):
+        pts += W["name_mismatch"]
+        reasons.append("Receiver VPA name / brand mismatch")
+
+    if f.get("balance_drawdown", 0) >= 0.9:
+        pts += W["high_drawdown"]
+        reasons.append("Sending almost the entire balance")
+
+    if f.get("device_screen_share"):
+        pts += W["screen_share"]
+        reasons.append("Remote-access / screen-share active (AnyDesk-type)")
+
+    if f.get("reverse_transfer"):
+        pts += W["reverse"]
+        reasons.append("Reverse transfer — no genuine credit received (overpayment scam)")
+
+    if f.get("is_mandate") and f.get("first_time_payee"):
+        pts += W["mandate_unknown"]
+        reasons.append("AutoPay mandate set up to an unknown payee")
+
+    if f.get("is_qr") and f.get("first_time_payee"):
+        pts += W["qr_new"]
+        reasons.append("QR debit to a first-time payee (scan = SEND, not receive)")
+
+    if f.get("device_rooted"):
+        pts += W["rooted"]
+        reasons.append("Rooted / Xposed / emulator device (SIM-binding bypass risk)")
+
+    if f.get("sim_carrier_mismatch"):
+        pts += W["sim_mismatch"]
+        reasons.append("SIM number doesn't match carrier records (SIM-swap / spoof)")
+
+    # jumped-deposit: tiny credit received, then a collect-request being approved
+    if f.get("recent_micro_credit") and f.get("is_collect"):
+        pts += W["jumped_deposit"]
+        reasons.append("Micro-credit followed by a collect-request (jumped-deposit scam)")
+
+    return {"score": min(pts, 100), "reasons": reasons}
+
+
+def _demo():
+    import pandas as pd
+    from pathlib import Path
+    HERE = Path(__file__).resolve().parent
+    df = pd.read_csv(HERE / "data" / "upi_transactions.csv")
+
+    # rule score distribution on real vs fraud
+    df["rule_score"] = df.apply(lambda r: score(r.to_dict())["score"], axis=1)
+    print("=== Rule score (avg) ===")
+    print(df.groupby("is_fraud")["rule_score"].mean().round(1).to_string())
+    print("\n=== Sample flagged fraud (rule reasons) ===")
+    hits = df[(df.is_fraud == 1) & (df.rule_score >= 40)].head(3)
+    for _, r in hits.iterrows():
+        print(f"score={r['rule_score']}: {score(r.to_dict())['reasons']}")
+
+
+if __name__ == "__main__":
+    _demo()

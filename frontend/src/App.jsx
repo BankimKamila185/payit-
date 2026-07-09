@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import './App.css';
 
 // Component Imports
@@ -15,8 +15,23 @@ import UpiSettings from './screens/UpiSettings';
 import TransferKeypad from './screens/TransferKeypad';
 import RechargeBills from './screens/RechargeBills';
 import FraudReportForm from './screens/FraudReportForm';
+import Login from './screens/Login';
+import { api, getDeviceId, saveSession, getSession, clearSession } from './api';
 
-import { Shield, Lock, ShieldCheck, AlertTriangle, Fingerprint, Phone, X, Check, Bell } from 'lucide-react';
+import { Shield, Lock, ShieldCheck, AlertTriangle, Fingerprint, Phone, X, Check, Bell, Clock, MapPin, Smartphone, ShieldAlert } from 'lucide-react';
+
+// Map a few demo display-NAMES (from QR/recharge/repay flows that only carry a
+// name, not a VPA) to real DB accounts, so those flows still pay real accounts.
+// Real tapped contacts DON'T use this — they carry their exact VPA. The logged-in
+// user is dynamic (state `currentUser`), never hardcoded.
+const NAME_TO_VPA = {
+  "Gopichand Javanajad": "priya.sharma@okhdfc",    // safe contact
+  "Amit Patel": "priya.sharma@okhdfc",             // safe contact
+  "Priya Nair": "priya.sharma@okhdfc",             // safe contact
+  "Rahul Sharma": "reliancefresh.store@okaxis",    // safe merchant
+  "Sneha Gupta": "quickcash777@okpnb",             // 🔴 MULE -> BLOCK demo
+  "Aravind Kumar": "quickcash777@okpnb",           // 🔴 QR-scan scam -> BLOCK
+};
 
 function App() {
   // Navigation stack
@@ -30,6 +45,47 @@ function App() {
   const [monies, setMonies] = useState(3902);
   const [ccSpends, setCcSpends] = useState(314);
   const [payAmount, setPayAmount] = useState("");
+  const [payeeVpa] = useState("priya.sharma@okhdfc");   // default fallback VPA (name-only flows)
+  const [selectedPayee, setSelectedPayee] = useState(null);  // {name, vpa} — exact target when a real contact is tapped
+  const [pinModal, setPinModal] = useState(null);       // {amount, isInvest} pending payment
+  const [pinInput, setPinInput] = useState("");         // entered UPI PIN
+
+  // --- REAL login: null until the user logs in (device binds on login) ---
+  const [currentUser, setCurrentUser] = useState(null);
+  const [currentUserName, setCurrentUserName] = useState('');
+  const [realTxns, setRealTxns] = useState([]);
+
+  const [booting, setBooting] = useState(true);         // checking saved session on open
+
+  const handleLogin = async (vpa) => {
+    const { ok, data } = await api.login(vpa);          // verifies account + binds device
+    if (!ok) return { ok: false, error: data.detail || 'Account not found' };
+    setCurrentUser(vpa);
+    setCurrentUserName(data.name || vpa);
+    if (data.balance != null) setBalance(data.balance);
+    saveSession(vpa);                                   // remember on this device (like GPay)
+    api.history(vpa).then((r) => { if (r.ok) setRealTxns(r.data); }).catch(() => {});
+    return { ok: true };
+  };
+
+  const handleLogout = () => {                          // "switch account" for the demo
+    clearSession();
+    setCurrentUser(null); setCurrentUserName(''); setRealTxns([]);
+  };
+
+  // On app open: if this device already has a bound account, restore it and go
+  // straight to Home — no VPA re-entry (real UX). Login screen only shows 1st time.
+  useEffect(() => {
+    const saved = getSession();
+    if (!saved) { setBooting(false); return; }
+    handleLogin(saved)
+      .then((r) => { if (!r || !r.ok) clearSession(); })   // account gone -> clean login
+      .finally(() => setBooting(false));
+  }, []);
+
+  const refreshTxns = () => {
+    if (currentUser) api.history(currentUser).then((r) => { if (r.ok) setRealTxns(r.data); });
+  };
   const [lastTx, setLastTx] = useState({
     id: 'TX-98127',
     recipient: 'Gopichand Javanajad',
@@ -57,7 +113,7 @@ function App() {
   const [isGuardianModeActive, setIsGuardianModeActive] = useState(false);
   const [guardianLimit, setGuardianLimit] = useState(10000);
   const [guardians, setGuardians] = useState([
-    { name: "Bankim's Father", phone: "98102-39210", relation: "Father", upi: "father@upi" }
+    { name: "Trusted Guardian", phone: "98•••39210", relation: "Family", upi: "guardian@upi" }
   ]);
 
   // Demo Simulation Parameters
@@ -121,8 +177,10 @@ function App() {
     }, 4500);
   };
 
-  // Log Kill Switch changes
+  // Log Kill Switch changes (skip the initial mount so nothing pops on load)
+  const frozenInit = useRef(true);
   useEffect(() => {
+    if (frozenInit.current) { frozenInit.current = false; return; }
     if (isFrozen) {
       triggerNotification("Kill Switch Activated: All banking frozen", "alert");
     } else {
@@ -130,8 +188,10 @@ function App() {
     }
   }, [isFrozen]);
 
-  // Log Account Lock changes
+  // Log Account Lock changes (skip initial mount)
+  const lockInit = useRef(true);
   useEffect(() => {
+    if (lockInit.current) { lockInit.current = false; return; }
     if (isAccountLocked) {
       triggerNotification("Emergency Account Lock: Profile secured", "alert");
     } else {
@@ -208,56 +268,70 @@ function App() {
   };
 
   // --- INTERCEPTED TRANSACTION FLOW ---
+  // Step A: user confirms amount -> show the UPI PIN pad (2nd factor)
   const handlePaymentProcess = (amount, isInvest = false) => {
-    if (isFrozen) {
-      triggerNotification("Blocked: Kill Switch is currently active", "alert");
-      return;
-    }
-    if (isAccountLocked) {
-      triggerNotification("Blocked: Account is locked", "alert");
-      return;
-    }
+    if (isFrozen) { triggerNotification("Blocked: Kill Switch is currently active", "alert"); return; }
+    if (isAccountLocked) { triggerNotification("Blocked: Account is locked", "alert"); return; }
+    setPinInput("");
+    setPinModal({ amount, isInvest });        // open PIN entry screen
+  };
 
+  // Step B: user entered UPI PIN -> run REAL backend payment + fraud engine
+  const executePayment = async (amount, isInvest, pin) => {
+    setPinModal(null);
     setTempPayDetails({ amount, isInvest, recipientName: recipient });
-    
-    // Step 1: Run AI Real-Time Fraud Scan loader
+    // exact VPA of a tapped real contact wins; else map the display name; else default
+    const receiver = (selectedPayee && selectedPayee.name === recipient)
+      ? selectedPayee.vpa
+      : (NAME_TO_VPA[recipient] || payeeVpa);
+
+    // fraud-scan animation (the REAL engine runs on the backend)
     setAiScanningTx({ amount, recipientName: recipient });
-    setAiScanProgress("Analyzing transaction anomalies...");
+    setAiScanProgress("Verifying UPI PIN...");
+    setTimeout(() => setAiScanProgress("Running fraud engine (behavioral + device + graph)..."), 500);
 
-    setTimeout(() => {
-      setAiScanProgress("Checking recipient UPI database...");
-    }, 600);
-
-    setTimeout(() => {
-      setAiScanProgress("Evaluating location coordinates & device footprint...");
-    }, 1200);
-
-    setTimeout(() => {
-      setAiScanningTx(null); // Scan completed
-      
-      // Determine AI Risk Score based on recipient name & simulated footprint
-      const isScam = recipient.toLowerCase().includes("prize") || recipient.toLowerCase().includes("scam");
-      const isUnusualLoc = locationStatus === 'unusual';
-      const isNewDevice = deviceStatus === 'new';
-      
-      let riskScore = "Low";
-      if (isScam || (isUnusualLoc && isNewDevice)) {
-        riskScore = "High";
-      } else if (isUnusualLoc || isNewDevice) {
-        riskScore = "Medium";
+    try {
+      const { ok, status, data } = await api.pay({
+        sender_vpa: currentUser, receiver_vpa: receiver,
+        amount, pin, channel: "MANUAL",
+      });
+      setAiScanningTx(null);
+      if (!ok) {
+        triggerNotification(status === 401 ? "❌ Incorrect UPI PIN"
+                            : (data.detail || "Payment failed"), "alert");
+        return;
       }
 
-      // Step 2: Risk-Based Authentication Check
-      const requiresExtraAuth = isHighValueAuthActive && (amount >= highValueThreshold || riskScore === "Medium" || riskScore === "High");
-      
-      if (requiresExtraAuth) {
-        triggerNotification(`Risk authentication triggered (AI Risk: ${riskScore})`, "alert");
-        setPinPurpose("pay");
-        setShowBiometricModal(true);
-      } else {
-        proceedToVerificationPipeline(amount, isInvest, riskScore);
+      const now = new Date().toLocaleString('en-IN', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit', hour12:true });
+      const baseTx = { id:`TX-${data.transaction_id}`, recipient, amount, date: now,
+                       upiRef: data.txn_ref || "-", transId: String(data.transaction_id),
+                       reasons: data.reasons, score: data.score };
+
+      if (data.label === "BLOCK") {
+        triggerNotification("🔴 Blocked by Fraud Shield", "alert");
+        setLastTx({ ...baseTx, status: 'blocked' });
+        pushScreen('paid-success');
+      } else if (data.label === "REVIEW") {
+        const otp = window.prompt(`⚠️ Extra verification needed.\nReason: ${data.reasons?.[0] || ''}\nEnter OTP (demo: ${data.otp_demo}):`);
+        if (!otp) { triggerNotification("Payment cancelled", "info"); return; }
+        const v = await api.verifyOtp(data.transaction_id, otp);
+        if (v.ok) {
+          setBalance(v.data.sender_balance);
+          setLastTx({ ...baseTx, status: 'success' });
+          triggerNotification("Verified — payment completed", "info");
+          pushScreen('paid-success');
+        } else { triggerNotification("Invalid OTP — payment blocked", "alert"); }
+      } else {                                  // SAFE
+        setBalance(data.sender_balance);
+        setLastTx({ ...baseTx, status: 'success' });
+        triggerNotification("Payment successful", "info");
+        pushScreen('paid-success');
       }
-    }, 1800);
+      refreshTxns();                            // reload real history after any result
+    } catch (e) {
+      setAiScanningTx(null);
+      triggerNotification("⚠️ Backend not reachable — start server on :3000", "alert");
+    }
   };
 
   // Post Risk-Authentication flow
@@ -407,10 +481,20 @@ function App() {
     switch (activeScreen) {
       case 'banking':
         return (
-          <Banking 
+          <Banking
+            liveTxns={realTxns}
+            me={currentUser}
+            balance={balance}
+            userName={currentUserName}
             onAddMoney={(name, amount) => {
               setRecipient(name && typeof name === 'string' ? name : "Add money");
               setPayAmount(amount || "");
+              pushScreen('transfer');
+            }}
+            onSendToContact={(displayName, vpa) => {   // real person from txn history
+              setRecipient(displayName);
+              setSelectedPayee({ name: displayName, vpa });   // exact target, wins over name-map
+              setPayAmount("");
               pushScreen('transfer');
             }}
             onCheckBalance={() => pushScreen('check-balance')}
@@ -494,7 +578,9 @@ function App() {
         );
       case 'activity':
         return (
-          <Activity 
+          <Activity
+            liveTxns={realTxns}
+            me={currentUser}
             onTransactionSelect={(tx) => {
               setLastTx(tx);
               pushScreen('paid-success');
@@ -525,15 +611,18 @@ function App() {
         );
       case 'check-balance':
         return (
-          <CheckBalance 
-            upiId="bankimkamila23@payit"
+          <CheckBalance
+            upiId={currentUser}
+            realBalance={balance}
             onBack={popScreen}
           />
         );
       case 'upi-settings':
         return (
-          <UpiSettings 
-            upiId="bankimkamila23@payit"
+          <UpiSettings
+            upiId={currentUser}
+            userName={currentUserName}
+            onLogout={handleLogout}
             onAddAccount={() => {
               setRecipient("SBI Bank Link");
               pushScreen('transfer');
@@ -542,8 +631,11 @@ function App() {
         );
       case 'transfer':
         return (
-          <TransferKeypad 
+          <TransferKeypad
             recipientName={recipient}
+            recipientVpa={(selectedPayee && selectedPayee.name === recipient)
+              ? selectedPayee.vpa : (NAME_TO_VPA[recipient] || '')}
+            userInitial={(currentUserName || 'U').trim().charAt(0).toUpperCase()}
             prefilledAmount={payAmount}
             onTransferSuccess={(amt) => handlePaymentProcess(amt, false)}
             onInvestSuccess={(amt) => handlePaymentProcess(amt, true)}
@@ -592,9 +684,36 @@ function App() {
     return ['recharge-bills', 'analytics', 'check-balance', 'upi-settings', 'transfer', 'qr-scanner', 'paid-success', 'fraud-report'].includes(activeScreen);
   };
 
+  // While restoring a saved session on open, don't flash the login screen.
+  if (booting) {
+    return (
+      <div className="mobile-app-wrapper">
+        <PhoneFrame currentScreen="login" title="" showBackButton={false} hideNav>
+          <div style={{ display: 'flex', height: '100%', alignItems: 'center',
+                        justifyContent: 'center', background: '#0a0a0a', color: '#666' }}>
+            Loading…
+          </div>
+        </PhoneFrame>
+      </div>
+    );
+  }
+
+  // --- LOGIN GATE: only shows the FIRST time on this device (or after logout).
+  // Once logged in the account is remembered (getSession), so re-opening the app
+  // skips this and goes straight to Home — only the UPI PIN is asked on payments. ---
+  if (!currentUser) {
+    return (
+      <div className="mobile-app-wrapper">
+        <PhoneFrame currentScreen="login" title="" showBackButton={false} hideNav>
+          <Login onLogin={handleLogin} deviceId={getDeviceId()} />
+        </PhoneFrame>
+      </div>
+    );
+  }
+
   return (
     <div className="mobile-app-wrapper">
-      <PhoneFrame 
+      <PhoneFrame
         currentScreen={activeScreen}
         onScreenChange={resetToScreen}
         title={getHeaderTitle()}
@@ -636,6 +755,51 @@ function App() {
               <div style={styles.progressContainer}>
                 <span style={styles.progressText}>{aiScanProgress}</span>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* --- UPI PIN ENTRY MODAL (2nd factor) --- */}
+        {pinModal && (
+          <div style={styles.modalOverlay} className="animate-fade-in">
+            <div style={{ background: '#141414', borderRadius: 20, padding: 24, width: 300,
+                          textAlign: 'center', border: '1px solid #333' }} className="animate-scale-in">
+              <Lock size={28} color="#22e67b" style={{ marginBottom: 8 }} />
+              <h3 style={{ color: '#fff', margin: '4px 0' }}>Enter UPI PIN</h3>
+              <p style={{ color: '#888', fontSize: 13, marginBottom: 2 }}>
+                Paying ₹{pinModal.amount} to {recipient}
+              </p>
+              <p style={{ color: '#555', fontSize: 11, marginBottom: 16 }}>(demo PIN: 1234)</p>
+              <div style={{ display: 'flex', justifyContent: 'center', gap: 12, marginBottom: 20 }}>
+                {[0,1,2,3].map(i => (
+                  <div key={i} style={{ width: 14, height: 14, borderRadius: '50%',
+                    background: i < pinInput.length ? '#22e67b' : '#333' }} />
+                ))}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+                {['1','2','3','4','5','6','7','8','9','','0','⌫'].map((k, idx) => (
+                  <button key={idx} disabled={k === ''}
+                    onClick={() => {
+                      if (k === '⌫') { setPinInput(p => p.slice(0, -1)); return; }
+                      if (k === '') return;
+                      const next = (pinInput + k).slice(0, 4);
+                      setPinInput(next);
+                      if (next.length === 4) {
+                        const pm = pinModal;
+                        setTimeout(() => executePayment(pm.amount, pm.isInvest, next), 150);
+                      }
+                    }}
+                    style={{ padding: '14px 0', fontSize: 20, borderRadius: 12,
+                      background: k === '' ? 'transparent' : '#222', color: '#fff',
+                      border: 'none', cursor: k === '' ? 'default' : 'pointer' }}>
+                    {k}
+                  </button>
+                ))}
+              </div>
+              <button onClick={() => { setPinModal(null); setPinInput(""); }}
+                style={{ marginTop: 16, background: 'none', border: 'none', color: '#888', cursor: 'pointer' }}>
+                Cancel
+              </button>
             </div>
           </div>
         )}
@@ -693,7 +857,7 @@ function App() {
                 </div>
                 <h4 style={styles.gNotifTitle}>Approval Request</h4>
                 <p style={styles.gNotifBody}>
-                  <strong>Bankim's Father</strong> wants to transfer <strong>₹{guardianRequest.amount}</strong> to <strong>{guardianRequest.recipient}</strong>.
+                  <strong>{currentUserName || 'Account holder'}</strong> wants to transfer <strong>₹{guardianRequest.amount}</strong> to <strong>{guardianRequest.recipient}</strong>.
                 </p>
                 <div style={styles.gNotifRiskBlock}>
                   <div style={styles.riskRow}>
@@ -733,7 +897,7 @@ function App() {
                     <X size={14} style={{ marginRight: 4 }} /> Reject
                   </button>
                   <button 
-                    onClick={() => triggerNotification("Calling Bankim's Father...", "info")} 
+                    onClick={() => triggerNotification(`Calling ${currentUserName || 'account holder'}...`, "info")}
                     style={styles.gCallBtn}
                   >
                     <Phone size={14} style={{ marginRight: 4 }} /> Call

@@ -1,15 +1,17 @@
 import React from 'react';
-import { 
-  Copy, 
-  QrCode, 
-  Plus, 
-  Smartphone, 
-  Play, 
-  Trash2, 
-  ExternalLink 
+import {
+  Copy,
+  QrCode,
+  Plus,
+  Smartphone,
+  Play,
+  Trash2,
+  ExternalLink,
+  LogOut,
+  User
 } from 'lucide-react';
 
-const UpiSettings = ({ onAddAccount, upiId = "bankimkamila23@payit" }) => {
+const UpiSettings = ({ onAddAccount, upiId = "you@payit", userName = "", onLogout }) => {
   // PII masking for safety
   const maskText = (text, visibleStart = 4, visibleEnd = 4) => {
     if (text.length <= visibleStart + visibleEnd) return text;
@@ -24,6 +26,15 @@ const UpiSettings = ({ onAddAccount, upiId = "bankimkamila23@payit" }) => {
 
   return (
     <div style={styles.container} className="animate-slide-up">
+      {/* Logged-in profile */}
+      <div style={styles.profileCard}>
+        <div style={styles.profileAvatar}><User size={20} color="#fff" /></div>
+        <div style={{ display: 'flex', flexDirection: 'column' }}>
+          <span style={styles.profileName}>{userName || 'Account'}</span>
+          <span style={styles.profileVpa}>{upiId}</span>
+        </div>
+      </div>
+
       {/* QR Code Card */}
       <div style={styles.qrCard}>
         <div style={styles.qrWrapper}>
@@ -102,6 +113,12 @@ const UpiSettings = ({ onAddAccount, upiId = "bankimkamila23@payit" }) => {
           <span style={styles.optionArrow}>&gt;</span>
         </button>
       </div>
+
+      {/* Switch account / logout (unbinds this session, keeps device) */}
+      <button style={styles.logoutBtn} onClick={onLogout}>
+        <LogOut size={16} style={{ marginRight: 8 }} />
+        Switch account / Log out
+      </button>
     </div>
   );
 };
@@ -294,6 +311,48 @@ const styles = {
     color: 'var(--text-muted)',
     fontSize: '14px',
     fontWeight: 'bold',
+  },
+  profileCard: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px',
+    padding: '14px 16px',
+    backgroundColor: 'var(--surface-color)',
+    borderRadius: '16px',
+    border: '1px solid var(--border-color)',
+  },
+  profileAvatar: {
+    width: '40px',
+    height: '40px',
+    borderRadius: '50%',
+    background: 'linear-gradient(135deg,#eb3b88,#aa33ff)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  profileName: {
+    fontSize: '15px',
+    fontWeight: '700',
+    color: '#ffffff',
+  },
+  profileVpa: {
+    fontSize: '12px',
+    color: 'var(--text-secondary)',
+  },
+  logoutBtn: {
+    width: '100%',
+    height: '48px',
+    marginTop: '4px',
+    backgroundColor: 'rgba(255, 51, 51, 0.06)',
+    border: '1px solid rgba(255, 51, 51, 0.2)',
+    borderRadius: '16px',
+    color: '#ff5470',
+    fontSize: '14px',
+    fontWeight: '700',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
   }
 };
 

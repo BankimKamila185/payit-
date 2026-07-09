@@ -8,13 +8,19 @@ import {
   Zap
 } from 'lucide-react';
 
-const Banking = ({ 
-  onAddMoney, 
-  onCheckBalance, 
-  onFixedDepositClick, 
-  onMascotClick 
+const Banking = ({
+  onAddMoney,
+  onSendToContact,
+  onCheckBalance,
+  onFixedDepositClick,
+  onMascotClick,
+  liveTxns = [],
+  me = "",
+  balance = 0,
+  userName = ""
 }) => {
-  const savingsBalance = 15;
+  const savingsBalance = Number(balance) || 0;          // REAL logged-in balance
+  const holderName = (userName || 'Account Holder').toUpperCase();
   const moniesPoints = 3902;
 
   const [activeCardIndex, setActiveCardIndex] = useState(0);
@@ -28,10 +34,10 @@ const Banking = ({
       title: 'Savings Account',
       themeClass: 'theme-savings',
       balanceLabel: 'Savings Balance',
-      balanceValue: `₹${savingsBalance}`,
+      balanceValue: `₹${savingsBalance.toLocaleString('en-IN')}`,
       subText: '',
       number: '4532 5069 8214 5069',
-      holder: 'BANKIM KAMILA',
+      holder: holderName,
       expiry: '08/31',
       network: 'RU PAY',
       cvv: '235'
@@ -44,7 +50,7 @@ const Banking = ({
       balanceValue: '₹99,686',
       subText: 'Spends this month: ₹314',
       number: '4129 8251 3065 1983',
-      holder: 'BANKIM KAMILA',
+      holder: holderName,
       expiry: '12/30',
       network: 'VISA',
       cvv: '512'
@@ -57,20 +63,59 @@ const Banking = ({
       balanceValue: moniesPoints.toLocaleString('en-IN'),
       subText: 'Reward rate at 1%',
       number: '8831 9253 4012 3902',
-      holder: 'BANKIM KAMILA',
+      holder: holderName,
       expiry: '05/35',
       network: 'RU PAY',
       cvv: '908'
     }
   ];
 
-  const contacts = [
-    { name: 'Gopichand Javanajad', initials: 'GJ', bgGradient: 'linear-gradient(135deg, #eb3b88 0%, #aa33ff 100%)' },
-    { name: 'Amit Patel', initials: 'AP', bgGradient: 'linear-gradient(135deg, #aa33ff 0%, #0088ff 100%)' },
-    { name: 'Priya Nair', initials: 'PN', bgGradient: 'linear-gradient(135deg, #0088ff 0%, #22e67b 100%)' },
-    { name: 'Rahul Sharma', initials: 'RS', bgGradient: 'linear-gradient(135deg, #22e67b 0%, #ff8c00 100%)' },
-    { name: 'Sneha Gupta', initials: 'SG', bgGradient: 'linear-gradient(135deg, #ff8c00 0%, #eb3b88 100%)' }
+  // "Quick Send" people are built from the user's REAL transaction history
+  // (unique counterparties, most-recent first) — not a hardcoded list. Tapping
+  // one pays that exact VPA. Falls back to a sample only if history is empty.
+  const GRADIENTS = [
+    'linear-gradient(135deg, #eb3b88 0%, #aa33ff 100%)',
+    'linear-gradient(135deg, #aa33ff 0%, #0088ff 100%)',
+    'linear-gradient(135deg, #0088ff 0%, #22e67b 100%)',
+    'linear-gradient(135deg, #22e67b 0%, #ff8c00 100%)',
+    'linear-gradient(135deg, #ff8c00 0%, #eb3b88 100%)'
   ];
+  const prettyName = (vpa) => {
+    const local = (vpa || '').split('@')[0].replace(/[._0-9]+/g, ' ').trim();
+    if (!local) return vpa || 'Unknown';
+    return local.split(' ').filter(Boolean)
+      .map((w) => w[0].toUpperCase() + w.slice(1)).join(' ');
+  };
+  const initialsOf = (name) => {
+    const p = name.split(' ').filter(Boolean);
+    return ((p[0]?.[0] || '') + (p[1]?.[0] || '')).toUpperCase()
+      || name.slice(0, 2).toUpperCase();
+  };
+
+  const derived = [];
+  const seen = new Set();
+  for (const t of (liveTxns || [])) {
+    const other = t.sender === me ? t.receiver : t.sender;   // the counterparty
+    if (!other || other === me || seen.has(other)) continue;
+    seen.add(other);
+    const name = prettyName(other);
+    derived.push({
+      name, vpa: other, initials: initialsOf(name),
+      bgGradient: GRADIENTS[derived.length % GRADIENTS.length]
+    });
+    if (derived.length >= 8) break;
+  }
+
+  const fallbackContacts = [
+    { name: 'Gopichand Javanajad', initials: 'GJ', bgGradient: GRADIENTS[0] },
+    { name: 'Amit Patel', initials: 'AP', bgGradient: GRADIENTS[1] },
+    { name: 'Priya Nair', initials: 'PN', bgGradient: GRADIENTS[2] },
+    { name: 'Rahul Sharma', initials: 'RS', bgGradient: GRADIENTS[3] },
+    { name: 'Sneha Gupta', initials: 'SG', bgGradient: GRADIENTS[4] }
+  ];
+
+  // Logged in => only real counterparties (may be empty). Sample only if not logged in.
+  const contacts = me ? derived : fallbackContacts;
 
   const bills = [
     { id: 'netflix', name: 'Netflix', amount: 199, dueText: 'Due in 2 days', status: 'soon', icon: <Tv size={18} color="var(--accent-pink)" /> },
@@ -360,8 +405,10 @@ const Banking = ({
           {/* Frequent Contacts */}
           {contacts.map((contact, idx) => (
             <div key={idx} className="quick-send-item">
-              <button 
-                onClick={() => onAddMoney(contact.name)}
+              <button
+                onClick={() => contact.vpa
+                  ? onSendToContact(contact.name, contact.vpa)
+                  : onAddMoney(contact.name)}
                 disabled={isLocked}
                 className="quick-send-avatar"
                 style={{ 

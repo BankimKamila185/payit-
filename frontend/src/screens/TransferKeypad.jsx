@@ -1,13 +1,15 @@
 import React, { useState } from 'react';
 import { Delete, Sparkles, MessageCircle, AlertTriangle, ShieldCheck } from 'lucide-react';
 
-const TransferKeypad = ({ 
-  recipientName = "Gopichand Javanajad", 
+const TransferKeypad = ({
+  recipientName = "Gopichand Javanajad",
   prefilledAmount = "",
-  onTransferSuccess, 
+  onTransferSuccess,
   onInvestSuccess,
   onOpenScanner,
-  onCheckBalance
+  onCheckBalance,
+  userInitial = "U",
+  recipientVpa = ""
 }) => {
   const [amount, setAmount] = useState(prefilledAmount ? prefilledAmount.toString() : "");
 
@@ -64,7 +66,7 @@ const TransferKeypad = ({
             <MessageCircle size={18} color="#ffffff" />
           </button>
           <div style={styles.profileBox}>
-            <div style={styles.profileInitial}>B</div>
+            <div style={styles.profileInitial}>{userInitial}</div>
           </div>
         </div>
       </div>
@@ -82,7 +84,8 @@ const TransferKeypad = ({
           <div style={styles.recipientInfo}>
             <span style={styles.recipientText}>Paying {recipientName}</span>
             <span style={styles.recipientUpiText}>
-              {recipientName.includes("@") ? recipientName : `${recipientName.toLowerCase().replace(/\s+/g, '')}@upi`}
+              {recipientVpa || (recipientName.includes("@") ? recipientName
+                : `${recipientName.toLowerCase().replace(/\s+/g, '')}@upi`)}
             </span>
           </div>
         </div>

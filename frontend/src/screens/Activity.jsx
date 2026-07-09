@@ -1,10 +1,21 @@
 import React, { useState } from 'react';
 import { Search, ArrowDownLeft, ArrowUpRight, AlertCircle, ShieldAlert } from 'lucide-react';
 
-const Activity = ({ onTransactionSelect, onReportFraud }) => {
+const Activity = ({ onTransactionSelect, onReportFraud, liveTxns, me }) => {
   const [searchQuery, setSearchQuery] = useState("");
 
-  const transactions = [
+  // REAL transactions from backend -> map to this screen's shape.
+  const mapped = (liveTxns || []).map((t) => ({
+    id: t.id,
+    type: t.sender === me ? 'payment' : 'deposit',
+    recipient: (t.sender === me ? t.receiver : t.sender) || 'Unknown',
+    amount: Math.round(t.amount),
+    date: (t.created_at || '').slice(0, 10),
+    status: t.label === 'BLOCK' ? 'blocked' : (t.status || 'success'),
+    upiRef: '-', transId: String(t.id), label: t.label, score: t.score,
+  }));
+
+  const fallback = [
     { id: 1, type: 'payment', recipient: 'Gopichand Javanajad', amount: 20, date: '25 Jun 26', status: 'success', upiRef: '617871427501', transId: 'PAY27867B1E91953D47D9315D39D8361280' },
     { id: 2, type: 'payment', recipient: 'Gopichand Javanajad', amount: 40, date: '25 Jun 26', status: 'success', upiRef: '617871427502', transId: 'PAY27867B1E91953D47D9315D39D8361281' },
     { id: 3, type: 'payment', recipient: 'Umesh Laxman Lohar', amount: 5, date: '25 Jun 26', status: 'success', upiRef: '617871427503', transId: 'PAY27867B1E91953D47D9315D39D8361282' },
@@ -19,7 +30,11 @@ const Activity = ({ onTransactionSelect, onReportFraud }) => {
     { id: 12, type: 'payment', recipient: 'Arvind Krishna Kumar Gupta', amount: 20, date: '22 Jun 26', status: 'success', upiRef: '617871427512', transId: 'PAY27867B1E91953D47D9315D39D8361291' }
   ];
 
-  const filteredTransactions = transactions.filter(t => 
+  // Logged in => ALWAYS show this user's real data (even if empty -> empty state).
+  // Never show the sample feed to a real user. Sample only if not logged in.
+  const transactions = me ? mapped : fallback;
+
+  const filteredTransactions = transactions.filter(t =>
     t.recipient.toLowerCase().includes(searchQuery.toLowerCase())
   );
 

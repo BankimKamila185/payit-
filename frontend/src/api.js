@@ -56,7 +56,12 @@ async function get(path) {
 
 export const api = {
   health: () => get("/health"),
-  login: (vpa) => post("/auth/login", { vpa, device_id: getDeviceId() }),
+  login: (vpa, pin) => post("/auth/login", { vpa, pin, device_id: getDeviceId() }),
+  phoneLookup: (phone) => post("/auth/phone-lookup", { phone }),
+  register: ({ phone, name, vpa, bank_id, upi_pin }) =>
+    post("/auth/register", { phone, name, vpa, bank_id, upi_pin, device_id: getDeviceId() }),
+  setPin: (vpa, upi_pin) => post("/auth/set-pin", { vpa, upi_pin }),
+  getBanks: () => get("/banks"),
   resolve: (vpa) => get(`/accounts/${encodeURIComponent(vpa)}`),
   balance: (vpa) => get(`/balance/${encodeURIComponent(vpa)}`),
   history: (vpa) => get(`/transactions/${encodeURIComponent(vpa)}`),

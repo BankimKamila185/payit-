@@ -155,6 +155,22 @@ def enrich_from_db(con, sender, receiver, t) -> dict:
 class LoginReq(BaseModel):
     vpa: str
     device_id: str = ""
+    pin: str = ""
+
+class PhoneLookupReq(BaseModel):
+    phone: str
+
+class RegisterReq(BaseModel):
+    phone: str
+    name: str
+    vpa: str
+    bank_id: int
+    upi_pin: str
+    device_id: str = ""
+
+class SetPinReq(BaseModel):
+    vpa: str
+    upi_pin: str
 
 class PayReq(BaseModel):
     sender_vpa: str
@@ -180,7 +196,12 @@ def login(req: LoginReq):
     con = db()
     acc = con.execute("SELECT * FROM accounts WHERE vpa=?", (req.vpa,)).fetchone()
     if not acc:
+        con.close()
         raise HTTPException(404, "account not found")
+    if req.pin and acc["upi_pin_hash"] and \
+            hashlib.sha256(req.pin.encode()).hexdigest() != acc["upi_pin_hash"]:
+        con.close()
+        raise HTTPException(401, "invalid UPI PIN")
     # device binding: register device as known if new
     if req.device_id:
         known = con.execute("SELECT COUNT(*) c FROM devices WHERE user_id=? AND device_fingerprint=?",
@@ -195,6 +216,105 @@ def login(req: LoginReq):
     user = con.execute("SELECT name FROM users WHERE id=?", (acc["user_id"],)).fetchone()
     con.close()
     return {"token": token, "vpa": req.vpa, "name": user["name"], "balance": acc["balance"]}
+
+
+@app.post("/auth/phone-lookup")
+def phone_lookup(req: PhoneLookupReq):
+    con = db()
+    # Normalize phone: remove non-digits
+    phone_clean = "".join(ch for ch in req.phone if ch.isdigit())
+    if len(phone_clean) > 10:
+        phone_clean = phone_clean[-10:]
+    
+    user = con.execute("SELECT * FROM users WHERE phone LIKE ?", (f"%{phone_clean}",)).fetchone()
+    if not user:
+        con.close()
+        return {"registered": False}
+    
+    acc = con.execute("SELECT * FROM accounts WHERE user_id=? LIMIT 1", (user["id"],)).fetchone()
+    con.close()
+    if not acc:
+        return {"registered": False}
+        
+    return {
+        "registered": True,
+        "vpa": acc["vpa"],
+        "name": user["name"],
+        "phone": user["phone"],
+        "has_pin": acc["upi_pin_hash"] is not None and acc["upi_pin_hash"] != ""
+    }
+
+
+@app.post("/auth/register")
+def register(req: RegisterReq):
+    con = db()
+    try:
+        # Normalize phone
+        phone_clean = "".join(ch for ch in req.phone if ch.isdigit())
+        if len(phone_clean) > 10:
+            phone_clean = phone_clean[-10:]
+        
+        user = con.execute("SELECT * FROM users WHERE phone LIKE ?", (f"%{phone_clean}",)).fetchone()
+        if user:
+            user_id = user["id"]
+        else:
+            cur = con.cursor()
+            cur.execute("INSERT INTO users (name, phone, email, created_at) VALUES (?,?,?,?)",
+                        (req.name, req.phone, f"{req.name.lower().replace(' ', '')}@gmail.com", now_iso()))
+            user_id = cur.lastrowid
+        
+        exist_acc = con.execute("SELECT * FROM accounts WHERE vpa=?", (req.vpa,)).fetchone()
+        if exist_acc:
+            raise HTTPException(400, "UPI ID / VPA already registered")
+            
+        pin_hash = hashlib.sha256(req.upi_pin.encode()).hexdigest()
+        account_number = f"ACC{random.randint(10**10, 10**11)}"
+        con.execute("""
+            INSERT INTO accounts (
+                user_id, bank_id, vpa, account_number, balance, account_age_days,
+                kyc_level, is_merchant, mcc, avg_amount, usual_hours,
+                home_device, txn_count, blacklisted, created_at, upi_pin_hash
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """, (user_id, req.bank_id, req.vpa, account_number, 5000.0, 1, "BASIC", 0, 0, 1500.0, "7-22", req.device_id, 0, 0, now_iso(), pin_hash))
+        
+        token = f"tok_{random.randint(10**9, 10**10)}"
+        con.execute("INSERT INTO sessions (user_id, device_id, token, expires_at, created_at) VALUES (?,?,?,?,?)",
+                    (user_id, None, token, (datetime.now()+timedelta(hours=6)).isoformat(), now_iso()))
+        
+        if req.device_id:
+            con.execute("INSERT INTO devices (user_id, device_fingerprint, status, binding_age_days, is_rooted, created_at) VALUES (?,?,?,?,?,?)",
+                        (user_id, req.device_id, "active", 0, 0, now_iso()))
+            
+        con.commit()
+        return {"token": token, "vpa": req.vpa, "name": req.name, "balance": 5000.0}
+    except sqlite3.IntegrityError as e:
+        con.rollback()
+        raise HTTPException(400, f"Database error: {str(e)}")
+    finally:
+        con.close()
+
+
+@app.post("/auth/set-pin")
+def set_pin(req: SetPinReq):
+    con = db()
+    acc = con.execute("SELECT * FROM accounts WHERE vpa=?", (req.vpa,)).fetchone()
+    if not acc:
+        con.close()
+        raise HTTPException(404, "VPA not found")
+    
+    pin_hash = hashlib.sha256(req.upi_pin.encode()).hexdigest()
+    con.execute("UPDATE accounts SET upi_pin_hash=? WHERE vpa=?", (pin_hash, req.vpa))
+    con.commit()
+    con.close()
+    return {"status": "success", "message": "UPI PIN set successfully"}
+
+
+@app.get("/banks")
+def get_banks():
+    con = db()
+    rows = con.execute("SELECT id, name, upi_handle FROM banks").fetchall()
+    con.close()
+    return [{"id": r["id"], "name": r["name"], "upi_handle": r["upi_handle"]} for r in rows]
 
 
 @app.get("/accounts/{vpa}")

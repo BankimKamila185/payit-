@@ -15,7 +15,7 @@ import UpiSettings from './screens/UpiSettings';
 import TransferKeypad from './screens/TransferKeypad';
 import RechargeBills from './screens/RechargeBills';
 import FraudReportForm from './screens/FraudReportForm';
-import Login from './screens/Login';
+import OnboardingFlow from './screens/OnboardingFlow';
 import { api, getDeviceId, saveSession, getSession, clearSession } from './api';
 
 import { Shield, Lock, ShieldCheck, AlertTriangle, Fingerprint, Phone, X, Check, Bell, Clock, MapPin, Smartphone, ShieldAlert } from 'lucide-react';
@@ -57,9 +57,9 @@ function App() {
 
   const [booting, setBooting] = useState(true);         // checking saved session on open
 
-  const handleLogin = async (vpa) => {
-    const { ok, data } = await api.login(vpa);          // verifies account + binds device
-    if (!ok) return { ok: false, error: data.detail || 'Account not found' };
+  const handleLogin = async (vpa, pin) => {
+    const { ok, data } = await api.login(vpa, pin);      // verifies account + binds device
+    if (!ok) return { ok: false, error: data.detail || 'Incorrect PIN or account not found' };
     setCurrentUser(vpa);
     setCurrentUserName(data.name || vpa);
     if (data.balance != null) setBalance(data.balance);
@@ -704,8 +704,8 @@ function App() {
   if (!currentUser) {
     return (
       <div className="mobile-app-wrapper">
-        <PhoneFrame currentScreen="login" title="" showBackButton={false} hideNav>
-          <Login onLogin={handleLogin} deviceId={getDeviceId()} />
+        <PhoneFrame currentScreen="login" title="" showBackButton={false}>
+          <OnboardingFlow onLogin={handleLogin} deviceId={getDeviceId()} />
         </PhoneFrame>
       </div>
     );

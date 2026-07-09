@@ -1,7 +1,7 @@
 // api.js — Payit frontend <-> backend API helper (real transaction flow, no mock)
 // Talks to our Python backend (server/app.py) at localhost:3000.
 
-const BASE = "http://localhost:3000";
+const BASE = import.meta.env.VITE_API_URL || "http://localhost:3000";
 
 // ---- device fingerprint (browser) -> stable device_id ----
 // Real fraud systems use FingerprintJS; here a lightweight canvas+env hash,

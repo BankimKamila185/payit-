@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Shield, 
   ShieldAlert, 
@@ -20,6 +20,7 @@ import {
   Settings,
   X
 } from 'lucide-react';
+import { api } from '../api';
 
 const SliceShield = ({
   isFrozen = false,
@@ -47,10 +48,36 @@ const SliceShield = ({
   deviceStatus = 'registered',
   setDeviceStatus,
   locationStatus = 'normal',
-  setLocationStatus
+  setLocationStatus,
+  isDeviceRooted = false,
+  setIsDeviceRooted,
+  isActiveScreenShare = false,
+  setIsActiveScreenShare
 }) => {
   // Navigation states for bottom configuration drawers
   const [activeDrawer, setActiveDrawer] = useState(null); // 'delay' | 'highvalue' | 'guardian' | 'logs' | null
+
+  // Local state for live stats from backend
+  const [stats, setStats] = useState(null);
+
+  useEffect(() => {
+    let active = true;
+    const loadStats = async () => {
+      try {
+        const { ok, data } = await api.getStats();
+        if (ok && active) {
+          setStats(data);
+        }
+      } catch (e) {
+        console.error("Failed to load dashboard stats:", e);
+      }
+    };
+    loadStats();
+    const interval = setInterval(loadStats, 4000); // refresh every 4s
+    return () => { active = false; clearInterval(interval); };
+  }, []);
+
+  const recentScans = stats?.recent || [];
 
 
 
@@ -160,6 +187,35 @@ const SliceShield = ({
             </span>
           </div>
         </button>
+      </div>
+
+      {/* 2.5 Live Shield Metrics Bento Grid */}
+      <div style={styles.metricsHeader}>
+        <span style={styles.sectionTitle}>Live Shield Analytics</span>
+      </div>
+      <div style={styles.metricsGrid}>
+        <div style={styles.metricCard}>
+          <span style={styles.metricVal}>{stats ? stats.total : '0'}</span>
+          <span style={styles.metricLbl}>Total Scans</span>
+        </div>
+        <div style={styles.metricCard}>
+          <span style={{ ...styles.metricVal, color: 'var(--accent-pink)' }}>
+            {stats ? stats.blocked : '0'}
+          </span>
+          <span style={styles.metricLbl}>Blocks</span>
+        </div>
+        <div style={styles.metricCard}>
+          <span style={{ ...styles.metricVal, color: '#ff8c00' }}>
+            {stats ? stats.review : '0'}
+          </span>
+          <span style={styles.metricLbl}>OTP Steps</span>
+        </div>
+        <div style={styles.metricCard}>
+          <span style={{ ...styles.metricVal, color: 'var(--accent-purple)' }}>
+            {stats ? stats.open_alerts : '0'}
+          </span>
+          <span style={styles.metricLbl}>Open Alerts</span>
+        </div>
       </div>
 
       {/* 3. Advanced Configurations Bento Menu */}
@@ -284,30 +340,49 @@ const SliceShield = ({
         <span style={styles.sectionTitle}>Real-time AI Shield Scans</span>
       </div>
       <div style={styles.scansList}>
-        <div style={styles.scanCard}>
-          <div style={styles.scanStatusIndicatorGreen}></div>
-          <div style={styles.scanDetails}>
-            <div style={styles.scanRow}>
-              <span style={styles.scanMerchant}>Google Play Store</span>
-              <span style={styles.scanTagSafe}>VERIFIED SAFE</span>
-            </div>
-            <span style={styles.scanTime}>Paid ₹299 • Today, 2:14 PM</span>
-          </div>
-        </div>
-
-        <div style={styles.scanCard}>
-          <div style={styles.scanStatusIndicatorRed}></div>
-          <div style={styles.scanDetails}>
-            <div style={styles.scanRow}>
-              <span style={styles.scanMerchant}>unknown_prize@upi</span>
-              <span style={styles.scanTagAlert}>SUSPECT MULE</span>
-            </div>
-            <span style={styles.scanTime}>Declined ₹1,500 • Today, 11:05 AM</span>
-            <p style={styles.scanAlertText}>
-              Warning: Account reported 43 times for fake reward lottery scams. Blocked.
-            </p>
-          </div>
-        </div>
+        {recentScans.length === 0 ? (
+          <p style={styles.emptyText}>No recent scans logged. Try sending money to generate activity.</p>
+        ) : (
+          recentScans.map((scan, idx) => {
+            const isBlock = scan.label === 'BLOCK';
+            const isReview = scan.label === 'REVIEW';
+            let reasonsList = [];
+            try {
+              reasonsList = typeof scan.reasons === 'string' ? JSON.parse(scan.reasons) : scan.reasons;
+            } catch (err) {}
+            if (!Array.isArray(reasonsList)) reasonsList = reasonsList ? [reasonsList] : [];
+            
+            return (
+              <div key={idx} style={styles.scanCard}>
+                <div style={
+                  isBlock ? styles.scanStatusIndicatorRed : 
+                  isReview ? styles.scanStatusIndicatorOrange : 
+                  styles.scanStatusIndicatorGreen
+                }></div>
+                <div style={styles.scanDetails}>
+                  <div style={styles.scanRow}>
+                    <span style={styles.scanMerchant}>{scan.receiver}</span>
+                    <span style={
+                      isBlock ? styles.scanTagAlert : 
+                      isReview ? styles.scanTagOrange : 
+                      styles.scanTagSafe
+                    }>
+                      {isBlock ? 'BLOCKED FRAUD' : isReview ? 'OTP REQUIRED' : 'VERIFIED SAFE'}
+                    </span>
+                  </div>
+                  <span style={styles.scanTime}>
+                    {isBlock ? 'Attempted' : 'Paid'} ₹{scan.amount.toLocaleString()} • Score: {scan.score}
+                  </span>
+                  {reasonsList.length > 0 && (
+                    <p style={styles.scanAlertText}>
+                      Reason: {reasonsList.join(', ')}
+                    </p>
+                  )}
+                </div>
+              </div>
+            );
+          })
+        )}
       </div>
 
 
@@ -614,6 +689,42 @@ const SliceShield = ({
                           style={locationStatus === 'unusual' ? styles.pillActiveRed : styles.pillInactive}
                         >
                           Unusual (43km)
+                        </button>
+                      </div>
+                    </div>
+
+                    <div style={styles.simToggleCell}>
+                      <span style={{ fontSize: '11px', color: '#ffffff' }}>Device Security (RASP)</span>
+                      <div style={styles.pillGroup}>
+                        <button 
+                          onClick={() => setIsDeviceRooted(false)}
+                          style={!isDeviceRooted ? styles.pillActive : styles.pillInactive}
+                        >
+                          Safe
+                        </button>
+                        <button 
+                          onClick={() => setIsDeviceRooted(true)}
+                          style={isDeviceRooted ? styles.pillActiveRed : styles.pillInactive}
+                        >
+                          Rooted (RASP)
+                        </button>
+                      </div>
+                    </div>
+
+                    <div style={styles.simToggleCell}>
+                      <span style={{ fontSize: '11px', color: '#ffffff' }}>App Security (RASP)</span>
+                      <div style={styles.pillGroup}>
+                        <button 
+                          onClick={() => setIsActiveScreenShare(false)}
+                          style={!isActiveScreenShare ? styles.pillActive : styles.pillInactive}
+                        >
+                          No Share
+                        </button>
+                        <button 
+                          onClick={() => setIsActiveScreenShare(true)}
+                          style={isActiveScreenShare ? styles.pillActiveRed : styles.pillInactive}
+                        >
+                          Screen Share
                         </button>
                       </div>
                     </div>
@@ -933,6 +1044,19 @@ const styles = {
     borderRadius: '2px',
     backgroundColor: 'var(--accent-pink)',
   },
+  scanStatusIndicatorOrange: {
+    width: '4px',
+    borderRadius: '2px',
+    backgroundColor: '#ff8c00',
+  },
+  scanTagOrange: {
+    fontSize: '9px',
+    fontWeight: '700',
+    color: '#ff8c00',
+    backgroundColor: 'rgba(255, 140, 0, 0.08)',
+    padding: '2px 6px',
+    borderRadius: '6px',
+  },
   scanDetails: {
     flex: 1,
     display: 'flex',
@@ -974,6 +1098,45 @@ const styles = {
     color: 'rgba(255, 255, 255, 0.5)',
     margin: '4px 0 0 0',
     lineHeight: '1.4',
+  },
+  metricsHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    marginTop: '18px',
+    marginBottom: '8px',
+  },
+  metricsGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(4, 1fr)',
+    gap: '8px',
+    width: '100%',
+    marginBottom: '16px',
+  },
+  metricCard: {
+    backgroundColor: 'rgba(255, 255, 255, 0.02)',
+    border: '1px solid rgba(255, 255, 255, 0.04)',
+    borderRadius: '12px',
+    padding: '10px 6px',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    textAlign: 'center',
+  },
+  metricVal: {
+    fontSize: '18px',
+    fontWeight: '800',
+    color: '#ffffff',
+    fontFamily: 'var(--font-display)',
+  },
+  metricLbl: {
+    fontSize: '8px',
+    fontWeight: '600',
+    color: 'var(--text-secondary)',
+    textTransform: 'uppercase',
+    marginTop: '2px',
+    letterSpacing: '0.2px',
   },
   quizCard: {
     backgroundColor: '#111114',

@@ -119,6 +119,8 @@ function App() {
   // Demo Simulation Parameters
   const [deviceStatus, setDeviceStatus] = useState('registered'); // 'registered' or 'new'
   const [locationStatus, setLocationStatus] = useState('normal'); // 'normal' or 'unusual'
+  const [isDeviceRooted, setIsDeviceRooted] = useState(false);
+  const [isActiveScreenShare, setIsActiveScreenShare] = useState(false);
 
   // Security Event Log
   const [securityLog, setSecurityLog] = useState([
@@ -136,6 +138,11 @@ function App() {
   const [pinValue, setPinValue] = useState("");
   const [pinPurpose, setPinPurpose] = useState(""); // 'unfreeze' | 'unlock' | 'pay'
   const [tempPayDetails, setTempPayDetails] = useState(null);
+  const [otpModalOpen, setOtpModalOpen] = useState(false);
+  const [otpModalTx, setOtpModalTx] = useState(null);
+  const [otpModalCode, setOtpModalCode] = useState('');
+  const [otpModalError, setOtpModalError] = useState('');
+  const [otpModalDemoCode, setOtpModalDemoCode] = useState('');
 
   // AI Scanning Loader
   const [aiScanningTx, setAiScanningTx] = useState(null);
@@ -294,6 +301,8 @@ function App() {
       const { ok, status, data } = await api.pay({
         sender_vpa: currentUser, receiver_vpa: receiver,
         amount, pin, channel: "MANUAL",
+        rooted: isDeviceRooted ? 1 : 0,
+        screen_share: isActiveScreenShare ? 1 : 0,
       });
       setAiScanningTx(null);
       if (!ok) {
@@ -312,15 +321,11 @@ function App() {
         setLastTx({ ...baseTx, status: 'blocked' });
         pushScreen('paid-success');
       } else if (data.label === "REVIEW") {
-        const otp = window.prompt(`⚠️ Extra verification needed.\nReason: ${data.reasons?.[0] || ''}\nEnter OTP (demo: ${data.otp_demo}):`);
-        if (!otp) { triggerNotification("Payment cancelled", "info"); return; }
-        const v = await api.verifyOtp(data.transaction_id, otp);
-        if (v.ok) {
-          setBalance(v.data.sender_balance);
-          setLastTx({ ...baseTx, status: 'success' });
-          triggerNotification("Verified — payment completed", "info");
-          pushScreen('paid-success');
-        } else { triggerNotification("Invalid OTP — payment blocked", "alert"); }
+        setOtpModalTx({ ...baseTx, transaction_id: data.transaction_id });
+        setOtpModalDemoCode(data.otp_demo || '');
+        setOtpModalCode('');
+        setOtpModalError('');
+        setOtpModalOpen(true);
       } else {                                  // SAFE
         setBalance(data.sender_balance);
         setLastTx({ ...baseTx, status: 'success' });
@@ -331,6 +336,28 @@ function App() {
     } catch (e) {
       setAiScanningTx(null);
       triggerNotification("⚠️ Backend not reachable — start server on :3000", "alert");
+    }
+  };
+
+  const handleOtpSubmit = async (enteredOtp) => {
+    if (!otpModalTx) return;
+    setOtpModalError('');
+    try {
+      const v = await api.verifyOtp(otpModalTx.transaction_id, enteredOtp);
+      if (v.ok) {
+        setBalance(v.data.sender_balance);
+        setLastTx({ ...otpModalTx, status: 'success' });
+        triggerNotification("Verified — payment completed", "info");
+        setOtpModalOpen(false);
+        setOtpModalTx(null);
+        pushScreen('paid-success');
+        refreshTxns();
+      } else {
+        setOtpModalError("Invalid OTP code. Please try again.");
+        triggerNotification("Invalid OTP — payment blocked", "alert");
+      }
+    } catch (e) {
+      setOtpModalError("Verification failed. Server unreachable.");
     }
   };
 
@@ -574,6 +601,10 @@ function App() {
             setDeviceStatus={setDeviceStatus}
             locationStatus={locationStatus}
             setLocationStatus={setLocationStatus}
+            isDeviceRooted={isDeviceRooted}
+            setIsDeviceRooted={setIsDeviceRooted}
+            isActiveScreenShare={isActiveScreenShare}
+            setIsActiveScreenShare={setIsActiveScreenShare}
           />
         );
       case 'activity':
@@ -911,6 +942,114 @@ function App() {
               >
                 Simulate Expiry (Cancel & Request PIN)
               </button>
+            </div>
+          </div>
+        )}
+
+        {/* --- CUSTOM REACT OTP VERIFICATION MODAL --- */}
+        {otpModalOpen && otpModalTx && (
+          <div style={styles.modalOverlay} className="animate-fade-in">
+            <div style={{
+              background: '#141414',
+              borderRadius: 24,
+              padding: 24,
+              width: 320,
+              textAlign: 'center',
+              border: '1px solid rgba(255,255,255,0.06)',
+              boxShadow: '0 20px 40px rgba(0,0,0,0.8)'
+            }} className="animate-scale-in">
+              <ShieldAlert size={36} color="#ff8c00" style={{ marginBottom: 12 }} />
+              <h3 style={{ color: '#fff', margin: '4px 0', fontSize: '18px', fontWeight: '700' }}>Extra Verification Needed</h3>
+              <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12, marginBottom: 16 }}>
+                We detected anomalous behavior. To complete your payment of <strong>₹{otpModalTx.amount}</strong> to <strong>{otpModalTx.recipient}</strong>, enter the 6-digit OTP sent to your registered mobile.
+              </p>
+
+              {otpModalDemoCode && (
+                <div style={{
+                  backgroundColor: 'rgba(255,140,0,0.08)',
+                  border: '1px dashed rgba(255,140,0,0.3)',
+                  borderRadius: 12,
+                  padding: '8px 12px',
+                  marginBottom: 16,
+                  color: '#ff8c00',
+                  fontSize: '11px',
+                  fontWeight: '600'
+                }}>
+                  Demo OTP code: {otpModalDemoCode}
+                </div>
+              )}
+
+              <input
+                type="text"
+                maxLength={6}
+                value={otpModalCode}
+                onChange={(e) => {
+                  const val = e.target.value.replace(/\D/g, '').slice(0, 6);
+                  setOtpModalCode(val);
+                }}
+                placeholder="------"
+                style={{
+                  width: '100%',
+                  backgroundColor: '#0c0c0e',
+                  border: '1px solid rgba(255,255,255,0.1)',
+                  borderRadius: 12,
+                  padding: '12px',
+                  fontSize: '20px',
+                  textAlign: 'center',
+                  color: '#fff',
+                  letterSpacing: '6px',
+                  fontWeight: '700',
+                  marginBottom: 12,
+                  outline: 'none'
+                }}
+                aria-label="OTP verification code"
+              />
+
+              {otpModalError && (
+                <p style={{ color: 'var(--accent-pink)', fontSize: '11px', margin: '0 0 12px 0', fontWeight: '600' }}>
+                  {otpModalError}
+                </p>
+              )}
+
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button
+                  onClick={() => {
+                    setOtpModalOpen(false);
+                    setOtpModalTx(null);
+                    triggerNotification("Payment cancelled", "info");
+                  }}
+                  style={{
+                    flex: 1,
+                    padding: '12px 0',
+                    borderRadius: 12,
+                    background: 'rgba(255,255,255,0.04)',
+                    color: 'rgba(255,255,255,0.6)',
+                    border: 'none',
+                    fontSize: '12px',
+                    fontWeight: '600',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  disabled={otpModalCode.length < 6}
+                  onClick={() => handleOtpSubmit(otpModalCode)}
+                  style={{
+                    flex: 2,
+                    padding: '12px 0',
+                    borderRadius: 12,
+                    background: otpModalCode.length < 6 ? '#222' : 'linear-gradient(135deg, #ff8c00, #e65c00)',
+                    color: otpModalCode.length < 6 ? '#555' : '#fff',
+                    border: 'none',
+                    fontSize: '12px',
+                    fontWeight: '700',
+                    cursor: otpModalCode.length < 6 ? 'default' : 'pointer'
+                  }}
+                >
+                  Verify & Pay
+                </button>
+              </div>
             </div>
           </div>
         )}

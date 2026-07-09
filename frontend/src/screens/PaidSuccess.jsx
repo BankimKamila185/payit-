@@ -84,6 +84,65 @@ const PaidSuccess = ({
             Retry transfer
           </button>
         </div>
+      ) : status === 'blocked' ? (
+        <div style={styles.blockedWrapper}>
+          <div style={styles.blockedPulse}>
+            <ShieldAlert size={64} color="var(--accent-pink)" />
+          </div>
+          <h2 style={{ ...styles.amountText, color: 'var(--accent-pink)' }}>Blocked ₹{amount}</h2>
+          <p style={styles.recipientSub}>To {recipientName}</p>
+          <p style={styles.blockedBannerText}>
+            This payment was blocked by Fraud Shield. Money was not deducted from your account.
+          </p>
+          
+          {/* Mule Chain visualizer */}
+          <div style={styles.muleGraphBox}>
+            <span style={styles.graphTitle}>AI INTERCEPT: MULE CHAIN DETECTED</span>
+            <div style={styles.muleChainRow}>
+              {/* Node 1: You */}
+              <div style={styles.muleNode}>
+                <div style={styles.nodeIconBox}>👤</div>
+                <span style={styles.nodeLabel}>You</span>
+                <span style={styles.nodeSub}>Sender</span>
+              </div>
+
+              {/* Link 1 */}
+              <div style={styles.muleArrowCol}>
+                <span style={{ color: 'var(--accent-pink)', fontSize: '8px', fontWeight: '700' }}>₹{amount}</span>
+                <div style={styles.muleLinePink}></div>
+                <span style={{ color: 'var(--accent-pink)', fontSize: '8px', fontWeight: '700' }}>BLOCKED</span>
+              </div>
+
+              {/* Node 2: Target (Mule) */}
+              <div style={{ ...styles.muleNode, borderColor: 'var(--accent-pink)', backgroundColor: 'rgba(235,59,136,0.05)' }}>
+                <div style={{ ...styles.nodeIconBox, backgroundColor: 'rgba(235,59,136,0.1)' }}>🔴</div>
+                <span style={{ ...styles.nodeLabel, color: 'var(--accent-pink)' }}>Recipient</span>
+                <span style={styles.nodeSub}>{recipientName}</span>
+              </div>
+
+              {/* Link 2 */}
+              <div style={styles.muleArrowCol}>
+                <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: '8px' }}>Auto-Forward</span>
+                <div style={styles.muleLineDashed}></div>
+                <span style={{ color: 'var(--accent-pink)', fontSize: '8px', fontWeight: '700' }}>INTERCEPTED</span>
+              </div>
+
+              {/* Node 3: Cashout */}
+              <div style={{ ...styles.muleNode, opacity: 0.5 }}>
+                <div style={styles.nodeIconBox}>💰</div>
+                <span style={styles.nodeLabel}>Cashout Wallet</span>
+                <span style={styles.nodeSub}>Mule Terminal</span>
+              </div>
+            </div>
+            <p style={styles.graphDesc}>
+              Our neural network intercepted the transaction because {recipientName} has been identified as a transit point (money mule) forwarding funds to unverified endpoints.
+            </p>
+          </div>
+
+          <button onClick={onPayAgain} style={{ ...styles.payAgainBtn, borderColor: 'var(--accent-pink)', color: 'var(--accent-pink)', marginTop: 16 }}>
+            Back to Payments
+          </button>
+        </div>
       ) : (
         <div style={styles.successWrapper}>
           <div style={styles.checkmarkPulse}>
@@ -105,9 +164,9 @@ const PaidSuccess = ({
           <span style={styles.noteLabel}>Status:</span>
           <span style={{ 
             ...styles.noteValue, 
-            color: status === 'cooling_off' ? '#ff8c00' : status === 'recalled' ? 'var(--accent-pink)' : 'var(--accent-neon)' 
+            color: status === 'cooling_off' ? '#ff8c00' : status === 'recalled' || status === 'blocked' ? 'var(--accent-pink)' : 'var(--accent-neon)' 
           }}>
-            {status === 'cooling_off' ? 'Escrow Cooling-off' : status === 'recalled' ? 'RECALLED & BLOCKED' : 'Settled on UPI'}
+            {status === 'cooling_off' ? 'Escrow Cooling-off' : status === 'recalled' ? 'RECALLED & BLOCKED' : status === 'blocked' ? 'AUTO-BLOCKED (FRAUD)' : 'Settled on UPI'}
           </span>
         </div>
         {status === 'success' && (
@@ -623,6 +682,125 @@ const styles = {
     fontSize: '10px',
     color: '#ffffff',
     fontWeight: '600',
+  },
+  blockedWrapper: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    textAlign: 'center',
+    margin: '12px 0 20px 0',
+    backgroundColor: 'rgba(235, 59, 136, 0.03)',
+    border: '1px solid rgba(235, 59, 136, 0.15)',
+    borderRadius: '24px',
+    padding: '18px 12px',
+    width: '100%',
+  },
+  blockedPulse: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: '50%',
+    padding: '8px',
+    backgroundColor: 'rgba(235, 59, 136, 0.08)',
+    boxShadow: '0 0 16px rgba(235, 59, 136, 0.1)',
+    marginBottom: '16px',
+  },
+  blockedBannerText: {
+    fontSize: '11px',
+    color: 'rgba(255,255,255,0.6)',
+    lineHeight: '1.4',
+    margin: '8px 16px 0 16px',
+  },
+  muleGraphBox: {
+    marginTop: '16px',
+    backgroundColor: '#0c0c0e',
+    border: '1px solid rgba(255,255,255,0.06)',
+    borderRadius: '16px',
+    padding: '14px',
+    width: '100%',
+    textAlign: 'left',
+  },
+  graphTitle: {
+    fontSize: '9px',
+    fontWeight: '800',
+    color: 'var(--accent-pink)',
+    letterSpacing: '0.5px',
+    display: 'block',
+    marginBottom: '12px',
+    textTransform: 'uppercase',
+  },
+  muleChainRow: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    width: '100%',
+    marginBottom: '12px',
+    gap: '4px',
+  },
+  muleNode: {
+    flex: 1,
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '8px 4px',
+    border: '1px solid rgba(255,255,255,0.08)',
+    borderRadius: '12px',
+    backgroundColor: 'rgba(255,255,255,0.01)',
+  },
+  nodeIconBox: {
+    width: '28px',
+    height: '28px',
+    borderRadius: '50%',
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: '12px',
+    marginBottom: '6px',
+  },
+  nodeLabel: {
+    fontSize: '9px',
+    fontWeight: '700',
+    color: '#ffffff',
+    textAlign: 'center',
+  },
+  nodeSub: {
+    fontSize: '7px',
+    color: 'var(--text-secondary)',
+    textAlign: 'center',
+    marginTop: '1px',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    maxWidth: '55px',
+  },
+  muleArrowCol: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '45px',
+    textAlign: 'center',
+  },
+  muleLinePink: {
+    width: '100%',
+    height: '2px',
+    backgroundColor: 'var(--accent-pink)',
+    margin: '4px 0',
+    position: 'relative',
+  },
+  muleLineDashed: {
+    width: '100%',
+    height: '0px',
+    borderBottom: '2px dashed rgba(255,255,255,0.2)',
+    margin: '4px 0',
+  },
+  graphDesc: {
+    fontSize: '9px',
+    color: 'var(--text-secondary)',
+    lineHeight: '1.4',
+    margin: '0',
   }
 };
 

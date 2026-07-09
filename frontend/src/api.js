@@ -71,4 +71,5 @@ export const api = {
   verifyOtp: (pending_txn_id, otp) => post("/pay/verify-otp", { pending_txn_id, otp }),
   report: (reported_vpa, reporter_vpa, reason) =>
     post("/report", { reported_vpa, reporter_vpa, reason }),
+  getStats: () => get("/dashboard/stats"),
 };

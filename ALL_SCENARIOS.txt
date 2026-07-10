@@ -1,0 +1,667 @@
+================================================================================
+🛡️ UPI FRAUD SHIELD — ENHANCED TECHNICAL REFERENCE MANUAL
+================================================================================
+VERSION: 2.1 (Production & Demo Day Spec)
+DATA INTEGRATIONS: I4C Suspect Registry, CFCFRMS 1930, RBIH MuleHunter.ai, DPIP.
+COMPLIANCE: NPCI OC-226, UPI Circle, Oct 2025 P2P Collect Ban.
+================================================================================
+
+This document is divided into three sections:
+- SECTION I: 30 REAL FRAUD SCENARIOS & ENGINE RESPONSE
+- SECTION II: 10 FALSE ALARMS & DYNAMIC BYPASS LOGIC
+- SECTION III: MASTER SCHEMATIC DATA SPECIFICATION (52 Features)
+
+================================================================================
+SECTION I: 30 REAL FRAUD SCENARIOS (Scam Hai)
+================================================================================
+
+--------------------------------------------------------------------------------
+CASE 1: Phishing Credential Theft & Account Takeover (ATO)
+--------------------------------------------------------------------------------
+- Mechanism: Scammer steals NetBanking credentials via lookalike pages. Registers GPay on a new device. Bypasses SMS bind via social engineering. Triggers max drain.
+- Psychology: 
+  * Criminal: Needs fast execution before the victim realizes and locks the SIM card.
+  * Victim: Oblivious to the compromise until bank debit alerts arrive.
+- Technical Engine Handling:
+  * Check Parameters: `device_binding_age_minutes` (<1440m) + `device_signature_hash_mismatch` (True) + `tx_amount_z_score_30d` (>3.0) + `tx_time_of_day_anomaly` (True).
+  * Weighted Calculation: 25 (New Device) + 25 (New Binding) + 35 (Amount Spike) + 15 (Odd Hour) = Risk Score: 100.
+  * Action: **Hard Block (🔴)** at the NPCI switch. Trigger local device binding suspension.
+- Gaps/No Solution: Cloned device fingerprinting where the emulator perfectly mimics the original device metadata, IP location, and transacts during the user's normal daytime hours for a typical average amount.
+
+--------------------------------------------------------------------------------
+CASE 2: SIM Swap Fraud
+--------------------------------------------------------------------------------
+- Mechanism: Scammer obtains duplicate SIM using fake KYC. Installs UPI, binds account, and drains funds.
+- Psychology: Exploits telecom-carrier lag. Victim assumes network issues and does not report.
+- Technical Engine Handling:
+  * Check Parameters: `device_binding_age_minutes` (<1440m) + `device_os_fingerprint_mismatch` (True) + `tx_amount` (> ₹5,000 limit).
+  * Weighted Calculation: 25 (New Binding) + 25 (New Device) + 25 (First-24h Max Limit Violation) = Risk Score: 75.
+  * Action: Enforce NPCI cooling limit of **₹5,000 maximum** within first 24h. Reject and **Hard Block (🔴)** if exceeded.
+- Gaps/No Solution: If the scammer registers the SIM, does not transact for 24 hours, and then does micro-withdrawals (under ₹5,000) over several days.
+
+--------------------------------------------------------------------------------
+CASE 3: Remote Control Screen-Sharing (AnyDesk / TeamViewer Scam)
+--------------------------------------------------------------------------------
+- Mechanism: Scammer tricks victim into installing AnyDesk, views the screen, reads OTPs, and watches them enter their PIN.
+- Psychology: Criminal poses as helpful tech support. Victim is cooperative, believing they are resolving a critical banking issue.
+- Technical Engine Handling:
+  * Check Parameters: `device_rasp_accessibility_overlay_detected` (True) + `tx_recipient_familiarity_score` (0).
+  * Weighted Calculation: 30 (Screen-share Active) + 15 (New Payee) + 20 (Amount Spike) = Risk Score: 65.
+  * Action: **Hard Block (🔴)**. Client-side RASP overlay triggers, blurs PIN keyboard, disables inputs.
+- Gaps/No Solution: If screen-share utilizes proprietary, customized web calls that bypass native Android media projection and accessibility service APIs.
+
+--------------------------------------------------------------------------------
+CASE 4: Collect-Request (Pull) Scam
+--------------------------------------------------------------------------------
+- Mechanism: Scammer sends a P2P collect request with a memo like "You have received ₹10,000 cashback". Victim enters PIN to approve.
+- Psychology: Victim believes entering PIN is necessary to *receive* money.
+- Technical Engine Handling:
+  * Check Parameters: `tx_type` (COLLECT) + `tx_recipient_familiarity_score` (0) + `receiver_vpa_nlp_risk_score` (>0.7).
+  * Action: **Hard Block (🔴)**. Under NPCI rules (discontinued P2P Collect Requests as of October 1, 2025), P2P collect requests are rejected at the switch level. Only P2M (merchant-to-person) collect requests are permitted.
+- Gaps/No Solution: If scammers register fake merchant MCCs to send P2M collect requests.
+
+--------------------------------------------------------------------------------
+CASE 5: OLX QR Code Scanner Scam
+--------------------------------------------------------------------------------
+- Mechanism: Scammer sends a QR code via WhatsApp to a victim who is selling an item. Scammer says: "Scan this QR to receive payment."
+- Psychology: Victim wants to sell their item quickly. Confused about UPI debit/credit rules.
+- Technical Engine Handling:
+  * Check Parameters: `tx_channel` (QR_SCAN) + `tx_type` (DEBIT) + `tx_recipient_familiarity_score` (0).
+  * Weighted Calculation: 20 (QR Debit) + 15 (First-Time Payee) = Risk Score: 35.
+  * Action: **Review Mode (🟡)**. App displays warning: "ALERT: You are entering your PIN to DEBIT money (send ₹X to Amit). You do NOT need to enter your PIN to receive money. Cancel now."
+- Gaps/No Solution: If the victim manually ignores the red alert screen and enters their PIN, the transaction proceeds.
+
+--------------------------------------------------------------------------------
+CASE 6: Fake Customer Care Helpline (Google Maps Spoofing)
+--------------------------------------------------------------------------------
+- Mechanism: Scammer edits search listings of popular companies to list their own phone number. Victim calls it. Scammer sends a UPI link to "process refund".
+- Psychology: Victim is frustrated about a delayed food order/refund and wants a quick fix.
+- Technical Engine Handling:
+  * Check Parameters: `receiver_vpa_nlp_risk_score` (VPA contains 'refund/support' but resolves to P2P name 'Rahul Kumar', +20) + `tx_recipient_familiarity_score` (0).
+  * Weighted Calculation: 20 (VPA Spoof) + 15 (First-Time Payee) = Risk Score: 35.
+  * Action: **Review Mode (🟡)**. App warns the user: "ALERT: You are sending money to a personal account, not the official brand. Proceed with caution."
+- Gaps/No Solution: If the scammer registers a VPA with a normal name containing no keywords (e.g., `rahul87@okicici`), the check is bypassed.
+
+--------------------------------------------------------------------------------
+CASE 7: VPA Brand Spoofing (Impersonation)
+--------------------------------------------------------------------------------
+- Mechanism: Scammer sets their VPA as `sbi.yono.support@ybl` but the bank account KYC name is `Surendra Prasad`.
+- Psychology: Trust in brand names. Victim believes the VPA belongs to SBI Bank.
+- Technical Engine Handling:
+  * Check Parameters: `receiver_legal_name_edit_distance` (VPA has bank terms, KYC name is personal, +25) + `tx_recipient_familiarity_score` (0).
+  * Weighted Calculation: 25 (VPA Spoof) + 15 (First-Time Payee) = Risk Score: 40.
+  * Action: **Mule Jail Escrow (🟡)**. The Switch holds the transaction for 15 minutes, prompting the user with the legal name mismatch.
+- Loophole/No Solution: If the scammer registers a real business under the name "Yono Support" with GST/PAN, the legal name matches, and this check is bypassed.
+
+--------------------------------------------------------------------------------
+CASE 8: Fake Discount E-Commerce Web Store
+--------------------------------------------------------------------------------
+- Mechanism: Fake website sells cheap items, accepts payments to a P2P VPA on the checkout page.
+- Psychology: Excitement for discounts. Trust in a professional-looking website.
+- Technical Engine Handling:
+  * Check Parameters: `receiver_vpa_nlp_risk_score` (+20) + `tx_recipient_familiarity_score` (0) + `receiver_fan_in_unique_senders_1h` (>10, +30).
+  * Weighted Calculation: 20 + 15 + 30 = Risk Score: 65.
+  * Action: **Hard Block (🔴)**.
+- Loophole/No Solution: The very first transaction to a fresh, clean account will have no Fan-in velocity yet, so it will pass. No solution for the first victim of a new VPA.
+
+--------------------------------------------------------------------------------
+CASE 9: High-Yield Investment / Telegram Job Scam
+--------------------------------------------------------------------------------
+- Mechanism: Victim is recruited on Telegram to "like YouTube videos" for small pay, then prompted to transfer ₹50,000 for ₹1.5 Lakh returns. Victim makes multiple escalating payments.
+- Psychology: Sunk-cost fallacy. Victim wants to retrieve their initial "investment".
+- Technical Engine Handling:
+  * Check Parameters: `tx_amount_escalation_ratio` (+20) + `receiver_fan_in_unique_senders_24h` (>50, +30).
+  * Weighted Calculation: 20 + 30 = Risk Score: 50.
+  * Action: **Mule Jail Escrow (🟡)** with warning: "This account is receiving multiple high-volume transfers from strangers."
+- Loophole/No Solution: If the scammer provides a unique, dedicated mule account to *every single victim*, there is no Fan-In. The first high-value payment will pass.
+
+--------------------------------------------------------------------------------
+CASE 10: Digital Arrest Scam (TRAI/CBI Impersonation)
+--------------------------------------------------------------------------------
+- Mechanism: Fraudster calls victim via video, claims their Aadhaar is linked to money laundering, and demands money for "verification".
+- Psychology: Extreme terror and panic.
+- Technical Engine Handling:
+  * Check Parameters: `receiver_vpa_nlp_risk_score` (+25) + `tx_amount_z_score_30d` (>3.0, +35) + `tx_recipient_familiarity_score` (0, +15).
+  * Weighted Calculation: 25 + 35 + 15 = Risk Score: 75.
+  * Action: **Hard Block (🔴)** or placed in Mule Jail with recall button.
+- Loophole/No Solution: If the victim is coerced into going to a bank branch and doing a physical RTGS/IMPS transfer instead of UPI, our switch engine cannot inspect it.
+
+--------------------------------------------------------------------------------
+CASE 11: Romance / Pig-Butchering Scam
+--------------------------------------------------------------------------------
+- Mechanism: Scammer builds a romantic relationship over months, then requests emergency money for a business crisis.
+- Psychology: Emotional connection and trust.
+- Technical Engine Handling:
+  * Check Parameters: `tx_amount_escalation_ratio` (+20).
+  * Action: Score 20 (Safe). Allowed.
+- Loophole/No Solution: ISKA SOLUTION ABHI NAHI HAI. Since the victim has known the contact for months, sends money during the day from their own phone, and the receiver account has a slow pattern, the engine cannot distinguish this from a genuine relationship.
+
+--------------------------------------------------------------------------------
+CASE 12: Deepfake Voice / Friend-in-Need Scam
+--------------------------------------------------------------------------------
+- Mechanism: Scammer calls the victim using a cloned voice of their son saying: "I met with an accident, hospital needs ₹50,000 immediately, send to this UPI."
+- Psychology: Parental love, urgency, and shock.
+- Technical Engine Handling:
+  * Check Parameters: `tx_amount_z_score_30d` (>3.0, +35) + `tx_recipient_familiarity_score` (0, +15) + `tx_time_of_day_anomaly` (True, +15).
+  * Weighted Calculation: 35 + 15 + 15 = Risk Score: 65.
+  * Action: **Hard Block (🔴)**.
+- Loophole/No Solution: If the scammer tells the victim to send the money to the son's *actual* UPI ID (which the scammer has hacked), it bypasses the "First-Time Payee" flag, making it harder to detect without device checks.
+
+--------------------------------------------------------------------------------
+CASE 13: KBC / Lottery Advance-Fee Scam
+--------------------------------------------------------------------------------
+- Mechanism: Victim receives WhatsApp call: "You won ₹25 Lakhs. Pay ₹15,000 processing tax."
+- Psychology: Greed and excitement.
+- Technical Engine Handling:
+  * Check Parameters: `tx_recipient_familiarity_score` (0, +15) + `receiver_account_age_days` (<7, +15) + `receiver_vpa_nlp_risk_score` (+20).
+  * Weighted Calculation: 15 + 15 + 20 = Risk Score: 50.
+  * Action: **Mule Jail Escrow (🟡)** with warning popup.
+- Loophole/No Solution: If the scammer uses a clean account with no keywords, the score will be below 35.
+
+--------------------------------------------------------------------------------
+CASE 14: Overpayment / Fake Screenshot Scam
+--------------------------------------------------------------------------------
+- Mechanism: Scammer "buys" an item, sends a fake screenshot showing ₹50,000 sent instead of ₹5,000. Tells victim to send back ₹45,000 via UPI.
+- Psychology: Honesty and urgency. Victim wants to return the "accidental" money.
+- Technical Engine Handling:
+  * Check Parameters: `tx_reverse_transfer_anomaly` (True, +25) + `tx_recipient_familiarity_score` (0, +15).
+  * Weighted Calculation: 25 + 15 = Risk Score: 40.
+  * Action: **Review Mode (🟡)**: "No actual credit was received from this sender. Verify your bank statement, not screenshots."
+- Loophole/No Solution: If the scammer actually sends ₹50,000 using stolen money (from another victim), the bank statement shows the credit. The victim sends back ₹45,000. This is a real transfer, and the engine cannot block it because the credit was real.
+
+--------------------------------------------------------------------------------
+CASE 15: Utility Bill / Electricity Disconnection Scam
+--------------------------------------------------------------------------------
+- Mechanism: Scammer sends SMS: "Your electricity bill is unpaid. Connection will be cut at 10 PM. Call this number to pay ₹850."
+- Psychology: Fear of losing utility/convenience.
+- Technical Engine Handling:
+  * Check Parameters: `receiver_vpa_nlp_risk_score` (+20) + `tx_recipient_familiarity_score` (0, +15).
+  * Weighted Calculation: 20 + 15 = Risk Score: 35.
+  * Action: **Review Mode (🟡)**. App warns the user.
+- Loophole/No Solution: If the victim ignores the warning and completes the transfer, the money is lost.
+
+--------------------------------------------------------------------------------
+CASE 16: Loan App Extortion
+--------------------------------------------------------------------------------
+- Mechanism: Fake loan app offers quick money, steals contact lists, and extorts victims for massive interest, forcing UPI payments.
+- Psychology: Humiliation, fear, and harassment.
+- Engine Handling:
+  * Check Parameters: `receiver_fraud_reports_count_30d` (>10, +40) + `receiver_blacklist_status` (True, +40).
+  * Weighted Calculation: 40 + 40 = Risk Score: 80.
+  * Action: **Hard Block (🔴)**.
+- Loophole/No Solution: If the loan app syndicate rotates to a fresh personal mule VPA every day, we cannot block it until the first victim reports it.
+
+--------------------------------------------------------------------------------
+CASE 17: Smurfing (Transaction Splitting)
+--------------------------------------------------------------------------------
+- Mechanism: Scammer wants to send ₹1,00,000 but knows it triggers limits. They send ₹5,000 twenty times to different accounts.
+- Psychology: Dodging security thresholds.
+- Engine Handling:
+  * Check Parameters: `tx_velocity_10m` (>10, +30) + `receiver_account_age_days` (<7, +20).
+  * Weighted Calculation: 30 + 20 = Risk Score: 50.
+  * Action: **Mule Jail Escrow (🟡)** then **Hard Block (🔴)** as velocity continues.
+- Loophole/No Solution: If the scammer spreads the transfers over 24 hours (1 transfer every hour), the velocity flag does not trigger.
+
+--------------------------------------------------------------------------------
+CASE 18: Unsolicited Small Deposit then Auto-Collect (Jump Deposit)
+--------------------------------------------------------------------------------
+- Mechanism: Scammer sends ₹50 to your UPI. 2 minutes later, they send a collect request for ₹5,000, hoping you will auto-approve thinking it's the refund request.
+- Psychology: Confusion. Victim thinks they are returning the ₹50.
+- Engine Handling:
+  * Check Parameters: `tx_type` (COLLECT) + `tx_time_delta_last_tx` (<120s, +30) + `receiver_legal_name_vpa_similarity` (low, +15).
+  * Weighted Calculation: 30 + 15 = Risk Score: 45.
+  * Action: **Review Mode (🟡)**.
+- Loophole/No Solution: If the user auto-approves without reading the amount (thinking they are sending ₹50 back but actually sending ₹5,000), it can slip through if they ignore GPay notifications.
+
+--------------------------------------------------------------------------------
+CASE 19: Charity / Donation Scam
+--------------------------------------------------------------------------------
+- Mechanism: Scammer makes a fake campaign on social media for a dying dog or child, listing a personal VPA for donations.
+- Psychology: Empathy, pity, and goodwill.
+- Engine Handling:
+  * Check Parameters: `receiver_vpa_nlp_risk_score` (+20) + `tx_recipient_familiarity_score` (0, +15).
+  * Weighted Calculation: 20 + 15 = Risk Score: 35.
+  * Action: **Review Mode (🟡)**. Warnings shown.
+- Loophole/No Solution: If they don't use charity keywords and simply say "send funds to support me", the engine has no way to check the moral intent.
+
+--------------------------------------------------------------------------------
+CASE 20: mandate / AutoPay Abuse
+--------------------------------------------------------------------------------
+- Mechanism: Scammer tricks user into approving a recurring AutoPay mandate, claiming it is a registration step.
+- Psychology: Lack of technical awareness about UPI Mandate features.
+- Engine Handling:
+  * Check Parameters: `tx_type` (MANDATE_CREATE) + `tx_recipient_familiarity_score` (0, +25).
+  * Action: **Review Mode (🟡)**. GPay enforces an explicit confirmation screen showing the recurring limit.
+- Loophole/No Solution: If the user explicitly checks the box and enters their PIN for mandate creation, the execution of the mandate later is considered authorized.
+
+--------------------------------------------------------------------------------
+CASE 21: Impossible Travel Anomaly
+--------------------------------------------------------------------------------
+- Mechanism: A transaction is executed from a phone IP in Delhi, and 10 minutes later, another transaction occurs from a phone IP in Chennai.
+- Psychology: Scammer is operating from a remote location using stolen session tokens.
+- Engine Handling:
+  * Check Parameters: `tx_geo_velocity_mismatch` (True, +35) + `device_signature_hash_mismatch` (True, +25).
+  * Weighted Calculation: 35 + 25 = Risk Score: 60.
+  * Action: **Hard Block (🔴)**.
+- Loophole/No Solution: If the scammer is using a VPN that routes through the victim's local city, the IP check will see it as local.
+
+--------------------------------------------------------------------------------
+CASE 22: Dormant Account Abuse (Money Laundering)
+--------------------------------------------------------------------------------
+- Mechanism: An account with no transactions for 12 months suddenly receives ₹5 Lakhs and immediately forwards it.
+- Psychology: Scammer uses rented/bought accounts to launder funds.
+- Engine Handling:
+  * Check Parameters: `receiver_holding_time_seconds` (<60s, +30) + `amount_preservation_score` (>0.9, +15) + `receiver_account_age_days` (>365, +20).
+  * Weighted Calculation: 30 + 15 + 20 = Risk Score: 65.
+  * Action: **Hard Block (🔴)** at the switch level.
+- Loophole/No Solution: If the account is kept "warm" by doing ₹10 transfers every week, it is not classified as dormant.
+
+--------------------------------------------------------------------------------
+CASE 23: AePS Cross-Run Scam
+--------------------------------------------------------------------------------
+- Mechanism: Scammer steals victim's biometric Aadhaar print (from registry leaks) and triggers a cash-out via Aadhaar Enabled Payment System.
+- Psychology: Victim doesn't even know their fingerprint is leaked.
+- Engine Handling:
+  * Action: **ISKA SOLUTION ABHI NAHI HAI.**
+  * Reason: AePS is a different protocol rail than UPI. Our UPI Switch engine cannot inspect or block AePS biometric database requests.
+
+--------------------------------------------------------------------------------
+CASE 24: Merchant VPA Spoofing (Lookalike)
+--------------------------------------------------------------------------------
+- Mechanism: Scammer registers a VPA named `bigbazaar@okaxis` but they are a P2P account or a different small shop.
+- Psychology: Trusting the merchant name displayed in GPay.
+- Engine Handling:
+  * Check Parameters: `receiver_vpa_nlp_risk_score` (+20) + `receiver_type` (P2P, +15).
+  * Weighted Calculation: 20 + 15 = Risk Score: 35.
+  * Action: **Review Mode (🟡)**. Warnings shown.
+- Loophole/No Solution: If the scammer sets up a real merchant account under a similar-sounding registered partnership name, the database will verify it as a merchant.
+
+--------------------------------------------------------------------------------
+CASE 25: Advance Rental Token Deposit Scam
+--------------------------------------------------------------------------------
+- Mechanism: Scammer posts fake flat pictures on housing sites, demands ₹10,000 "token money" before showing the flat.
+- Psychology: Scarcity bias. Victim is afraid of losing a good flat.
+- Engine Handling:
+  * Check Parameters: `tx_recipient_familiarity_score` (0, +15) + `receiver_account_age_days` (<30, +15).
+  * Weighted Calculation: 15 + 15 = Risk Score: 30.
+  * Action: **Allowed (🟢)**.
+- Loophole/No Solution: **ISKA SOLUTION ABHI NAHI HAI.** Since the victim is doing a single transaction of normal value to a personal VPA, and the account is clean, the engine cannot block it. This is why advance token scams are highly successful.
+
+--------------------------------------------------------------------------------
+CASE 26: Cash-Out Mule (Direct ATM Draw)
+--------------------------------------------------------------------------------
+- Mechanism: Money is sent to Rahul (Mule). An accomplice stands at an ATM and immediately withdraws it using a debit card.
+- Psychology: Criminal wants to convert digital stolen money to anonymous physical cash immediately.
+- Engine Handling:
+  * Check Parameters: `receiver_fan_in_unique_senders_1h` (>10, +30) + `receiver_holding_time_seconds` (<60s, +20).
+  * Weighted Calculation: 30 + 20 = Risk Score: 50.
+  * Action: Placed in **Mule Jail (15-min Escrow)**.
+- Loophole/No Solution: The accomplice at the ATM cannot withdraw the money during the 15-minute escrow. If the victim doesn't recall within 15 minutes, the money is released and instantly withdrawn.
+
+--------------------------------------------------------------------------------
+CASE 27: UPI Lite Offline Fraud
+--------------------------------------------------------------------------------
+- Mechanism: Modifying the client-side code of UPI Lite (which allows PIN-less offline wallet transactions up to ₹500) to double-spend offline balances.
+- Psychology: Scammer exploits offline sync delays.
+- Engine Handling:
+  * Check Parameters: `device_root_status` (True) + `device_rasp_emulator_flag` (True).
+  * Action: The Switch rejects the sync and suspends the UPI Lite account.
+- Loophole/No Solution: The fraud happens offline, so the merchant might accept the fake payment offline. The fraud is only caught when the merchant syncs their device.
+
+--------------------------------------------------------------------------------
+CASE 28: Credit Line on UPI Abuse
+--------------------------------------------------------------------------------
+- Mechanism: Scammer gets access to the app, activates the bank's pre-approved "Credit Line on UPI" and drains it.
+- Psychology: Stealing bank's money on behalf of the victim.
+- Engine Handling:
+  * Check Parameters: `device_signature_hash_mismatch` (True, +25) + `tx_amount_z_score_30d` (>3.0, +20) + `device_binding_age_minutes` (<1440, +25).
+  * Weighted Calculation: 25 + 20 + 25 = Risk Score: 70.
+  * Action: **Hard Block (🔴)**.
+- Loophole/No Solution: If they perform the activation and wait 3 days before draining, the binding flags are gone.
+
+--------------------------------------------------------------------------------
+CASE 29: UPI Circle / Family Member Abuse
+--------------------------------------------------------------------------------
+- Mechanism: A secondary user (e.g. child added to UPI Circle with a limit of ₹5,000) makes multiple unauthorized purchases.
+- Psychology: Internal family dispute / unauthorized sibling usage.
+- Engine Handling:
+  * Action: **ISKA SOLUTION ABHI NAHI HAI.**
+  * Reason: Since the primary account owner legally authorized the secondary user and set the limits, this is a family dispute, not cyber fraud. The engine cannot interfere.
+
+--------------------------------------------------------------------------------
+CASE 30: Malware Background Drain (APK)
+--------------------------------------------------------------------------------
+- Mechanism: Victim downloads a fake APK file (e.g., "Electricity Bill App"). The malware runs in the background, reads OTPs, intercepts SMS, and triggers payments.
+- Psychology: Victim doesn't know the app is running in the background.
+- Engine Handling:
+  * Check Parameters: `device_rasp_accessibility_overlay_detected` (True, +30) + `tx_velocity_1m` (>3, +20) + `tx_recipient_familiarity_score` (0, +15).
+  * Weighted Calculation: 30 + 20 + 15 = Risk Score: 65.
+  * Action: **Hard Block (🔴)**.
+- Loophole/No Solution: If the malware uses zero background automation and instead tricks the user into manually executing the payment under some pretext, it becomes APP fraud.
+
+
+================================================================================
+SECTION II: 10 FALSE ALARM CASES (Scam Dikhta Hai, Par Hai Nahi)
+================================================================================
+
+--------------------------------------------------------------------------------
+CASE 31: Midnight Medical / Hospital Emergency
+--------------------------------------------------------------------------------
+- The Behavior: Father transfers ₹1,00,000 at 3 AM to a hospital UPI ID.
+- Why it looks like a scam: Odd hour (3 AM) + Massive amount spike (100x user's average) + First-time payee.
+- How we handle it:
+  * Hospital accounts are registered under the **Merchant Category Code (MCC) for Healthcare (P2M)**.
+  * Our engine checks if the receiver is a verified P2M merchant. If YES, the Odd Hour and Amount Spike weight is set to 0.
+  * Decision: **🟢 SAFE**. Payment goes through instantly.
+
+--------------------------------------------------------------------------------
+CASE 32: Friend Trip Bill Pooling
+--------------------------------------------------------------------------------
+- The Behavior: Rahul is booking a villa. 15 of his friends transfer ₹5,000 each to Rahul's VPA within 1 hour.
+- Why it looks like a scam: Personal P2P account receiving multiple deposits from strangers (looks like a mule collection account).
+- How we handle it:
+  * Rahul's account does NOT immediately forward the money to another account. The money sits in the account.
+  * The senders are in Rahul's phone contact list.
+  * Decision: **🟢 SAFE**. Allowed.
+
+--------------------------------------------------------------------------------
+CASE 33: Buying a New Device (Genuine Upgrade)
+--------------------------------------------------------------------------------
+- The Behavior: User buys an iPhone, binds their GPay, and transfers ₹5,000 to their sister.
+- Why it looks like a scam: New device signature.
+- How we handle it:
+  * The receiver (sister) is a known contact (prior history). The amount is normal.
+  * Total score is 25 (only New Device flag is active).
+  * Decision: **🟢 SAFE**. Allowed.
+
+--------------------------------------------------------------------------------
+CASE 34: Self-Transfer Between Own Bank Accounts
+--------------------------------------------------------------------------------
+- The Behavior: User transfers ₹50,000 from their HDFC account to their SBI account.
+- Why it looks like a scam: High amount, different banks.
+- How we handle it:
+  * The switch queries the account details. The PAN number and Legal Name of both HDFC and SBI accounts are identical.
+  * Decision: Risk score is overridden to 0. **🟢 SAFE**.
+
+--------------------------------------------------------------------------------
+CASE 35: Local Kirana Shop (High-Volume Merchant)
+--------------------------------------------------------------------------------
+- The Behavior: A grocery shopkeeper receives 400 UPI payments of ₹50-₹200 every day.
+- Why it looks like a scam: Massive velocity of incoming payments.
+- How we handle it:
+  * Shopkeeper is a registered merchant (P2M). Velocity check is bypassed.
+  * Decision: **🟢 SAFE**.
+
+--------------------------------------------------------------------------------
+CASE 36: Parent-to-Student Allowance & Hostel Payment
+--------------------------------------------------------------------------------
+- The Behavior: Father sends ₹20,000 to son. Son immediately (within 2 minutes) sends ₹20,000 to the hostel owner's UPI.
+- Why it looks like a scam: Rapid forwarding of similar amount (looks like a mule chain).
+- How we handle it:
+  * The Son's account has a 3-year history of normal active usage.
+  * The Hostel Owner is a verified VPA or the Son has sent money to them in previous months.
+  * Decision: **🟢 SAFE**.
+
+--------------------------------------------------------------------------------
+CASE 37: Buying Gold / High-Value Asset
+--------------------------------------------------------------------------------
+- The Behavior: User transfers ₹1,50,000 to a jewellery shop.
+- Why it looks like a scam: Extreme amount spike.
+- How we handle it:
+  * Jewellery shop is a verified P2M merchant. 
+  * Decision: **🟢 SAFE** (Allowed after standard UPI PIN entry).
+
+--------------------------------------------------------------------------------
+CASE 38: International Traveler on Roaming
+--------------------------------------------------------------------------------
+- The Behavior: User is on holiday in Dubai, logs in, and pays ₹500 via UPI.
+- Why it looks like a scam: IP location jump (Impossible travel anomaly).
+- How we handle it:
+  * The device fingerprint hash matches the registered home device exactly. The SIM card remains the same.
+  * Decision: **🟢 SAFE**.
+
+--------------------------------------------------------------------------------
+CASE 39: Office Expense Reimbursement
+--------------------------------------------------------------------------------
+- The Behavior: Finance manager sends ₹2,000 each to 25 employees at 5:00 PM.
+- Why it looks like a scam: High-velocity outgoing transfers (Smurfing/Drain signature).
+- How we handle it:
+  * The sender account is registered as a Corporate/Business account, not a personal P2P savings account.
+  * Decision: **🟢 SAFE**.
+
+--------------------------------------------------------------------------------
+CASE 40: Local Market Hopping (Flea Market)
+--------------------------------------------------------------------------------
+- The Behavior: User visits a local flea market and makes 10 payments of ₹50-₹100 to 10 different tea/handicraft stalls within 15 minutes.
+- Why it looks like a scam: Velocity spike of outgoing transactions to multiple new receivers.
+- How we handle it:
+  * The amounts are extremely tiny (under the ₹200 threshold).
+  * The receivers are registered merchants (tea stalls/small shops).
+  * Decision: **🟢 SAFE**.
+
+
+================================================================================
+SECTION III: MASTER SCHEMATIC DATA SPECIFICATION (52 Features)
+================================================================================
+This section represents the precise mathematical database variables and engineered
+features compiled from Stripe Radar, Feedzai, and I4C Suspect Registry specifications.
+
+--------------------------------------------------------------------------------
+A. Transactional & Velocity Signals (12 Features)
+--------------------------------------------------------------------------------
+1.  `tx_amount`: Double.
+    The transaction amount in INR.
+2.  `tx_timestamp`: Timestamp.
+    The UTC epoch millisecond when the transaction was logged at the switch.
+3.  `tx_time_delta_last_tx`: Integer.
+    $T_{current} - T_{previous}$ in seconds for the same sender ID.
+4.  `tx_amount_delta_last_tx`: Double.
+    $A_{current} - A_{previous}$ in INR for the same sender ID.
+5.  `tx_velocity_1m`: Integer.
+    Count of successful/pending transactions in the window $[T-60s, T]$.
+6.  `tx_velocity_10m`: Integer.
+    Count of transactions in the window $[T-600s, T]$.
+7.  `tx_velocity_1h`: Integer.
+    Count of transactions in the window $[T-3600s, T]$.
+8.  `tx_velocity_24h`: Integer.
+    Count of transactions in the window $[T-86400s, T]$.
+9.  `tx_success_ratio_24h`: Float.
+    $\frac{Count(Success)}{Count(Total\_Attempts)}$ in the window $[T-86400s, T]$.
+10. `tx_type`: Enum.
+    One of `[PAY, COLLECT, MANDATE_CREATE, BILL_PAY, QR_MERCHANT]`.
+11. `tx_channel`: Enum.
+    One of `[QR_SCAN, INTENT_BROWSER, MANUAL_VPA_TYPED, APP_CONTACT_LIST]`.
+12. `tx_reverse_transfer_anomaly`: Boolean.
+    True if the current transfer is from Sender A to Receiver B, where B has sent
+    money to A, but A has never successfully credited B in history.
+
+--------------------------------------------------------------------------------
+B. Sender Behavior & Historical Biometrics (9 Features)
+--------------------------------------------------------------------------------
+13. `sender_avg_amount_30d`: Double.
+    Mean transaction amount over 30 days: $\mu = \frac{1}{N}\sum A_i$.
+14. `sender_median_amount_90d`: Double.
+    Median transaction amount over 90 days.
+15. `sender_amount_std_dev_30d`: Double.
+    Standard deviation of transactions: $\sigma = \sqrt{\frac{1}{N}\sum(A_i - \mu)^2}$.
+16. `tx_amount_z_score_30d`: Float.
+    $\frac{A_{current} - \mu}{\sigma}$ (detects statistical outlier spikes).
+17. `sender_usual_hours_mask`: Binary(24).
+    24-bit vector representing active hours (1 = active, 0 = dormant).
+18. `tx_time_of_day_anomaly`: Boolean.
+    True if the current hour's bit in `sender_usual_hours_mask` is 0.
+19. `tx_recipient_familiarity_score`: Integer.
+    Total count of lifetime transfers from this Sender to this Receiver VPA.
+20. `sender_balance_drawdown_ratio`: Float.
+    $\frac{tx\_amount}{Total\_Account\_Balance}$ (flagged if >0.90).
+21. `sender_failed_pin_attempts_1h`: Integer.
+    Count of incorrect UPI PIN inputs at HSM in the last 1 hour.
+
+--------------------------------------------------------------------------------
+C. Device Telemetry & OS Integrity (10 Features)
+--------------------------------------------------------------------------------
+22. `device_signature_hash`: String (SHA-256).
+    Hash generated from hardware details: OS version + CPU + RAM + Serial.
+23. `device_signature_hash_mismatch`: Boolean.
+    True if `device_signature_hash` does not match user's registered home signature.
+24. `device_binding_age_minutes`: Integer.
+    Time elapsed since device binding SMS verification was completed.
+25. `device_ip_reputation_score`: Float (0.0 to 1.0).
+    Threat score from IP registry (VPN/Tor = >0.8, residential proxy = >0.9).
+26. `device_carrier_isp_mismatch`: Boolean.
+    True if client registers SIM carrier as JIO/Airtel but IP is ACT/Hathway.
+27. `device_rasp_root_jailbroken`: Boolean.
+    True if root binaries (su, busybox) or Cydia Substrate/Magisk are detected.
+28. `device_rasp_emulator_flag`: Boolean.
+    True if running on QEMU, Genymotion, or Android SDK emulator.
+29. `device_rasp_cloning_detected`: Boolean.
+    True if package directories indicate parallel space cloning apps.
+30. `device_rasp_accessibility_overlay_detected`: Boolean.
+    True if remote share overlays or accessibility projection sessions are active.
+31. `device_biometric_keystroke_anomaly`: Float (0.0 to 1.0).
+    Similarity score of current typing cadence compared to baseline user template.
+
+--------------------------------------------------------------------------------
+D. Receiver Profile & KYC Reputation (11 Features)
+--------------------------------------------------------------------------------
+32. `receiver_account_age_days`: Integer.
+    Total days since the beneficiary bank account was opened.
+33. `receiver_vpa_age_days`: Integer.
+    Total days since the beneficiary VPA was registered.
+34. `receiver_type`: Enum.
+    One of `[P2P, P2M]`.
+35. `receiver_mcc_category`: Integer.
+    4-digit ISO 18245 Merchant Category Code (e.g., 8062, 5411).
+36. `receiver_kyc_status`: Enum.
+    One of `[LOW_LIMIT_WALLET, BASIC_EKYC, VIDEO_KYC, CORPORATE_VERIFIED]`.
+37. `receiver_fraud_reports_count_24h`: Integer.
+    Count of victim reports against this VPA in the last 24 hours.
+38. `receiver_fraud_reports_count_30d`: Integer.
+    Count of victim reports in the last 30 days.
+39. `receiver_blacklist_status`: Boolean.
+    True if matching I4C Suspect Registry database.
+40. `receiver_vpa_nlp_risk_score`: Float (0.0 to 1.0).
+    Regex similarity score mapping corporate keywords to personal names.
+41. `receiver_legal_name_vpa_similarity`: Float (0.0 to 1.0).
+    Levenshtein distance ratio between KYC Legal name and VPA prefix.
+42. `receiver_pan_hash`: String (SHA-256).
+    Hash of the receiver's PAN card (matched against sender for self-transfers).
+
+--------------------------------------------------------------------------------
+E. Network Graph Topology (10 Features)
+--------------------------------------------------------------------------------
+43. `receiver_fan_in_unique_senders_1h`: Integer.
+    In-degree of unique senders pointing to this node in the window $[T-1h, T]$.
+44. `receiver_fan_in_unique_senders_24h`: Integer.
+    In-degree of unique senders in the window $[T-24h, T]$.
+45. `receiver_fan_out_unique_receivers_1h`: Integer.
+    Out-degree of unique receivers pointed to by this node in the window $[T-1h, T]$.
+46. `receiver_holding_time_seconds`: Double.
+    Mean holding time of funds: $\frac{1}{N}\sum (T_{debit} - T_{credit})$ for all matched amounts.
+47. `amount_preservation_score`: Float (0.0 to 1.0).
+    $\frac{Amount_{out}}{Amount_{in}}$ for temporal matches within 25% tolerance.
+48. `graph_path_depth`: Integer.
+    Length of the directed acyclic path of conserved transfers (hops count).
+49. `shared_device_mule_cluster_size`: Integer.
+    Count of distinct VPAs/Accounts linked to the same physical device fingerprint.
+50. `linked_mobile_numbers_cluster_size`: Integer.
+    Count of distinct bank accounts sharing identical mobile numbers.
+51. `node_pagerank_score`: Float.
+    Real-time relative PageRank value calculated over the 24-hour transaction subgraph.
+52. `temporal_subgraph_anomaly_flag`: Boolean.
+    True if the local neighborhood structure matches temporal money-laundering motifs.
+================================================================================
+
+
+================================================================================
+SECTION IV: ✅ VERIFIED CORRECTIONS & ADDITIONS (fact-checked, cited)
+================================================================================
+Source: deep research, RBI/NPCI/I4C + peer-reviewed AML papers. Fix these so the
+doc holds up to expert judges. (🟢 = your doc is right, 🔴 = fix needed.)
+
+--------------------------------------------------------------------------------
+A. ACCURACY FIXES (keyed to your case numbers)
+--------------------------------------------------------------------------------
+🔴 CASE 4 (P2P Collect ban): CORRECT that NPCI discontinued P2P collect from
+   Oct 1, 2025 — BUT it comes from a SEPARATE circular (UPI-OC-220, dated
+   Jul 29, 2025), NOT from OC-226. OC-226 (Oct 7, 2025) is ONLY about optional
+   biometric/Face auth. Don't conflate the two. Merchant (P2M) collect still works.
+
+🔴 "MULE JAIL ESCROW / 15-min hold" (Cases 7, 9, 13, 26): This is FICTIONAL as a
+   native UPI feature. UPI is strictly INSTANT/real-time push — NO hold/escrow/
+   cooling primitive exists. Credit lands in seconds (rare tech delay up to 24h;
+   disputes auto-reverse T+1 P2P / T+5 merchant per RBI).
+   → FIX: Label it a PROPOSED PSP/app-layer feature ("our innovation"), not an
+     existing UPI capability. This is actually a GOOD original idea — just frame
+     it honestly as YOUR proposal.
+
+🔴 "₹5,000 first-24h limit" (Case 2): REAL but it's a PSP/BANK cooling period
+   (documented by SBI: ₹5,000 cap + ₹5,000 cumulative first 24h on Android /
+   5 days on iOS, then ₹1,00,000), NOT a universal NPCI mandate. And it is
+   DIFFERENT from OC-226's ₹5,000 biometric-auth cap. Attribute to SBI, not NPCI.
+
+🔴 DEVICE SIGNALS ARE CLIENT-SIDE (Cases 3, 21, 27, 28, 30; Features 22-31):
+   root/emulator/RASP/accessibility-overlay/IP-reputation/keystroke-biometric are
+   CAPTURED ON-DEVICE by the UPI App/PSP — the central NPCI switch CANNOT see a
+   remote device's root/overlay state directly. OC-226 itself assigns these checks
+   to "UPI Applications / PSP Banks."
+   → FIX: Architecture = App/PSP captures device signals → passes to switch.
+     Don't say "switch detects screen-share." Say "app detects, switch scores."
+
+🔴 "HARD BLOCK AT NPCI SWITCH": Nuance — NPCI's AI/ML CAN decline directly in
+   some cases, but TYPICALLY it ALERTS the member bank, and the bank enforces.
+   (NPCI runs a PILOT "federated" model: NPCI transaction/device score +
+   bank KYC/demographic score.) → Say "engine scores; bank/PSP enforces."
+
+🟢 UPI LITE (Case 27): limits confirmed — ₹1,000/txn, ₹10,000/day, ₹5,000 stored
+   wallet, PIN-free. (Your case is realistic.)
+
+🟢 SECTION II false-alarms, MCC bypass, self-transfer PAN match, P2M velocity
+   bypass, contact-list familiarity: all REALISTIC and strong. Keep as-is.
+
+--------------------------------------------------------------------------------
+B. REAL GRAPH / MULE PATTERNS (beyond chaining — peer-reviewed)
+--------------------------------------------------------------------------------
+The 8 canonical AML laundering motifs (IBM AMLworld, NeurIPS 2023) — use these
+as named patterns, NOT just "chain":
+  1. FAN-OUT      — one account → many (k>=2) receivers (distribution/smurfing start)
+  2. FAN-IN       — many senders → one account (mule collection / hub)
+  3. GATHER-SCATTER — fan-in then fan-out on the SAME account (classic mule)
+  4. SCATTER-GATHER — split to many mules, re-aggregate = SMURFING/STRUCTURING
+  5. SIMPLE CYCLE — A→B→C→A, money returns to origin = STRONG launder indicator
+                    (but high false-positive; signal not proof)
+  6. RANDOM       — unstructured layering
+  7. BIPARTITE    — two distinct groups (e.g. victims ↔ mules)
+  8. STACK        — layered pass-through tiers
+
+Other verified discriminators:
+  • TRIADIC TEMPORAL MOTIF (payer→mule→beneficiary, 3-node/3-edge, time-ordered)
+    — core mule primitive; TEMPORAL ORDER essential (static triads = false positives,
+    legit hubs share topology).
+  • TEMPORAL BURSTINESS — mules transact intensively in SHORT windows; legit users
+    spread over time. (Strong feature: edges-per-minute concentration.)
+  • Methods: PageRank, community detection, GNNs. Real systems: DELATOR
+    (GraphSMOTE + multi-task GNN, IEEE BigData 2022), LAS-GNN (temporal motifs on
+    180M+ tx graph, ICAIF 2025).
+  ⚠️ Caveat: no fixed motif set is THE complete discriminator (one such claim was
+    refuted). Use motifs as features feeding a score, not as standalone proof.
+
+--------------------------------------------------------------------------------
+C. ARCHITECTURE TRUTH (one diagram to remember)
+--------------------------------------------------------------------------------
+  [App/PSP: device + behavioral signals]  →  [NPCI Switch: txn-flow + graph AI score]
+       (root, RASP, IP, keystroke)              (velocity, fan-in/out, motifs)
+                                                       ↓ alerts / declines
+                                              [Member Bank: KYC score + ENFORCES]
+  MuleHunter.ai-style flow/velocity detection = switch/network level.
+  KYC/demographic scoring + actual freeze/hold = bank level.
+
+--------------------------------------------------------------------------------
+D. STILL OPEN (source before relying on them)
+--------------------------------------------------------------------------------
+  • QR-sticker swap, beneficiary-add-then-drain, UPI PIN-reset social engineering,
+    FASTag scams, refund/chargeback abuse, cross-border remittance — real-world
+    but not yet citation-verified here; pull from I4C/CERT-In/RBI advisories.
+  • Exact structuring/smurfing INR thresholds (FIU-IND) — not publicly numeric.
+  • Whether switch receives device-ID/IP from PSP, and at what granularity.
+================================================================================

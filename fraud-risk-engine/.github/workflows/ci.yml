@@ -1,0 +1,186 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  lint:
+    name: Lint and type-check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install tooling
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff black mypy
+
+      - name: Ruff
+        run: ruff check src app.py tests
+
+      - name: Black
+        run: black --check src app.py tests
+
+      - name: Mypy
+        run: mypy src app.py
+
+  test-and-smoke:
+    name: Test and smoke workflow on Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    env:
+      MPLBACKEND: Agg
+      PYTHONWARNINGS: ignore
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Check source files compile
+        run: |
+          python -m compileall src app.py tests
+
+      - name: Run unit tests
+        run: |
+          python -m unittest discover -s tests -v
+
+      - name: Generate harder synthetic fraud dataset
+        run: |
+          python -m src.generate_synthetic_data \
+            --rows 3500 \
+            --fraud-rate 0.08 \
+            --label-noise 0.04 \
+            --seed 42 \
+            --output data/raw/synthetic_fraud_dataset.csv
+
+      - name: Prepare data
+        run: |
+          python -m src.data_prep
+
+      - name: Train model
+        run: |
+          python -m src.train_model
+
+      - name: Evaluate model
+        run: |
+          python -m src.evaluate
+
+      - name: Score held-out transactions
+        run: |
+          python -m src.score_new_transactions \
+            data/processed/transactions_test.csv \
+            --output_csv reports/metrics/test_scored.csv
+
+      - name: Validate scored CSV schema
+        run: |
+          python - <<'PY'
+          import pandas as pd
+          from pathlib import Path
+
+          path = Path("reports/metrics/test_scored.csv")
+          if not path.exists():
+              raise FileNotFoundError(path)
+
+          df = pd.read_csv(path)
+          required = {"fraud_probability", "fraud_flag"}
+          missing = required - set(df.columns)
+          if missing:
+              raise AssertionError(f"Missing scored columns: {missing}")
+
+          if not df["fraud_probability"].between(0, 1).all():
+              raise AssertionError("fraud_probability must be between 0 and 1")
+
+          if not set(df["fraud_flag"].dropna().unique()).issubset({0, 1}):
+              raise AssertionError("fraud_flag must be binary")
+
+          if not df["fraud_probability"].is_monotonic_decreasing:
+              raise AssertionError("scored transactions should be sorted by descending fraud_probability")
+
+          print("Scored CSV schema OK")
+          PY
+
+      - name: Verify expected outputs
+        run: |
+          test -f models/fraud_pipeline.joblib
+          test -f models/threshold.json
+          test -f reports/metrics/metrics.json
+          test -f reports/metrics/evaluation_summary.json
+          test -f reports/metrics/threshold_search.json
+          test -f reports/metrics/threshold_search.csv
+          test -f reports/metrics/threshold_policy.json
+          test -f reports/metrics/threshold_policy.csv
+          test -f reports/metrics/threshold_policy.md
+          test -f reports/metrics/test_scored.csv
+          test -f reports/figures/roc_curve.png
+          test -f reports/figures/pr_curve.png
+          test -f reports/figures/calibration_curve.png
+          test -f reports/figures/confusion_matrix.png
+          test -f reports/figures/threshold_cost_curve.png
+          test -f reports/figures/threshold_tradeoffs.png
+
+      - name: Validate evaluation metrics JSON
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          summary_path = Path("reports/metrics/evaluation_summary.json")
+          data = json.loads(summary_path.read_text())
+
+          required = {
+              "roc_auc",
+              "average_precision",
+              "brier_score",
+              "best_threshold",
+              "baseline_metrics",
+              "threshold_policy_artifacts",
+          }
+          missing = required - set(data)
+          if missing:
+              raise AssertionError(f"Missing evaluation summary keys: {missing}")
+
+          for key in ["majority_class", "empirical_prior", "stratified_random"]:
+              if key not in data["baseline_metrics"]:
+                  raise AssertionError(f"Missing baseline metrics for {key}")
+
+          policy_path = Path("reports/metrics/threshold_policy.json")
+          policy = json.loads(policy_path.read_text())
+          if "policy_candidates" not in policy or not policy["policy_candidates"]:
+              raise AssertionError("threshold_policy.json must contain policy_candidates")
+
+          print("Evaluation summary JSON OK")
+          PY
+
+      - name: Upload generated artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: fraud-risk-engine-artifacts-python-${{ matrix.python-version }}
+          path: |
+            models/
+            reports/

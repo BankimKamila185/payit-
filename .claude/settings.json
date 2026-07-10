@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:yashada.org)",
+      "Bash(pdftotext webfetch-1782453540109-8jy9wp.pdf -)",
+      "WebSearch"
+    ]
+  }
+}

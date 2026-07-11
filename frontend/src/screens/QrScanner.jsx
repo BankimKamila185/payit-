@@ -15,16 +15,30 @@ import { X, Zap, ZapOff, Check, ArrowRight, CameraOff } from 'lucide-react';
 function parseUpiUri(raw) {
   if (!raw) return null;
   raw = raw.trim();
+  
+  // Try parsing as URL first (support upi://pay?...)
   try {
-    const url = new URL(raw.startsWith('upi://') ? raw : 'upi://x?' + raw);
-    const pa = url.searchParams.get('pa') || '';
-    if (pa.includes('@')) {
-      const pn = url.searchParams.get('pn') || '';
-      return { vpa: pa, name: decodeURIComponent(pn.replace(/\+/g, ' ')) || pa.split('@')[0] };
+    const urlStr = raw.startsWith('upi://') ? raw : 'upi://x?' + raw;
+    const url = new URL(urlStr);
+    
+    // Support both lowercase and uppercase query parameters (standard UPI can be case-insensitive)
+    const pa = url.searchParams.get('pa') || url.searchParams.get('PA') || '';
+    const pn = url.searchParams.get('pn') || url.searchParams.get('PN') || '';
+    
+    if (pa && pa.includes('@')) {
+      const decodedName = pn ? decodeURIComponent(pn.replace(/\+/g, ' ')) : pa.split('@')[0];
+      return { vpa: pa, name: decodedName || pa.split('@')[0] };
     }
   } catch (_) {/* ignore */}
-  // plain VPA like name@okaxis
-  if (/^[^\s@]+@[^\s@]+$/.test(raw)) return { vpa: raw, name: raw.split('@')[0] };
+
+  // Fallback: search for a valid VPA pattern (e.g., name@bank) in the raw string using regex
+  const vpaRegex = /[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z]{2,64}/;
+  const match = raw.match(vpaRegex);
+  if (match) {
+    const vpa = match[0];
+    return { vpa: vpa, name: vpa.split('@')[0] };
+  }
+  
   return null;
 }
 

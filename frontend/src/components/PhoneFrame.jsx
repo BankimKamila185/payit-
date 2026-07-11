@@ -27,6 +27,18 @@ const PhoneFrame = ({
   // Format current time
   const [time, setTime] = React.useState('11:54 AM');
   const [isEyeClosed, setIsEyeClosed] = React.useState(false);
+  const lastScanClickRef = React.useRef(0);
+
+  const handleScanClick = () => {
+    const now = Date.now();
+    const diff = now - lastScanClickRef.current;
+    if (diff < 300) {
+      onScreenChange('qr-scanner');
+      lastScanClickRef.current = 0;
+    } else {
+      lastScanClickRef.current = now;
+    }
+  };
 
   React.useEffect(() => {
     const updateTime = () => {
@@ -186,7 +198,7 @@ const PhoneFrame = ({
             <div className="nav-item-wrapper">
               <div className="qrScannerNavWrapper">
                 <button 
-                  onDoubleClick={() => onScreenChange('qr-scanner')} 
+                  onClick={handleScanClick} 
                   className={`nav-circle-btn ${currentScreen === 'qr-scanner' ? 'active' : ''}`}
                   aria-label="Scan QR Code"
                   title="Double click to scan QR"

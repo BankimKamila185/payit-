@@ -579,7 +579,7 @@ function App() {
       case 'qr-scanner':
         return (
           <QrScanner
-            onClose={popScreen}
+            onClose={() => resetToScreen('transfer')}
             onScanSuccess={(name, vpa) => {
               setRecipient(name);
               if (vpa && vpa.includes('@')) {

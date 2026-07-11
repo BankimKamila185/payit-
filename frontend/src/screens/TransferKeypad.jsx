@@ -121,13 +121,8 @@ const TransferKeypad = ({
           <span style={styles.amountText}>₹{amount || "0"}</span>
         </div>
         
-        {/* Pills row (Earn ₹500 & UPI Badge) */}
+        {/* Pills row (UPI Badge) */}
         <div style={styles.pillsRow}>
-          <div style={styles.earnBadge}>
-            <Sparkles size={12} style={{ marginRight: 4 }} color="var(--accent-neon)" />
-            <span>Earn ₹500</span>
-          </div>
-          
           <div style={styles.upiBadge}>
             {/* Styled inline UPI logo */}
             <svg width="32" height="12" viewBox="0 0 40 15" fill="none">
@@ -173,25 +168,14 @@ const TransferKeypad = ({
         {/* Action Buttons matching the reference image styling */}
         <div style={styles.actionButtonsRow}>
           <button 
-            onClick={handleInvest}
-            disabled={!amount || parseFloat(amount) <= 0}
-            style={{
-              ...styles.investBtn,
-              backgroundColor: amount && parseFloat(amount) > 0 ? 'rgba(235, 59, 136, 0.15)' : 'rgba(255, 255, 255, 0.05)',
-              color: amount && parseFloat(amount) > 0 ? 'var(--accent-pink)' : 'var(--text-secondary)',
-              cursor: amount && parseFloat(amount) > 0 ? 'pointer' : 'default'
-            }}
-          >
-            Invest
-          </button>
-          <button 
             onClick={handleTransfer}
             disabled={!amount || parseFloat(amount) <= 0}
             style={{
               ...styles.transferBtn,
               backgroundColor: amount && parseFloat(amount) > 0 ? (recipientName && isFlaggedScam() ? 'var(--accent-pink)' : 'var(--accent-neon)') : 'rgba(255, 255, 255, 0.05)',
               color: amount && parseFloat(amount) > 0 ? '#000000' : 'var(--text-secondary)',
-              cursor: amount && parseFloat(amount) > 0 ? 'pointer' : 'default'
+              cursor: amount && parseFloat(amount) > 0 ? 'pointer' : 'default',
+              flex: 1
             }}
           >
             {recipientName && isFlaggedScam() ? 'Pay Risk Alert' : 'Transfer'}

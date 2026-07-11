@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Delete, Sparkles, MessageCircle, AlertTriangle, ShieldCheck } from 'lucide-react';
 
 const TransferKeypad = ({
-  recipientName = "Gopichand Javanajad",
+  recipientName = "",
   prefilledAmount = "",
   onTransferSuccess,
   onInvestSuccess,
@@ -39,6 +39,7 @@ const TransferKeypad = ({
 
   // Helper to determine if recipient is a flagged scam address
   const isFlaggedScam = () => {
+    if (!recipientName) return false;
     const name = recipientName.toLowerCase();
     return name.includes("prize") || 
            name.includes("scam") || 
@@ -70,6 +71,49 @@ const TransferKeypad = ({
           </div>
         </div>
       </div>
+
+      {/* Recipient Details & Real-Time Scam Warning (rendered only if a recipient is passed) */}
+      {recipientName && (
+        <>
+          <div style={styles.recipientHeaderCard}>
+            <div style={styles.recipientLeft}>
+              <div style={{
+                ...styles.recipientAvatar,
+                background: isFlaggedScam() ? 'rgba(235, 59, 136, 0.12)' : 'linear-gradient(135deg, #aa33ff 0%, #0088ff 100%)',
+                borderColor: isFlaggedScam() ? 'var(--accent-pink)' : 'rgba(255,255,255,0.06)'
+              }}>
+                {getInitials(recipientName)}
+              </div>
+              <div style={styles.recipientInfo}>
+                <span style={styles.recipientText}>Paying {recipientName}</span>
+                <span style={styles.recipientUpiText}>
+                  {recipientVpa || (recipientName.includes("@") ? recipientName
+                    : `${recipientName.toLowerCase().replace(/\s+/g, '')}@upi`)}
+                </span>
+              </div>
+            </div>
+            <div style={styles.verifiedTag}>
+              {isFlaggedScam() ? (
+                <span style={styles.muleTag}>FLAGGED MULE</span>
+              ) : (
+                <span style={styles.safeTag}>VERIFIED SAFE</span>
+              )}
+            </div>
+          </div>
+
+          {isFlaggedScam() && (
+            <div style={styles.scamWarningCard}>
+              <AlertTriangle size={18} color="var(--accent-pink)" style={{ marginTop: 2 }} />
+              <div style={styles.scamWarningText}>
+                <span style={styles.scamWarningTitle}>Scam Alert Database Match</span>
+                <span style={styles.scamWarningDesc}>
+                  Warning: This recipient UPI has been reported 40+ times for cyber fraud lottery claims. Transfers may result in immediate loss of funds.
+                </span>
+              </div>
+            </div>
+          )}
+        </>
+      )}
 
       {/* Main Display Area (Double click to open QR Scanner) */}
       <div style={styles.displayArea} onDoubleClick={onOpenScanner} title="Double click to scan QR">
@@ -145,12 +189,12 @@ const TransferKeypad = ({
             disabled={!amount || parseFloat(amount) <= 0}
             style={{
               ...styles.transferBtn,
-              backgroundColor: amount && parseFloat(amount) > 0 ? 'var(--accent-neon)' : 'rgba(255, 255, 255, 0.05)',
+              backgroundColor: amount && parseFloat(amount) > 0 ? (recipientName && isFlaggedScam() ? 'var(--accent-pink)' : 'var(--accent-neon)') : 'rgba(255, 255, 255, 0.05)',
               color: amount && parseFloat(amount) > 0 ? '#000000' : 'var(--text-secondary)',
               cursor: amount && parseFloat(amount) > 0 ? 'pointer' : 'default'
             }}
           >
-            Transfer
+            {recipientName && isFlaggedScam() ? 'Pay Risk Alert' : 'Transfer'}
           </button>
         </div>
       </div>

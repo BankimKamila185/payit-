@@ -678,23 +678,31 @@ function App() {
             }}
           />
         );
-      case 'transfer':
+      case 'transfer': {
+        const resolvedVpa = (selectedPayee && selectedPayee.name === recipient)
+          ? selectedPayee.vpa : (NAME_TO_VPA[recipient] || '');
+        const hasRecipient = !!recipient && recipient !== 'Add money' && recipient !== 'Fixed Deposit' && recipient !== 'SBI Bank Link' && !!resolvedVpa;
+
         return (
           <TransferKeypad
-            recipientName={recipient}
-            recipientVpa={(selectedPayee && selectedPayee.name === recipient)
-              ? selectedPayee.vpa : (NAME_TO_VPA[recipient] || '')}
+            recipientName={hasRecipient ? recipient : ''}
+            recipientVpa={hasRecipient ? resolvedVpa : ''}
             userInitial={(currentUserName || 'U').trim().charAt(0).toUpperCase()}
             prefilledAmount={payAmount}
             onTransferSuccess={(amt) => {
-              setPayAmount(amt.toString());
-              pushScreen('payee-selector');
+              if (hasRecipient) {
+                handlePaymentProcess(amt, false);
+              } else {
+                setPayAmount(amt.toString());
+                pushScreen('payee-selector');
+              }
             }}
             onInvestSuccess={(amt) => handlePaymentProcess(amt, true)}
             onOpenScanner={() => pushScreen('qr-scanner')}
             onCheckBalance={() => pushScreen('check-balance')}
           />
         );
+      }
       case 'payee-selector':
         return (
           <PayeeSelector

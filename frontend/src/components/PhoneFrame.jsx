@@ -37,6 +37,7 @@ const PhoneFrame = ({
       lastScanClickRef.current = 0;
     } else {
       lastScanClickRef.current = now;
+      onScreenChange('transfer');
     }
   };
 

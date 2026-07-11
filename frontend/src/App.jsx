@@ -57,12 +57,22 @@ function App() {
 
   const [booting, setBooting] = useState(true);         // checking saved session on open
 
-  const handleLogin = async (vpa, pin) => {
-    const { ok, data } = await api.login(vpa, pin);      // verifies account + binds device
-    if (!ok) return { ok: false, error: data.detail || 'Incorrect PIN or account not found' };
+  const handleLogin = async (vpa, pin, preVerifiedData = null) => {
+    // preVerifiedData: already-verified WebAuthn response ({ name, balance, token })
+    // — skip the PIN-based api.login call entirely.
+    let name, balance;
+    if (preVerifiedData) {
+      name = preVerifiedData.name;
+      balance = preVerifiedData.balance;
+    } else {
+      const { ok, data } = await api.login(vpa, pin);   // verifies account + binds device
+      if (!ok) return { ok: false, error: data.detail || 'Incorrect PIN or account not found' };
+      name = data.name;
+      balance = data.balance;
+    }
     setCurrentUser(vpa);
-    setCurrentUserName(data.name || vpa);
-    if (data.balance != null) setBalance(data.balance);
+    setCurrentUserName(name || vpa);
+    if (balance != null) setBalance(balance);
     saveSession(vpa);                                   // remember on this device (like GPay)
     api.history(vpa).then((r) => { if (r.ok) setRealTxns(r.data); }).catch(() => {});
     return { ok: true };

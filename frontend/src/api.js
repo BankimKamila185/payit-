@@ -96,3 +96,111 @@ export const api = {
     post("/report", { reported_vpa, reporter_vpa, reason }),
   getStats:    () => get("/dashboard/stats"),
 };
+
+// -------- WebAuthn / Passkey helpers (browser-side ceremony) --------
+// Converts ArrayBuffer ↔ base64url (required by WebAuthn API)
+function bufToB64url(buf) {
+  return btoa(String.fromCharCode(...new Uint8Array(buf)))
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+}
+function b64urlToBuf(str) {
+  str = str.replace(/-/g, '+').replace(/_/g, '/');
+  while (str.length % 4) str += '=';
+  return Uint8Array.from(atob(str), c => c.charCodeAt(0)).buffer;
+}
+
+/**
+ * Register a new passkey (fingerprint/Face ID) for the given VPA.
+ * Returns { ok, error }
+ */
+export async function registerPasskey(vpa) {
+  if (!window.PublicKeyCredential) return { ok: false, error: 'WebAuthn not supported in this browser.' };
+  try {
+    // 1. Get creation options (challenge) from backend
+    const optRes = await post('/auth/webauthn/register-options', { vpa });
+    if (!optRes.ok) return { ok: false, error: optRes.data?.detail || 'Could not start registration.' };
+    const options = optRes.data;
+
+    // 2. Call browser API — shows fingerprint / Face ID prompt
+    const cred = await navigator.credentials.create({
+      publicKey: {
+        challenge: b64urlToBuf(options.challenge),
+        rp: options.rp,
+        user: {
+          id: b64urlToBuf(options.user.id),
+          name: options.user.name,
+          displayName: options.user.displayName,
+        },
+        pubKeyCredParams: options.pubKeyCredParams,
+        timeout: options.timeout,
+        authenticatorSelection: options.authenticatorSelection,
+        attestation: options.attestation,
+      },
+    });
+
+    // 3. Send credential to backend for storage
+    const regRes = await post('/auth/webauthn/register', {
+      vpa,
+      credential_id: bufToB64url(cred.rawId),
+      public_key: bufToB64url(cred.response.getPublicKey()),
+      client_data_json: bufToB64url(cred.response.clientDataJSON),
+      attestation_object: bufToB64url(cred.response.attestationObject),
+    });
+    if (!regRes.ok) return { ok: false, error: regRes.data?.detail || 'Registration failed.' };
+    // Remember that this VPA has a passkey so we can show the biometric button next time
+    localStorage.setItem('payit_passkey_vpa', vpa);
+    return { ok: true };
+  } catch (e) {
+    if (e.name === 'NotAllowedError') return { ok: false, error: 'Biometric prompt cancelled.' };
+    console.error('WebAuthn register error', e);
+    return { ok: false, error: e.message || 'Registration failed.' };
+  }
+}
+
+/**
+ * Authenticate with passkey (fingerprint / Face ID) for the given VPA.
+ * Returns { ok, data } where data matches the normal /auth/login response.
+ */
+export async function loginWithPasskey(vpa) {
+  if (!window.PublicKeyCredential) return { ok: false, error: 'WebAuthn not supported.' };
+  try {
+    // 1. Get assertion options
+    const optRes = await post('/auth/webauthn/login-options', { vpa });
+    if (!optRes.ok) return { ok: false, error: optRes.data?.detail || 'No passkey registered for this account.' };
+    const options = optRes.data;
+
+    // 2. Browser shows fingerprint / Face ID prompt
+    const assertion = await navigator.credentials.get({
+      publicKey: {
+        challenge: b64urlToBuf(options.challenge),
+        rpId: options.rpId,
+        timeout: options.timeout,
+        userVerification: options.userVerification,
+        allowCredentials: options.allowCredentials.map(c => ({
+          type: c.type,
+          id: b64urlToBuf(c.id),
+        })),
+      },
+    });
+
+    // 3. Send assertion to backend for verification
+    const loginRes = await post('/auth/webauthn/login', {
+      vpa,
+      credential_id: bufToB64url(assertion.rawId),
+      authenticator_data: bufToB64url(assertion.response.authenticatorData),
+      client_data_json: bufToB64url(assertion.response.clientDataJSON),
+      signature: bufToB64url(assertion.response.signature),
+    });
+    return { ok: loginRes.ok, data: loginRes.data };
+  } catch (e) {
+    if (e.name === 'NotAllowedError') return { ok: false, error: 'Biometric prompt cancelled.' };
+    console.error('WebAuthn login error', e);
+    return { ok: false, error: e.message || 'Authentication failed.' };
+  }
+}
+
+/** Returns true if this device has a registered passkey for the given VPA */
+export function hasPasskey(vpa) {
+  return localStorage.getItem('payit_passkey_vpa') === vpa;
+}
+

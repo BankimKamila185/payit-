@@ -3,7 +3,7 @@ import {
   Shield, Lock, Fingerprint, Phone, MessageSquare, MapPin, 
   ArrowRight, ChevronLeft, Building, User, CreditCard, Sparkles, Check 
 } from 'lucide-react';
-import { api } from '../api';
+import { api, registerPasskey, loginWithPasskey, hasPasskey } from '../api';
 
 export default function OnboardingFlow({ onLogin, deviceId }) {
   // Onboarding steps: 'welcome' | 'phone_input' | 'otp_verify' | 'register_profile' | 'permissions' | 'bank_select' | 'pin_create' | 'pin_confirm' | 'pin_login'
@@ -29,6 +29,19 @@ export default function OnboardingFlow({ onLogin, deviceId }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [userProfile, setUserProfile] = useState(null); // Resolved after phone lookup
+
+  // Biometric / passkey state
+  const [biometricAvailable, setBiometricAvailable] = useState(false);
+  const [biometricBusy, setBiometricBusy] = useState(false);
+
+  // Check platform biometric availability on mount
+  useEffect(() => {
+    if (window.PublicKeyCredential) {
+      PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable()
+        .then(ok => setBiometricAvailable(ok))
+        .catch(() => setBiometricAvailable(false));
+    }
+  }, []);
 
   // Popular banks hardcoded fallback + fetch
   const defaultBanks = [
@@ -216,6 +229,20 @@ export default function OnboardingFlow({ onLogin, deviceId }) {
     }
   };
 
+  const handleFingerprintLogin = async () => {
+    if (!userProfile?.vpa) return;
+    setBiometricBusy(true); setErr('');
+    const result = await loginWithPasskey(userProfile.vpa);
+    setBiometricBusy(false);
+    if (result.ok) {
+      // Passkey verified — log the user in with the returned session data
+      const d = result.data;
+      await onLogin(d.vpa, null, d); // pass pre-verified data
+    } else {
+      setErr(result.error || 'Biometric login failed. Use UPI PIN instead.');
+    }
+  };
+
   const handlePinRegister = async (enteredConfirmPin) => {
     if (pin !== enteredConfirmPin) {
       setErr('PINs do not match. Try again.');
@@ -236,10 +263,17 @@ export default function OnboardingFlow({ onLogin, deviceId }) {
       const res = await api.register(payload);
       setBusy(false);
       if (res.ok) {
-        // Automatically login the newly registered user
+        // Auto-login after registration
         const loginRes = await onLogin(payload.vpa, pin);
         if (!loginRes.ok) {
           setErr(loginRes.error || 'Failed to login after registration');
+          return;
+        }
+        // Offer passkey enrollment if biometrics are available
+        if (biometricAvailable) {
+          setBiometricBusy(true);
+          await registerPasskey(payload.vpa);
+          setBiometricBusy(false);
         }
       } else {
         setErr(res.data?.detail || 'Registration failed');
@@ -657,11 +691,50 @@ export default function OnboardingFlow({ onLogin, deviceId }) {
             <p style={S.loginPhoneSub}>+91 {phone.slice(0, 3)}••••••{phone.slice(-4)}</p>
           </div>
 
+          {/* Fingerprint quick-login (only shown if passkey is registered on this device) */}
+          {biometricAvailable && hasPasskey(userProfile?.vpa) && (
+            <div style={{ textAlign: 'center', margin: '8px 0 4px' }}>
+              <button
+                style={{
+                  background: biometricBusy ? 'rgba(170,51,255,0.1)' : 'rgba(170,51,255,0.08)',
+                  border: '1px solid rgba(170,51,255,0.35)',
+                  borderRadius: 20,
+                  padding: '14px 28px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  cursor: biometricBusy ? 'default' : 'pointer',
+                  color: '#aa33ff',
+                  fontSize: 14,
+                  fontWeight: 700,
+                  boxShadow: '0 0 20px rgba(170,51,255,0.18)',
+                  transition: 'all 0.2s',
+                }}
+                onClick={handleFingerprintLogin}
+                disabled={biometricBusy}
+                aria-label="Login with fingerprint"
+              >
+                <Fingerprint
+                  size={24}
+                  color="#aa33ff"
+                  style={{ animation: biometricBusy ? 'pulse 1s ease-in-out infinite' : 'none' }}
+                />
+                {biometricBusy ? 'Verifying…' : 'Use Fingerprint / Face ID'}
+              </button>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '12px 0 6px', padding: '0 24px' }}>
+                <div style={{ flex: 1, height: 1, background: '#222' }} />
+                <span style={{ color: '#444', fontSize: 11, fontWeight: 600 }}>or enter PIN</span>
+                <div style={{ flex: 1, height: 1, background: '#222' }} />
+              </div>
+            </div>
+          )}
+
           {/* Dots indicating pin entry length */}
           <div style={S.dotRow}>
             {Array(4).fill(0).map((_, idx) => (
-              <div 
-                key={idx} 
+              <div
+                key={idx}
                 style={{
                   ...S.pinDot,
                   background: idx < pin.length ? '#fff' : 'transparent',
@@ -693,8 +766,31 @@ export default function OnboardingFlow({ onLogin, deviceId }) {
               </button>
             </div>
           </div>
+
+          {/* Enable fingerprint for next time (if available but not yet enrolled) */}
+          {biometricAvailable && !hasPasskey(userProfile?.vpa) && (
+            <div style={{ textAlign: 'center', marginTop: 6 }}>
+              <button
+                style={{ background: 'none', border: 'none', color: '#555', fontSize: 11, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}
+                onClick={async () => {
+                  if (!userProfile?.vpa) return;
+                  setBiometricBusy(true); setErr('');
+                  const r = await registerPasskey(userProfile.vpa);
+                  setBiometricBusy(false);
+                  if (!r.ok) setErr(r.error);
+                  else setErr(''); // trigger re-render to show the full button
+                }}
+                disabled={biometricBusy}
+              >
+                <Fingerprint size={12} color="#555" />
+                {biometricBusy ? 'Registering fingerprint…' : 'Enable Fingerprint Login'}
+              </button>
+            </div>
+          )}
         </div>
       )}
+
+
 
     </div>
   );

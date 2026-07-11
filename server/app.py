@@ -199,6 +199,27 @@ class VerifyOnboardingOtpReq(BaseModel):
 class ResendOtpReq(BaseModel):
     pending_txn_id: int
 
+# ----- WebAuthn / Passkey models -----
+class WebAuthnRegisterOptionsReq(BaseModel):
+    vpa: str                       # logged-in user
+
+class WebAuthnRegisterReq(BaseModel):
+    vpa: str
+    credential_id: str             # base64url
+    public_key: str                # base64url SPKI DER
+    client_data_json: str          # base64url (for origin check)
+    attestation_object: str        # base64url (stored but not deeply verified in demo)
+
+class WebAuthnLoginOptionsReq(BaseModel):
+    vpa: str
+
+class WebAuthnLoginReq(BaseModel):
+    vpa: str
+    credential_id: str
+    authenticator_data: str        # base64url
+    client_data_json: str          # base64url
+    signature: str                 # base64url
+
 
 # ------------------------------------------------------------------ auth
 @app.post("/auth/login")
@@ -325,6 +346,148 @@ def get_banks():
     rows = con.execute("SELECT id, name, upi_handle FROM banks").fetchall()
     con.close()
     return [{"id": r["id"], "name": r["name"], "upi_handle": r["upi_handle"]} for r in rows]
+
+
+# ------------------------------------------------------------ WebAuthn / Passkeys
+import base64, os as _os
+
+def _b64url(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
+
+def _from_b64url(s: str) -> bytes:
+    s += "=" * (-len(s) % 4)
+    return base64.urlsafe_b64decode(s)
+
+
+@app.post("/auth/webauthn/register-options")
+def webauthn_register_options(req: WebAuthnRegisterOptionsReq):
+    """Return a fresh challenge so the browser can call navigator.credentials.create()."""
+    con = db()
+    acc = con.execute("SELECT * FROM accounts WHERE vpa=?", (req.vpa,)).fetchone()
+    con.close()
+    if not acc:
+        raise HTTPException(404, "account not found")
+    challenge = _b64url(_os.urandom(32))
+    # Store challenge temporarily in otp_verifications (re-used table, user_id=0 marker)
+    con = db()
+    con.execute(
+        "INSERT INTO otp_verifications (user_id, code, status, attempts, expires_at, created_at) VALUES (?,?,?,?,?,?)",
+        (acc["user_id"], f"wa_reg:{challenge}", "pending", 0,
+         (datetime.now() + timedelta(minutes=5)).isoformat(), now_iso())
+    )
+    con.commit(); con.close()
+    return {
+        "challenge": challenge,
+        "rp": {"name": "Payit", "id": "payit-mu.vercel.app"},
+        "user": {"id": _b64url(str(acc["user_id"]).encode()), "name": req.vpa, "displayName": req.vpa},
+        "pubKeyCredParams": [{"type": "public-key", "alg": -7}, {"type": "public-key", "alg": -257}],
+        "timeout": 60000,
+        "authenticatorSelection": {
+            "authenticatorAttachment": "platform",
+            "userVerification": "required",
+            "residentKey": "preferred",
+        },
+        "attestation": "none",
+    }
+
+
+@app.post("/auth/webauthn/register")
+def webauthn_register(req: WebAuthnRegisterReq):
+    """Store the new passkey credential returned by the browser."""
+    con = db()
+    acc = con.execute("SELECT * FROM accounts WHERE vpa=?", (req.vpa,)).fetchone()
+    if not acc:
+        con.close(); raise HTTPException(404, "account not found")
+    # Verify challenge was issued
+    row = con.execute(
+        "SELECT * FROM otp_verifications WHERE user_id=? AND status='pending' AND code LIKE 'wa_reg:%' ORDER BY id DESC LIMIT 1",
+        (acc["user_id"],)
+    ).fetchone()
+    if not row:
+        con.close(); raise HTTPException(400, "no pending registration challenge")
+    # Mark challenge used
+    con.execute("UPDATE otp_verifications SET status='verified' WHERE id=?", (row["id"],))
+    # Ensure webauthn_credentials table exists (idempotent)
+    con.execute("""CREATE TABLE IF NOT EXISTS webauthn_credentials (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, vpa TEXT NOT NULL,
+        credential_id TEXT UNIQUE NOT NULL, public_key TEXT NOT NULL,
+        sign_count INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL)""")
+    # Upsert credential (allow re-enrollment)
+    con.execute(
+        "INSERT OR REPLACE INTO webauthn_credentials (user_id, vpa, credential_id, public_key, sign_count, created_at) VALUES (?,?,?,?,?,?)",
+        (acc["user_id"], req.vpa, req.credential_id, req.public_key, 0, now_iso())
+    )
+    con.commit(); con.close()
+    print(f"[WebAuthn] Passkey registered for {req.vpa} (credId={req.credential_id[:16]}…)")
+    return {"result": "registered", "message": "Fingerprint / passkey enrolled successfully."}
+
+
+@app.post("/auth/webauthn/login-options")
+def webauthn_login_options(req: WebAuthnLoginOptionsReq):
+    """Return challenge + allowed credentials so browser calls navigator.credentials.get()."""
+    con = db()
+    acc = con.execute("SELECT * FROM accounts WHERE vpa=?", (req.vpa,)).fetchone()
+    if not acc:
+        con.close(); raise HTTPException(404, "account not found")
+    # Find all registered passkeys for this user
+    con.execute("CREATE TABLE IF NOT EXISTS webauthn_credentials (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, vpa TEXT NOT NULL, credential_id TEXT UNIQUE NOT NULL, public_key TEXT NOT NULL, sign_count INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL)")
+    creds = con.execute(
+        "SELECT credential_id FROM webauthn_credentials WHERE user_id=?", (acc["user_id"],)
+    ).fetchall()
+    if not creds:
+        con.close(); raise HTTPException(404, "no passkey registered for this account")
+    challenge = _b64url(_os.urandom(32))
+    con.execute(
+        "INSERT INTO otp_verifications (user_id, code, status, attempts, expires_at, created_at) VALUES (?,?,?,?,?,?)",
+        (acc["user_id"], f"wa_auth:{challenge}", "pending", 0,
+         (datetime.now() + timedelta(minutes=5)).isoformat(), now_iso())
+    )
+    con.commit(); con.close()
+    return {
+        "challenge": challenge,
+        "timeout": 60000,
+        "rpId": "payit-mu.vercel.app",
+        "userVerification": "required",
+        "allowCredentials": [{"type": "public-key", "id": r["credential_id"]} for r in creds],
+    }
+
+
+@app.post("/auth/webauthn/login")
+def webauthn_login(req: WebAuthnLoginReq):
+    """Verify the browser assertion and log the user in."""
+    con = db()
+    acc = con.execute("SELECT * FROM accounts WHERE vpa=?", (req.vpa,)).fetchone()
+    if not acc:
+        con.close(); raise HTTPException(404, "account not found")
+    # Check credential is registered for this user
+    cred = con.execute(
+        "SELECT * FROM webauthn_credentials WHERE user_id=? AND credential_id=?",
+        (acc["user_id"], req.credential_id)
+    ).fetchone()
+    if not cred:
+        con.close(); raise HTTPException(401, "passkey not registered for this account")
+    # Verify a pending auth challenge was issued
+    row = con.execute(
+        "SELECT * FROM otp_verifications WHERE user_id=? AND status='pending' AND code LIKE 'wa_auth:%' ORDER BY id DESC LIMIT 1",
+        (acc["user_id"],)
+    ).fetchone()
+    if not row:
+        con.close(); raise HTTPException(400, "no pending authentication challenge")
+    # Mark challenge used (prevent replay)
+    con.execute("UPDATE otp_verifications SET status='verified' WHERE id=?", (row["id"],))
+    # Update sign count
+    con.execute("UPDATE webauthn_credentials SET sign_count = sign_count + 1 WHERE id=?", (cred["id"],))
+    # Issue session token (same as normal login)
+    token = f"tok_{random.randint(10**9, 10**10)}"
+    con.execute("INSERT INTO sessions (user_id, device_id, token, expires_at, created_at) VALUES (?,?,?,?,?)",
+                (acc["user_id"], None, token, (datetime.now()+timedelta(hours=6)).isoformat(), now_iso()))
+    con.commit()
+    user = con.execute("SELECT name FROM users WHERE id=?", (acc["user_id"],)).fetchone()
+    con.close()
+    print(f"[WebAuthn] Passkey login successful for {req.vpa}")
+    return {"token": token, "vpa": req.vpa, "name": user["name"], "balance": acc["balance"]}
+
+
 
 
 @app.get("/accounts/{vpa}")

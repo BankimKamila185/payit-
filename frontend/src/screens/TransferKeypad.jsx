@@ -120,20 +120,6 @@ const TransferKeypad = ({
         <div style={styles.amountRow}>
           <span style={styles.amountText}>₹{amount || "0"}</span>
         </div>
-        
-        {/* Pills row (UPI Badge) */}
-        <div style={styles.pillsRow}>
-          <div style={styles.upiBadge}>
-            {/* Styled inline UPI logo */}
-            <svg width="32" height="12" viewBox="0 0 40 15" fill="none">
-              <path d="M2 2 H6 L8 9 L10 2 H14" stroke="#ffffff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-              <path d="M17 2 H21 V5 H17 Z M17 5 H21 V12 H17 Z" fill="#ffffff" />
-              <path d="M25 2 H29 C31 2 32 3 32 5 C32 7 31 8 29 8 H25 V12 H25 Z" fill="#ffffff" />
-              <path d="M36 2 H40" stroke="#ff8c00" strokeWidth="1.8" strokeLinecap="round" />
-              <path d="M38 2 V12" stroke="#22e67b" strokeWidth="1.8" strokeLinecap="round" />
-            </svg>
-          </div>
-        </div>
       </div>
 
       {/* Keypad Section */}

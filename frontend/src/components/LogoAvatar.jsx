@@ -58,6 +58,8 @@ const DOMAIN_MAP = {
   rapido: 'rapido.bike',
   irctc: 'irctc.co.in',
   makemytrip: 'makemytrip.com',
+  bescom: 'bescom.org',
+  'bescom electricity': 'bescom.org',
 };
 
 // Deterministic colour palette for initials fallback

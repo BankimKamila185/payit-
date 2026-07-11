@@ -7,6 +7,7 @@ import {
   Wifi,
   Zap
 } from 'lucide-react';
+import LogoAvatar from '../components/LogoAvatar';
 
 const Banking = ({
   onAddMoney,
@@ -432,9 +433,7 @@ const Banking = ({
           {bills.map((bill) => (
             <div key={bill.id} className="bill-reminder-row">
               <div className="bill-row-left">
-                <div className="bill-icon-wrapper">
-                  {bill.icon}
-                </div>
+                <LogoAvatar name={bill.name} size={38} style={{ borderRadius: '10px' }} />
                 <div className="bill-info">
                   <span className="bill-name">{bill.name}</span>
                   <div className="bill-status-indicator">

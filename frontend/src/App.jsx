@@ -16,6 +16,7 @@ import TransferKeypad from './screens/TransferKeypad';
 import RechargeBills from './screens/RechargeBills';
 import FraudReportForm from './screens/FraudReportForm';
 import OnboardingFlow from './screens/OnboardingFlow';
+import PayeeSelector from './screens/PayeeSelector';
 import { api, getDeviceId, saveSession, getSession, clearSession } from './api';
 
 import { Shield, Lock, ShieldCheck, AlertTriangle, Fingerprint, Phone, X, Check, Bell, Clock, MapPin, Smartphone, ShieldAlert } from 'lucide-react';
@@ -682,10 +683,26 @@ function App() {
               ? selectedPayee.vpa : (NAME_TO_VPA[recipient] || '')}
             userInitial={(currentUserName || 'U').trim().charAt(0).toUpperCase()}
             prefilledAmount={payAmount}
-            onTransferSuccess={(amt) => handlePaymentProcess(amt, false)}
+            onTransferSuccess={(amt) => {
+              setPayAmount(amt.toString());
+              pushScreen('payee-selector');
+            }}
             onInvestSuccess={(amt) => handlePaymentProcess(amt, true)}
             onOpenScanner={() => pushScreen('qr-scanner')}
             onCheckBalance={() => pushScreen('check-balance')}
+          />
+        );
+      case 'payee-selector':
+        return (
+          <PayeeSelector
+            amount={payAmount}
+            balance={balance}
+            onBack={popScreen}
+            onPayeeSelected={(name, vpa) => {
+              setRecipient(name);
+              setSelectedPayee({ name, vpa });
+              handlePaymentProcess(parseFloat(payAmount), false);
+            }}
           />
         );
       case 'fraud-report':
@@ -720,13 +737,14 @@ function App() {
       'check-balance': 'UPI Security',
       'upi-settings': 'UPI Settings',
       transfer: 'Transfer',
+      'payee-selector': 'Select Payee',
       'fraud-report': ''
     };
     return titles[activeScreen] || '';
   };
 
   const showBackButton = () => {
-    return ['recharge-bills', 'analytics', 'check-balance', 'upi-settings', 'transfer', 'qr-scanner', 'paid-success', 'fraud-report'].includes(activeScreen);
+    return ['recharge-bills', 'analytics', 'check-balance', 'upi-settings', 'transfer', 'qr-scanner', 'paid-success', 'fraud-report', 'payee-selector'].includes(activeScreen);
   };
 
   // While restoring a saved session on open, don't flash the login screen.

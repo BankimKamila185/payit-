@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
+import { describe, it, expect, beforeAll, afterAll, jest } from '@jest/globals';
 import request from 'supertest';
 import app from '../app/app';
 import { pool } from '../app/db';
@@ -19,6 +19,14 @@ describe('Integration Tests (Database-Connected)', () => {
   let sbiBank: any;
 
   beforeAll(async () => {
+    // Mock global fetch to isolate integration tests from Python ML server calls
+    (global as any).fetch = jest.fn().mockImplementation(() =>
+      Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ score: 0, reasons: [] }),
+      } as any)
+    );
+
     // Clear test tables to prevent overlap
     await pool.query('DELETE FROM blacklist;');
     await pool.query('DELETE FROM alerts;');

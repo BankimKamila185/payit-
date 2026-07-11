@@ -142,7 +142,7 @@ function App() {
   const [otpModalTx, setOtpModalTx] = useState(null);
   const [otpModalCode, setOtpModalCode] = useState('');
   const [otpModalError, setOtpModalError] = useState('');
-  const [otpModalDemoCode, setOtpModalDemoCode] = useState('');
+  const [otpResendStatus, setOtpResendStatus] = useState(''); // '' | 'sending' | 'sent'
 
   // AI Scanning Loader
   const [aiScanningTx, setAiScanningTx] = useState(null);
@@ -322,9 +322,9 @@ function App() {
         pushScreen('paid-success');
       } else if (data.label === "REVIEW") {
         setOtpModalTx({ ...baseTx, transaction_id: data.transaction_id });
-        setOtpModalDemoCode(data.otp_demo || '');
         setOtpModalCode('');
         setOtpModalError('');
+        setOtpResendStatus('');
         setOtpModalOpen(true);
       } else {                                  // SAFE
         setBalance(data.sender_balance);
@@ -564,10 +564,14 @@ function App() {
         );
       case 'qr-scanner':
         return (
-          <QrScanner 
+          <QrScanner
             onClose={popScreen}
-            onScanSuccess={(name) => {
+            onScanSuccess={(name, vpa) => {
               setRecipient(name);
+              if (vpa && vpa.includes('@')) {
+                setSelectedPayee({ name, vpa });
+              }
+              popScreen();
               pushScreen('transfer');
             }}
           />
@@ -964,20 +968,11 @@ function App() {
                 We detected anomalous behavior. To complete your payment of <strong>₹{otpModalTx.amount}</strong> to <strong>{otpModalTx.recipient}</strong>, enter the 6-digit OTP sent to your registered mobile.
               </p>
 
-              {otpModalDemoCode && (
-                <div style={{
-                  backgroundColor: 'rgba(255,140,0,0.08)',
-                  border: '1px dashed rgba(255,140,0,0.3)',
-                  borderRadius: 12,
-                  padding: '8px 12px',
-                  marginBottom: 16,
-                  color: '#ff8c00',
-                  fontSize: '11px',
-                  fontWeight: '600'
-                }}>
-                  Demo OTP code: {otpModalDemoCode}
-                </div>
-              )}
+              {/* OTP is only in Render/server logs — no hint shown to user */}
+              <div style={{ backgroundColor: 'rgba(255,140,0,0.06)', border: '1px solid rgba(255,140,0,0.2)', borderRadius: 12, padding: '10px 14px', marginBottom: 16, textAlign: 'left' }}>
+                <p style={{ color: '#ff8c00', fontSize: 11, fontWeight: 600, margin: 0 }}>📱 OTP sent to your registered mobile number</p>
+                <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 10, margin: '4px 0 0 0' }}>Check Render server logs if testing locally.</p>
+              </div>
 
               <input
                 type="text"
@@ -1010,6 +1005,30 @@ function App() {
                   {otpModalError}
                 </p>
               )}
+
+              {/* Resend OTP */}
+              <div style={{ textAlign: 'center', marginBottom: 12 }}>
+                <button
+                  disabled={otpResendStatus === 'sending' || otpResendStatus === 'sent'}
+                  onClick={async () => {
+                    setOtpResendStatus('sending');
+                    try {
+                      await api.resendOtp(otpModalTx.transaction_id);
+                      setOtpResendStatus('sent');
+                      setTimeout(() => setOtpResendStatus(''), 30000);
+                    } catch {
+                      setOtpResendStatus('');
+                    }
+                  }}
+                  style={{
+                    background: 'none', border: 'none', cursor: 'pointer',
+                    color: otpResendStatus === 'sent' ? 'var(--accent-neon)' : 'rgba(255,255,255,0.4)',
+                    fontSize: 11, fontWeight: 600
+                  }}
+                >
+                  {otpResendStatus === 'sending' ? 'Sending…' : otpResendStatus === 'sent' ? '✓ OTP resent' : 'Resend OTP'}
+                </button>
+              </div>
 
               <div style={{ display: 'flex', gap: 10 }}>
                 <button

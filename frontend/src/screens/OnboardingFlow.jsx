@@ -11,9 +11,10 @@ export default function OnboardingFlow({ onLogin, deviceId }) {
   
   // Form fields
   const [phone, setPhone] = useState('');
-  const [otp, setOtp] = useState(['4', '2', '0', '', '', '']); // prefill first 3 like mockup for demo
-  const [activeOtpIdx, setActiveOtpIdx] = useState(3);
-  const [otpTimer, setOtpTimer] = useState(28);
+  // OTP fields
+  const [otp, setOtp] = useState(['', '', '', '', '', '']);
+  const [activeOtpIdx, setActiveOtpIdx] = useState(0);
+  const [otpTimer, setOtpTimer] = useState(60);
   const [fullName, setFullName] = useState('');
   const [vpa, setVpa] = useState('');
   const [selectedBank, setSelectedBank] = useState(null); // {id, name, upi_handle}
@@ -78,38 +79,52 @@ export default function OnboardingFlow({ onLogin, deviceId }) {
     setBusy(true); setErr('');
     try {
       const res = await api.phoneLookup(cleanPhone);
-      setBusy(false);
-      if (res.ok) {
-        setUserProfile(res.data);
-        if (res.data.registered) {
-          // If registered, pre-fill VPA and Name
-          setFullName(res.data.name);
-          setVpa(res.data.vpa);
-        } else {
-          // New registration
-          setFullName('');
-          setVpa(cleanPhone + '@payit');
-        }
-        setStep('otp_verify');
-        setOtpTimer(28);
-      } else {
+      if (!res.ok) {
+        setBusy(false);
         setErr('Lookup failed, please try again.');
+        return;
       }
+      setUserProfile(res.data);
+      if (res.data.registered) {
+        setFullName(res.data.name);
+        setVpa(res.data.vpa);
+      } else {
+        setFullName('');
+        setVpa(cleanPhone + '@payit');
+      }
+      // Send real OTP via backend (printed to server logs)
+      await api.sendOtp(cleanPhone);
+      setBusy(false);
+      setOtp(['', '', '', '', '', '']);
+      setActiveOtpIdx(0);
+      setStep('otp_verify');
+      setOtpTimer(60);
     } catch {
       setBusy(false);
       setErr('Connection error.');
     }
   };
 
-  const handleOtpSubmit = () => {
+  const handleOtpSubmit = async () => {
     const code = otp.join('');
     if (code.length < 6) {
       setErr('Enter the 6-digit OTP code');
       return;
     }
-    setErr('');
-    // Mock verify OTP code (accepts anything for demo)
-    setStep('permissions');
+    setBusy(true); setErr('');
+    try {
+      const cleanPhone = phone.replace(/\D/g, '');
+      const res = await api.verifyOnboardingOtp(cleanPhone, code);
+      setBusy(false);
+      if (res.ok) {
+        setStep('permissions');
+      } else {
+        setErr(res.data?.detail || 'Incorrect OTP. Please try again.');
+      }
+    } catch {
+      setBusy(false);
+      setErr('Verification failed. Please try again.');
+    }
   };
 
   const handleRegisterProfileSubmit = () => {
@@ -403,16 +418,22 @@ export default function OnboardingFlow({ onLogin, deviceId }) {
             ))}
           </div>
 
-          {/* Quick OTP fill for convenience */}
-          <button style={S.quickFillOtpBtn} onClick={() => { setOtp(['4', '2', '0', '1', '2', '3']); setErr(''); }}>
-            Demo: Quick Fill OTP (420123)
-          </button>
+          {/* Server-log notice */}
+          <div style={{ backgroundColor: 'rgba(170,51,255,0.07)', border: '1px solid rgba(170,51,255,0.2)', borderRadius: 10, padding: '8px 12px', marginBottom: 10, textAlign: 'center' }}>
+            <p style={{ color: '#aa33ff', fontSize: 11, fontWeight: 600, margin: 0 }}>📱 OTP sent to +91 {phone.slice(-4).padStart(phone.length, '•')}</p>
+            <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: 10, margin: '3px 0 0 0' }}>Check Render / server logs to retrieve code.</p>
+          </div>
 
           <div style={S.otpResendRow}>
             {otpTimer > 0 ? (
               <span style={S.timerText}>Resend in 0:{otpTimer < 10 ? `0${otpTimer}` : otpTimer}</span>
             ) : (
-              <button style={S.resendBtn} onClick={() => { setOtpTimer(30); setErr(''); }}>Resend OTP</button>
+              <button style={S.resendBtn} onClick={async () => {
+                const cleanPhone = phone.replace(/\D/g, '');
+                await api.sendOtp(cleanPhone);
+                setOtpTimer(60);
+                setErr('');
+              }}>Resend OTP</button>
             )}
           </div>
 

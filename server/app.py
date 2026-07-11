@@ -189,6 +189,16 @@ class OtpReq(BaseModel):
     pending_txn_id: int
     otp: str
 
+class SendOtpReq(BaseModel):
+    phone: str
+
+class VerifyOnboardingOtpReq(BaseModel):
+    phone: str
+    code: str
+
+class ResendOtpReq(BaseModel):
+    pending_txn_id: int
+
 
 # ------------------------------------------------------------------ auth
 @app.post("/auth/login")
@@ -394,13 +404,15 @@ def pay(req: PayReq):
                 "message": "Payment blocked by Fraud Shield — money not deducted."}
 
     if out["label"] == "REVIEW":
-        otp = f"{random.randint(100000, 999999)}"
+        otp_code = f"{random.randint(100000, 999999)}"
         con.execute("INSERT INTO otp_verifications (user_id, code, status, attempts, expires_at, created_at) VALUES (?,?,?,?,?,?)",
-                    (feats["_user_id"], otp, "pending", 0, (datetime.now()+timedelta(minutes=5)).isoformat(), now_iso()))
+                    (feats["_user_id"], otp_code, "pending", 0, (datetime.now()+timedelta(minutes=5)).isoformat(), now_iso()))
         con.commit(); con.close()
+        # In production this would be sent via Twilio/Fast2SMS.
+        # For Render demo: OTP is visible ONLY in server logs, never returned to client.
+        print(f"[OTP SMS] Transaction #{txid} → user_id={feats['_user_id']} → OTP: {otp_code}  (check Render logs)")
         return {"result": "REVIEW", "transaction_id": txid, **out,
-                "message": "Extra verification needed — enter OTP to proceed.",
-                "otp_demo": otp}   # demo only: real app sends via SMS
+                "message": "Extra verification needed — enter the OTP sent to your registered mobile."}
 
     # SAFE -> atomic transfer
     con.execute("UPDATE accounts SET balance = balance - ?, txn_count = txn_count + 1 WHERE id=?", (req.amount, sid))
@@ -418,9 +430,18 @@ def verify_otp(req: OtpReq):
     tx = con.execute("SELECT * FROM transactions WHERE id=? AND status='pending'", (req.pending_txn_id,)).fetchone()
     if not tx:
         con.close(); raise HTTPException(404, "pending transaction not found")
-    otp = con.execute("SELECT * FROM otp_verifications WHERE status='pending' ORDER BY id DESC LIMIT 1").fetchone()
+    # Scope OTP lookup to the sender's user_id to prevent cross-user OTP use
+    sender_acc = con.execute("SELECT user_id FROM accounts WHERE id=?", (tx["sender_account_id"],)).fetchone()
+    if not sender_acc:
+        con.close(); raise HTTPException(400, "invalid transaction")
+    user_id = sender_acc["user_id"]
+    otp = con.execute(
+        "SELECT * FROM otp_verifications WHERE user_id=? AND status='pending' AND expires_at > ? ORDER BY id DESC LIMIT 1",
+        (user_id, datetime.now().isoformat())
+    ).fetchone()
     if not otp or otp["code"] != req.otp:
-        con.execute("UPDATE otp_verifications SET attempts = attempts + 1 WHERE id=?", (otp["id"],)) if otp else None
+        if otp:
+            con.execute("UPDATE otp_verifications SET attempts = attempts + 1 WHERE id=?", (otp["id"],))
         con.commit(); con.close()
         raise HTTPException(400, "invalid OTP")
     # OTP ok -> complete transfer
@@ -432,6 +453,71 @@ def verify_otp(req: OtpReq):
     bal = con.execute("SELECT balance FROM accounts WHERE id=?", (tx["sender_account_id"],)).fetchone()["balance"]
     con.close()
     return {"result": "SUCCESS", "transaction_id": tx["id"], "message": "Verified — payment completed.", "sender_balance": bal}
+
+
+@app.post("/pay/resend-otp")
+def resend_otp(req: ResendOtpReq):
+    """Resend OTP for a pending transaction (invalidates old code)."""
+    con = db()
+    tx = con.execute("SELECT * FROM transactions WHERE id=? AND status='pending'", (req.pending_txn_id,)).fetchone()
+    if not tx:
+        con.close(); raise HTTPException(404, "pending transaction not found")
+    sender_acc = con.execute("SELECT user_id FROM accounts WHERE id=?", (tx["sender_account_id"],)).fetchone()
+    user_id = sender_acc["user_id"]
+    # Expire all existing OTPs for this user
+    con.execute("UPDATE otp_verifications SET status='expired' WHERE user_id=? AND status='pending'", (user_id,))
+    new_code = f"{random.randint(100000, 999999)}"
+    con.execute("INSERT INTO otp_verifications (user_id, code, status, attempts, expires_at, created_at) VALUES (?,?,?,?,?,?)",
+                (user_id, new_code, "pending", 0, (datetime.now()+timedelta(minutes=5)).isoformat(), now_iso()))
+    con.commit(); con.close()
+    print(f"[OTP RESEND] Transaction #{req.pending_txn_id} → user_id={user_id} → OTP: {new_code}  (check Render logs)")
+    return {"result": "sent", "message": "OTP resent to registered mobile."}
+
+
+@app.post("/auth/send-otp")
+def auth_send_otp(req: SendOtpReq):
+    """Generate and 'send' (log) a 6-digit OTP for phone verification during onboarding."""
+    phone_clean = "".join(ch for ch in req.phone if ch.isdigit())[-10:]
+    otp_code = f"{random.randint(100000, 999999)}"
+    con = db()
+    # Store with phone as reference (user may not exist yet for new registrations)
+    con.execute(
+        "INSERT INTO otp_verifications (user_id, code, status, attempts, expires_at, created_at) VALUES (?,?,?,?,?,?)",
+        (0, f"phone:{phone_clean}:{otp_code}", "pending", 0,
+         (datetime.now() + timedelta(minutes=10)).isoformat(), now_iso())
+    )
+    con.commit(); con.close()
+    print(f"[OTP SMS] Onboarding → phone={phone_clean} → OTP: {otp_code}  (check Render/server logs)")
+    return {"result": "sent", "message": f"OTP sent to +91 ****{phone_clean[-4:]}"}
+
+
+@app.post("/auth/verify-otp")
+def auth_verify_otp(req: VerifyOnboardingOtpReq):
+    """Verify the onboarding OTP for a given phone number."""
+    phone_clean = "".join(ch for ch in req.phone if ch.isdigit())[-10:]
+    code_clean = req.code.strip()
+    con = db()
+    # Find most recent valid OTP for this phone
+    match = con.execute(
+        """SELECT * FROM otp_verifications
+           WHERE user_id=0 AND status='pending'
+           AND code LIKE ? AND expires_at > ?
+           ORDER BY id DESC LIMIT 1""",
+        (f"phone:{phone_clean}:%", datetime.now().isoformat())
+    ).fetchone()
+    if not match:
+        con.close()
+        raise HTTPException(400, "OTP expired or not found. Please request a new one.")
+    # Extract the actual code from the stored value "phone:NNNNNNNNNN:XXXXXX"
+    stored_code = match["code"].split(":")[-1]
+    if stored_code != code_clean:
+        con.execute("UPDATE otp_verifications SET attempts = attempts + 1 WHERE id=?", (match["id"],))
+        con.commit(); con.close()
+        raise HTTPException(400, "Incorrect OTP. Please try again.")
+    # Mark as verified
+    con.execute("UPDATE otp_verifications SET status='verified' WHERE id=?", (match["id"],))
+    con.commit(); con.close()
+    return {"result": "verified", "message": "Phone verified successfully."}
 
 
 # ------------------------------------------------------------------ history / report / stats

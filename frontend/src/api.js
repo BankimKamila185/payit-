@@ -55,21 +55,44 @@ async function get(path) {
 }
 
 export const api = {
-  health: () => get("/health"),
-  login: (vpa, pin) => post("/auth/login", { vpa, pin, device_id: getDeviceId() }),
+  health:      () => get("/health"),
+
+  // Auth
+  login:       (vpa, pin) => post("/auth/login", { vpa, pin, device_id: getDeviceId() }),
   phoneLookup: (phone) => post("/auth/phone-lookup", { phone }),
-  register: ({ phone, name, vpa, bank_id, upi_pin }) =>
+  register:    ({ phone, name, vpa, bank_id, upi_pin }) =>
     post("/auth/register", { phone, name, vpa, bank_id, upi_pin, device_id: getDeviceId() }),
-  setPin: (vpa, upi_pin) => post("/auth/set-pin", { vpa, upi_pin }),
-  getBanks: () => get("/banks"),
-  resolve: (vpa) => get(`/accounts/${encodeURIComponent(vpa)}`),
-  balance: (vpa) => get(`/balance/${encodeURIComponent(vpa)}`),
-  history: (vpa) => get(`/transactions/${encodeURIComponent(vpa)}`),
-  pay: ({ sender_vpa, receiver_vpa, amount, pin, type = "PAY", channel = "MANUAL" }) =>
-    post("/pay", { sender_vpa, receiver_vpa, amount, pin,
-                   device_id: getDeviceId(), type, channel }),
-  verifyOtp: (pending_txn_id, otp) => post("/pay/verify-otp", { pending_txn_id, otp }),
-  report: (reported_vpa, reporter_vpa, reason) =>
+  setPin:      (vpa, upi_pin) => post("/auth/set-pin", { vpa, upi_pin }),
+
+  // Onboarding OTP — real send + real verify (no mock bypass)
+  sendOtp:     (phone) => post("/auth/send-otp", { phone }),
+  verifyOnboardingOtp: (phone, code) => post("/auth/verify-otp", { phone, code }),
+
+  // Account
+  getBanks:    () => get("/banks"),
+  resolve:     (vpa) => get(`/accounts/${encodeURIComponent(vpa)}`),
+  balance:     (vpa) => get(`/balance/${encodeURIComponent(vpa)}`),
+  history:     (vpa) => get(`/transactions/${encodeURIComponent(vpa)}`),
+
+  // Payments — RASP fields (rooted, screen_share) are forwarded to fraud engine
+  pay: ({ sender_vpa, receiver_vpa, amount, pin,
+          type = "PAY", channel = "MANUAL",
+          rooted = 0, screen_share = 0, sim_mismatch = 0 }) =>
+    post("/pay", {
+      sender_vpa, receiver_vpa, amount, pin,
+      device_id: getDeviceId(),
+      type, channel,
+      rooted,       // 1 = rooted/Xposed/emulator detected by app RASP
+      screen_share, // 1 = AnyDesk/TeamViewer screen sharing active
+      sim_mismatch, // 1 = SIM number ≠ carrier records
+    }),
+
+  // Step-up OTP verification (REVIEW transactions)
+  verifyOtp:   (pending_txn_id, otp) => post("/pay/verify-otp", { pending_txn_id, otp }),
+  resendOtp:   (pending_txn_id) => post("/pay/resend-otp", { pending_txn_id }),
+
+  // Reporting & Stats
+  report:      (reported_vpa, reporter_vpa, reason) =>
     post("/report", { reported_vpa, reporter_vpa, reason }),
-  getStats: () => get("/dashboard/stats"),
+  getStats:    () => get("/dashboard/stats"),
 };

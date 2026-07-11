@@ -1,428 +1,432 @@
+/**
+ * QrScanner.jsx — Camera-based UPI QR code scanner
+ *
+ * Approach:
+ *  - getUserMedia (rear camera preferred)
+ *  - setInterval at 8fps for scan frames (more reliable than rAF on mobile)
+ *  - jsQR with attemptBoth for dark/light QR variants
+ *  - Cleans up on unmount / close / rescan
+ */
 import { useEffect, useRef, useState } from 'react';
 import jsQR from 'jsqr';
-import { X, CameraOff, Zap, ZapOff, Check, ArrowRight } from 'lucide-react';
+import { X, Zap, ZapOff, Check, ArrowRight, CameraOff } from 'lucide-react';
 
-// ─── UPI URI parser ─────────────────────────────────────────────────────────
+// ─── UPI URI parser ──────────────────────────────────────────────────────────
 function parseUpiUri(raw) {
-  // Accept upi://pay?pa=VPA&pn=Name and raw VPAs like merchant@okaxis
+  if (!raw) return null;
+  raw = raw.trim();
   try {
-    const url = new URL(raw.startsWith('upi://') ? raw : 'upi://' + raw);
+    const url = new URL(raw.startsWith('upi://') ? raw : 'upi://x?' + raw);
     const pa = url.searchParams.get('pa') || '';
-    const pn = url.searchParams.get('pn') || '';
     if (pa.includes('@')) {
-      return {
-        vpa: pa,
-        name: decodeURIComponent(pn.replace(/\+/g, ' ')) || pa.split('@')[0],
-      };
+      const pn = url.searchParams.get('pn') || '';
+      return { vpa: pa, name: decodeURIComponent(pn.replace(/\+/g, ' ')) || pa.split('@')[0] };
     }
-  } catch (_) {/* fall through */}
-  // Raw VPA
-  if (raw.includes('@') && !/\s/.test(raw)) {
-    return { vpa: raw.trim(), name: raw.split('@')[0] };
-  }
+  } catch (_) {/* ignore */}
+  // plain VPA like name@okaxis
+  if (/^[^\s@]+@[^\s@]+$/.test(raw)) return { vpa: raw, name: raw.split('@')[0] };
   return null;
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
 export default function QrScanner({ onClose, onScanSuccess }) {
-  const videoEl  = useRef(null);
-  const canvasEl = useRef(null);
-  const stream   = useRef(null);
-  const raf      = useRef(null);
-  const trackRef = useRef(null);
-  const scanning = useRef(false); // guard against double detection
+  const videoRef    = useRef(null);
+  const canvasRef   = useRef(null);
+  const streamRef   = useRef(null);
+  const timerRef    = useRef(null);   // setInterval handle
+  const trackRef    = useRef(null);
 
-  const [phase, setPhase]       = useState('boot');   // boot | live | denied | found
-  const [found, setFound]       = useState(null);     // { vpa, name }
-  const [torchOn, setTorchOn]   = useState(false);
-  const [torchOk, setTorchOk]   = useState(false);
-  const [errMsg, setErrMsg]     = useState('');
+  const [phase, setPhase]   = useState('requesting'); // requesting | live | denied | found
+  const [found, setFound]   = useState(null);
+  const [errMsg, setErrMsg] = useState('');
+  const [torch, setTorch]   = useState(false);
+  const [torchOk, setTorchOk] = useState(false);
 
-  // ── stop everything ─────────────────────────────────────────────────────
-  function stopAll() {
-    scanning.current = false;
-    if (raf.current) { cancelAnimationFrame(raf.current); raf.current = null; }
-    if (stream.current) {
-      stream.current.getTracks().forEach(t => t.stop());
-      stream.current = null;
+  // ── cleanup ────────────────────────────────────────────────────────────────
+  function stopEverything() {
+    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(t => t.stop());
+      streamRef.current = null;
     }
   }
 
-  // ── scan loop (called via rAF) ──────────────────────────────────────────
-  function tick() {
-    const vid = videoEl.current;
-    const cvs = canvasEl.current;
-    if (!scanning.current || !vid || !cvs) return;
+  // ── one scan tick ─────────────────────────────────────────────────────────
+  function scanTick() {
+    const vid = videoRef.current;
+    const cvs = canvasRef.current;
+    if (!vid || !cvs || vid.paused || vid.ended) return;
+    if (vid.readyState < 3) return; // HAVE_FUTURE_DATA — ensures a real frame exists
+    if (vid.videoWidth === 0 || vid.videoHeight === 0) return;
 
-    // Wait until the video has actual frame data
-    if (vid.readyState >= 2 && vid.videoWidth > 0) {
-      cvs.width  = vid.videoWidth;
-      cvs.height = vid.videoHeight;
-      const ctx = cvs.getContext('2d', { willReadFrequently: true });
-      ctx.drawImage(vid, 0, 0);
-      const img = ctx.getImageData(0, 0, cvs.width, cvs.height);
+    cvs.width  = vid.videoWidth;
+    cvs.height = vid.videoHeight;
+    const ctx = cvs.getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(vid, 0, 0);
 
-      // Try both normal and inverted (handles dark-on-light and light-on-dark QRs)
-      const code =
-        jsQR(img.data, img.width, img.height, { inversionAttempts: 'attemptBoth' });
+    let imgData;
+    try { imgData = ctx.getImageData(0, 0, cvs.width, cvs.height); }
+    catch (_) { return; }
 
-      if (code && code.data) {
-        const parsed = parseUpiUri(code.data);
-        if (parsed) {
-          stopAll();
-          setFound(parsed);
-          setPhase('found');
-          return; // do NOT re-queue
-        }
+    const result = jsQR(imgData.data, imgData.width, imgData.height, {
+      inversionAttempts: 'attemptBoth',
+    });
+
+    if (result && result.data) {
+      const parsed = parseUpiUri(result.data);
+      if (parsed) {
+        stopEverything();
+        setFound(parsed);
+        setPhase('found');
       }
     }
-
-    raf.current = requestAnimationFrame(tick);
   }
 
-  // ── start camera ─────────────────────────────────────────────────────────
+  // ── start camera ──────────────────────────────────────────────────────────
   async function startCamera() {
-    setPhase('boot');
+    stopEverything();           // clear any previous session
+    setPhase('requesting');
     setErrMsg('');
+    setFound(null);
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setErrMsg('Your browser does not support camera access. Try Chrome on Android or Safari on iOS.');
+      setPhase('denied');
+      return;
+    }
+
+    // Try rear camera first, fall back to any camera
+    let stream;
     try {
-      const s = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: { ideal: 'environment' },
-          width:  { ideal: 1920 },
-          height: { ideal: 1080 },
-        },
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment' },
         audio: false,
       });
-      stream.current = s;
-      const track = s.getVideoTracks()[0];
-      trackRef.current = track;
-
-      // Detect torch support
-      const caps = track.getCapabilities?.() || {};
-      setTorchOk(!!caps.torch);
-
-      if (videoEl.current) {
-        videoEl.current.srcObject = s;
-        // Start scan loop as soon as metadata is ready
-        videoEl.current.onloadedmetadata = () => {
-          videoEl.current.play().then(() => {
-            setPhase('live');
-            scanning.current = true;
-            raf.current = requestAnimationFrame(tick);
-          }).catch(e => {
-            console.error('video play error', e);
-            setPhase('denied');
-            setErrMsg('Could not start video. Try refreshing.');
-          });
-        };
+    } catch (e1) {
+      try {
+        // Some desktop browsers only have a front camera
+        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      } catch (e2) {
+        const msg =
+          e2.name === 'NotAllowedError'  ? 'Camera permission denied. Tap the camera icon in your browser address bar to allow access, then reload.' :
+          e2.name === 'NotFoundError'    ? 'No camera found on this device.' :
+          e2.name === 'NotReadableError' ? 'Camera is already in use by another app.' :
+                                           `Camera error: ${e2.message}`;
+        setErrMsg(msg);
+        setPhase('denied');
+        return;
       }
-    } catch (e) {
-      console.error('Camera error:', e);
-      const msg = e.name === 'NotAllowedError'
-        ? 'Camera permission denied. Allow camera access in your browser settings and try again.'
-        : e.name === 'NotFoundError'
-        ? 'No camera found on this device.'
-        : `Camera error: ${e.message}`;
-      setErrMsg(msg);
-      setPhase('denied');
     }
+
+    streamRef.current = stream;
+    const track = stream.getVideoTracks()[0];
+    trackRef.current = track;
+
+    // Detect torch
+    try {
+      const caps = track.getCapabilities?.() ?? {};
+      setTorchOk(!!caps.torch);
+    } catch (_) { setTorchOk(false); }
+
+    const vid = videoRef.current;
+    if (!vid) { stopEverything(); return; }
+
+    vid.srcObject = stream;
+
+    // Use 'canplay' — fires when enough data is available to begin playback
+    vid.oncanplay = () => {
+      vid.play()
+        .then(() => {
+          setPhase('live');
+          // Start scan loop: 8fps is plenty for QR scanning and is gentle on CPU
+          timerRef.current = setInterval(scanTick, 125);
+        })
+        .catch(e => {
+          setErrMsg(`Video playback failed: ${e.message}. Try reloading.`);
+          setPhase('denied');
+        });
+    };
+
+    vid.onerror = (e) => {
+      setErrMsg('Video stream error. Try reloading.');
+      setPhase('denied');
+    };
   }
 
-  // ── torch ─────────────────────────────────────────────────────────────────
+  // ── torch toggle ──────────────────────────────────────────────────────────
   async function toggleTorch() {
     const track = trackRef.current;
     if (!track) return;
     try {
-      await track.applyConstraints({ advanced: [{ torch: !torchOn }] });
-      setTorchOn(t => !t);
-    } catch (e) {
-      console.warn('Torch error:', e);
-    }
+      await track.applyConstraints({ advanced: [{ torch: !torch }] });
+      setTorch(t => !t);
+    } catch (_) {/* not all phones support torch constraint */}
   }
 
-  // ── mount / unmount ───────────────────────────────────────────────────────
+  // ── lifecycle ─────────────────────────────────────────────────────────────
   useEffect(() => {
     startCamera();
-    return stopAll;
+    return stopEverything;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ── confirm found QR ──────────────────────────────────────────────────────
-  function confirmFound() {
+  function handleClose() { stopEverything(); onClose(); }
+
+  function handleConfirm() {
     if (!found) return;
     onScanSuccess(found.name, found.vpa);
   }
 
-  function rescan() {
-    setFound(null);
-    startCamera();
-  }
-
-  function close() {
-    stopAll();
-    onClose();
-  }
-
-  // ─────────────────────────────────────────────────────────────────────────
+  // ─── Render ───────────────────────────────────────────────────────────────
   return (
-    <div style={css.root}>
+    <div style={S.root}>
 
-      {/* ── top bar ─────────────────────────────────────────────── */}
-      <div style={css.bar}>
-        <button style={css.barBtn} onClick={close} aria-label="Close scanner">
+      {/* top bar */}
+      <div style={S.bar}>
+        <button style={S.barBtn} onClick={handleClose} aria-label="Close">
           <X size={20} color="#fff" />
         </button>
-        <span style={css.barTitle}>Scan &amp; Pay</span>
+        <span style={S.barTitle}>Scan &amp; Pay</span>
         {torchOk ? (
-          <button style={css.barBtn} onClick={toggleTorch} aria-label="Toggle torch">
-            {torchOn
-              ? <ZapOff size={18} color="#ffdd57" />
-              : <Zap    size={18} color="#fff"    />}
+          <button style={S.barBtn} onClick={toggleTorch} aria-label="Flashlight">
+            {torch ? <ZapOff size={18} color="#ffdd57" /> : <Zap size={18} color="#fff" />}
           </button>
-        ) : (
-          <div style={{ width: 32 }} /> /* spacer */
-        )}
+        ) : <div style={{ width: 36 }} />}
       </div>
 
-      {/* ── viewfinder ──────────────────────────────────────────── */}
-      <div style={css.viewport}>
+      {/* viewport */}
+      <div style={S.viewport}>
 
-        {/* live video — always in DOM so ref is valid */}
+        {/* video is always rendered so the ref stays valid */}
         <video
-          ref={videoEl}
-          style={{
-            ...css.video,
-            opacity: phase === 'live' ? 1 : 0,
-            transition: 'opacity 0.4s',
-          }}
+          ref={videoRef}
+          style={{ ...S.video, visibility: phase === 'live' ? 'visible' : 'hidden' }}
           autoPlay
           playsInline
           muted
         />
 
-        {/* hidden capture canvas */}
-        <canvas ref={canvasEl} style={{ display: 'none' }} />
+        {/* hidden canvas for frame capture */}
+        <canvas ref={canvasRef} style={{ display: 'none' }} />
 
-        {/* ── overlays ─────────────────────────────────────────── */}
-
-        {/* boot spinner */}
-        {phase === 'boot' && (
-          <div style={css.overlay}>
-            <div style={css.spinner} />
-            <p style={css.overlayText}>Opening camera…</p>
+        {/* ── requesting ── */}
+        {phase === 'requesting' && (
+          <div style={S.center}>
+            <div style={S.spinner} />
+            <p style={S.centerText}>Opening camera…</p>
           </div>
         )}
 
-        {/* permission / hardware error */}
+        {/* ── denied / error ── */}
         {phase === 'denied' && (
-          <div style={css.overlay}>
-            <CameraOff size={48} color="#eb3b88" />
-            <p style={{ ...css.overlayText, marginTop: 16, color: '#fff', fontWeight: 700 }}>
+          <div style={S.center}>
+            <CameraOff size={52} color="#eb3b88" style={{ marginBottom: 20 }} />
+            <p style={{ ...S.centerText, color: '#fff', fontWeight: 700, fontSize: 15, marginBottom: 10 }}>
               Camera unavailable
             </p>
-            <p style={{ ...css.overlayText, marginTop: 6, fontSize: 12, color: '#888', lineHeight: 1.6 }}>
+            <p style={{ ...S.centerText, fontSize: 12, color: '#888', lineHeight: 1.7, maxWidth: 260 }}>
               {errMsg}
             </p>
-            <button style={css.retryBtn} onClick={() => startCamera()}>
-              Try again
-            </button>
+            <button style={S.retryBtn} onClick={startCamera}>Try again</button>
           </div>
         )}
 
-        {/* live: scanner frame + scan line */}
+        {/* ── live: scanner frame ── */}
         {phase === 'live' && (
           <>
-            {/* dark vignette around the frame */}
-            <div style={css.vignette} />
+            {/* dim everything outside the target frame */}
+            <div style={S.vigTop}    />
+            <div style={S.vigBottom} />
+            <div style={S.vigLeft}   />
+            <div style={S.vigRight}  />
 
-            {/* corner brackets */}
-            <div style={css.frame}>
-              <span style={{ ...css.corner, borderTopColor: NEON,    borderLeftColor:  NEON,    top:    0, left:   0 }} />
-              <span style={{ ...css.corner, borderTopColor: NEON,    borderRightColor: NEON,    top:    0, right:  0 }} />
-              <span style={{ ...css.corner, borderBottomColor: NEON, borderLeftColor:  NEON,    bottom: 0, left:   0 }} />
-              <span style={{ ...css.corner, borderBottomColor: NEON, borderRightColor: NEON,    bottom: 0, right:  0 }} />
-              {/* animated scan line inside the frame */}
-              <div style={css.scanLine} />
+            {/* target frame corners */}
+            <div style={S.frameBox}>
+              <span style={{ ...S.corner, top: 0, left: 0, borderTopWidth: 3, borderLeftWidth: 3 }} />
+              <span style={{ ...S.corner, top: 0, right: 0, borderTopWidth: 3, borderRightWidth: 3 }} />
+              <span style={{ ...S.corner, bottom: 0, left: 0, borderBottomWidth: 3, borderLeftWidth: 3 }} />
+              <span style={{ ...S.corner, bottom: 0, right: 0, borderBottomWidth: 3, borderRightWidth: 3 }} />
+              {/* animated scan line */}
+              <div style={S.scanLine} />
             </div>
 
-            <p style={css.hint}>Point at any UPI QR code</p>
+            <p style={S.hint}>Point at any UPI QR code</p>
           </>
         )}
 
-        {/* found confirmation overlay */}
+        {/* ── found ── */}
         {phase === 'found' && found && (
-          <div style={css.foundOverlay}>
-            <div style={css.foundCircle}>
-              <Check size={32} color="#000" strokeWidth={3} />
+          <div style={S.foundOverlay}>
+            <div style={S.foundCircle}>
+              <Check size={34} color="#000" strokeWidth={3} />
             </div>
-            <p style={css.foundLabel}>QR Detected</p>
-            <p style={css.foundName}>{found.name}</p>
-            <p style={css.foundVpa}>{found.vpa}</p>
-            <button style={css.payBtn} onClick={confirmFound}>
-              Pay now <ArrowRight size={16} style={{ marginLeft: 6 }} />
+            <p style={S.foundBadge}>QR Detected</p>
+            <p style={S.foundName}>{found.name}</p>
+            <p style={S.foundVpa}>{found.vpa}</p>
+            <button style={S.payBtn} onClick={handleConfirm}>
+              Pay now&nbsp;<ArrowRight size={16} />
             </button>
-            <button style={css.rescanBtn} onClick={rescan}>Scan again</button>
+            <button style={S.rescanBtn} onClick={startCamera}>Scan again</button>
           </div>
         )}
       </div>
 
-      {/* ── bottom labels ────────────────────────────────────────── */}
-      <div style={css.footer}>
-        <p style={css.footerNote}>Supports all UPI QR codes</p>
-        <div style={css.chips}>
-          {['GPay', 'PhonePe', 'Paytm', 'BHIM', 'payit'].map((n, i) => (
-            <span key={n} style={{ ...css.chip, color: CHIP_COLORS[i] }}>{n}</span>
+      {/* footer */}
+      <div style={S.footer}>
+        <p style={S.footerNote}>Works with all UPI QR codes</p>
+        <div style={S.chips}>
+          {[['GPay','#22e67b'],['PhonePe','#6e3cff'],['Paytm','#00bcd4'],['BHIM','#eb3b88'],['payit','#aa33ff']].map(([n,c]) => (
+            <span key={n} style={{ ...S.chip, color: c, borderColor: c + '33' }}>{n}</span>
           ))}
         </div>
       </div>
 
-      {/* keyframe animations via inline style tag */}
       <style>{`
-        @keyframes qr-spin  { to { transform: rotate(360deg); } }
-        @keyframes qr-sweep {
-          0%   { top: 0%;   opacity: 0; }
-          5%   {            opacity: 1; }
-          95%  {            opacity: 1; }
-          100% { top: 100%; opacity: 0; }
+        @keyframes qs-spin  { to { transform: rotate(360deg); } }
+        @keyframes qs-sweep {
+          0%,100% { opacity: 0; }
+          5%       { opacity: 1; top: 4px;  }
+          95%      { opacity: 1; top: calc(100% - 4px); }
         }
       `}</style>
     </div>
   );
 }
 
-// ─── Design tokens ────────────────────────────────────────────────────────────
-const NEON = '#22e67b';
-const CHIP_COLORS = ['#22e67b', '#0088ff', '#00cccc', '#eb3b88', '#aa33ff'];
-
 // ─── Styles ───────────────────────────────────────────────────────────────────
-const css = {
+const NEON     = '#22e67b';
+const FRAME_W  = 220;   // px — target box size
+const VIG_CLR  = 'rgba(0,0,0,0.6)';
+
+const S = {
   root: {
     display: 'flex', flexDirection: 'column', height: '100%',
     background: '#000', overflow: 'hidden', userSelect: 'none',
   },
 
-  /* top bar */
+  /* bar */
   bar: {
     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-    height: 52, padding: '0 12px',
-    background: 'linear-gradient(to bottom, rgba(0,0,0,0.9), transparent)',
-    position: 'relative', zIndex: 10,
+    padding: '0 10px', height: 52, flexShrink: 0,
+    background: 'linear-gradient(180deg,rgba(0,0,0,.95),transparent)',
+    position: 'relative', zIndex: 20,
   },
   barBtn: {
     width: 36, height: 36, borderRadius: '50%', background: 'rgba(255,255,255,0.08)',
-    border: 'none', cursor: 'pointer',
-    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
   },
-  barTitle: { fontSize: 15, fontWeight: 700, color: '#fff', letterSpacing: 0.2 },
+  barTitle: { fontSize: 15, fontWeight: 700, color: '#fff' },
 
   /* viewport */
   viewport: {
-    flex: 1, position: 'relative',
+    flex: 1, position: 'relative', overflow: 'hidden',
+    background: '#000',
     display: 'flex', alignItems: 'center', justifyContent: 'center',
-    background: '#000', overflow: 'hidden',
   },
   video: {
     position: 'absolute', inset: 0, width: '100%', height: '100%',
     objectFit: 'cover',
   },
 
-  /* generic centred overlay */
-  overlay: {
-    position: 'absolute', inset: 0, zIndex: 8,
+  /* centered state overlay */
+  center: {
+    position: 'absolute', inset: 0, zIndex: 10,
+    background: '#000',
     display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-    background: '#000', padding: 32, textAlign: 'center',
+    padding: 32, textAlign: 'center',
   },
-  overlayText: { color: '#aaa', fontSize: 13, margin: 0 },
+  centerText: { color: '#aaa', fontSize: 13, margin: 0 },
   spinner: {
     width: 44, height: 44, borderRadius: '50%',
-    border: '3px solid #222', borderTopColor: NEON,
-    animation: 'qr-spin 0.75s linear infinite',
-    marginBottom: 18,
+    border: '3px solid #1a1a1a', borderTopColor: NEON,
+    animation: 'qs-spin 0.8s linear infinite', marginBottom: 18,
   },
   retryBtn: {
-    marginTop: 20, padding: '10px 24px', borderRadius: 12,
+    marginTop: 24, padding: '11px 28px', borderRadius: 14,
     background: NEON, color: '#000', border: 'none',
-    fontSize: 13, fontWeight: 700, cursor: 'pointer',
+    fontSize: 14, fontWeight: 700, cursor: 'pointer',
   },
 
-  /* vignette (semi-transparent dark area outside frame) */
-  vignette: {
-    position: 'absolute', inset: 0, zIndex: 2,
-    background: 'rgba(0,0,0,0.55)',
-    /* actual cut-out is done by the frame div sitting on top */
-    pointerEvents: 'none',
+  /* vignette panels (4 divs, not box-shadow, to avoid clipping issues) */
+  vigTop: {
+    position: 'absolute', top: 0, left: 0, right: 0,
+    height: `calc(50% - ${FRAME_W / 2}px)`, background: VIG_CLR, zIndex: 2,
+  },
+  vigBottom: {
+    position: 'absolute', bottom: 0, left: 0, right: 0,
+    height: `calc(50% - ${FRAME_W / 2}px)`, background: VIG_CLR, zIndex: 2,
+  },
+  vigLeft: {
+    position: 'absolute', top: `calc(50% - ${FRAME_W / 2}px)`, left: 0,
+    width: `calc(50% - ${FRAME_W / 2}px)`, height: FRAME_W, background: VIG_CLR, zIndex: 2,
+  },
+  vigRight: {
+    position: 'absolute', top: `calc(50% - ${FRAME_W / 2}px)`, right: 0,
+    width: `calc(50% - ${FRAME_W / 2}px)`, height: FRAME_W, background: VIG_CLR, zIndex: 2,
   },
 
-  /* scanner frame */
-  frame: {
-    position: 'absolute', zIndex: 3,
-    width: 220, height: 220,
-    /* vertically center, slightly above mid */
+  /* target frame */
+  frameBox: {
+    position: 'absolute',
+    width: FRAME_W, height: FRAME_W,
     top: '50%', left: '50%',
-    transform: 'translate(-50%, -55%)',
-    /* clear the vignette behind the frame */
-    background: 'transparent',
-    boxShadow: '0 0 0 9999px rgba(0,0,0,0.55)',
-    borderRadius: 4,
-    overflow: 'hidden',
+    transform: 'translate(-50%, -50%)',
+    zIndex: 3,
   },
   corner: {
-    position: 'absolute', width: 26, height: 26,
-    borderWidth: 3, borderStyle: 'solid', borderColor: 'transparent',
-    borderRadius: 2,
+    position: 'absolute', width: 28, height: 28,
+    borderStyle: 'solid', borderColor: NEON, borderWidth: 0,
+    borderRadius: 3,
   },
   scanLine: {
-    position: 'absolute', left: 4, right: 4, height: 2,
-    background: `linear-gradient(90deg, transparent, ${NEON} 40%, ${NEON} 60%, transparent)`,
-    boxShadow: `0 0 10px ${NEON}88`,
-    animation: 'qr-sweep 2s ease-in-out infinite',
+    position: 'absolute', left: 6, right: 6, height: 2,
+    background: `linear-gradient(90deg, transparent, ${NEON}, transparent)`,
+    boxShadow: `0 0 10px ${NEON}`,
+    animation: 'qs-sweep 2s ease-in-out infinite',
     borderRadius: 1,
   },
   hint: {
-    position: 'absolute', bottom: '18%', zIndex: 5,
-    background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(6px)',
-    color: '#fff', fontSize: 12, fontWeight: 500,
-    padding: '6px 16px', borderRadius: 20,
-    border: '1px solid rgba(255,255,255,0.08)', margin: 0,
+    position: 'absolute', bottom: '14%', zIndex: 5,
+    background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(8px)',
+    color: '#fff', fontSize: 12, fontWeight: 500, margin: 0,
+    padding: '7px 18px', borderRadius: 24,
+    border: '1px solid rgba(255,255,255,0.07)',
   },
 
-  /* found overlay */
+  /* found */
   foundOverlay: {
-    position: 'absolute', inset: 0, zIndex: 10,
-    background: 'rgba(0,0,0,0.92)',
+    position: 'absolute', inset: 0, zIndex: 15,
+    background: 'rgba(0,0,0,0.93)',
     display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
     padding: 28,
   },
   foundCircle: {
-    width: 72, height: 72, borderRadius: '50%', background: NEON,
+    width: 76, height: 76, borderRadius: '50%', background: NEON,
     display: 'flex', alignItems: 'center', justifyContent: 'center',
-    marginBottom: 18,
-    boxShadow: `0 0 32px ${NEON}66`,
+    marginBottom: 20, boxShadow: `0 0 40px ${NEON}55`,
   },
-  foundLabel: { color: NEON, fontSize: 12, fontWeight: 700, letterSpacing: 0.8, marginBottom: 6, margin: 0 },
-  foundName:  { color: '#fff', fontSize: 22, fontWeight: 800, marginBottom: 4, margin: '6px 0 2px' },
-  foundVpa:   { color: '#666', fontSize: 13, fontWeight: 500, marginBottom: 28, margin: '2px 0 24px' },
+  foundBadge: { color: NEON, fontSize: 11, fontWeight: 800, letterSpacing: 1.2, margin: '0 0 8px' },
+  foundName:  { color: '#fff', fontSize: 22, fontWeight: 800, margin: '0 0 4px' },
+  foundVpa:   { color: '#555', fontSize: 13, margin: '0 0 28px' },
   payBtn: {
     background: NEON, color: '#000', border: 'none', borderRadius: 16,
-    padding: '14px 36px', fontSize: 16, fontWeight: 800, cursor: 'pointer',
-    display: 'flex', alignItems: 'center', marginBottom: 12,
-    boxShadow: `0 4px 24px ${NEON}44`,
+    padding: '14px 40px', fontSize: 16, fontWeight: 800, cursor: 'pointer',
+    display: 'flex', alignItems: 'center', gap: 6, marginBottom: 14,
   },
   rescanBtn: {
     background: 'none', border: 'none', color: '#555',
-    fontSize: 13, fontWeight: 600, cursor: 'pointer', padding: '4px 0',
+    fontSize: 13, fontWeight: 600, cursor: 'pointer',
   },
 
   /* footer */
   footer: {
-    padding: '12px 16px 24px', background: 'rgba(0,0,0,0.9)',
-    textAlign: 'center',
+    padding: '10px 16px 22px', background: 'rgba(0,0,0,0.95)',
+    textAlign: 'center', flexShrink: 0,
   },
-  footerNote: { color: '#333', fontSize: 11, fontWeight: 600, margin: '0 0 8px', letterSpacing: 0.3 },
-  chips: { display: 'flex', justifyContent: 'center', gap: 8, flexWrap: 'wrap' },
+  footerNote: { color: '#2a2a2a', fontSize: 11, fontWeight: 600, margin: '0 0 8px' },
+  chips: { display: 'flex', justifyContent: 'center', flexWrap: 'wrap', gap: 6 },
   chip: {
-    fontSize: 11, fontWeight: 700, background: 'rgba(255,255,255,0.04)',
-    border: '1px solid rgba(255,255,255,0.06)',
-    padding: '3px 10px', borderRadius: 20,
+    fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 20,
+    background: 'rgba(255,255,255,0.03)', border: '1px solid transparent',
   },
 };

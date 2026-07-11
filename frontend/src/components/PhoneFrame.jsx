@@ -83,7 +83,7 @@ const PhoneFrame = ({
 
 
       {/* Screen Header (Dynamic Layout matching screenshots) */}
-      {currentScreen !== 'login' && (
+      {currentScreen !== 'login' && currentScreen !== 'qr-scanner' && (
         <div style={styles.header}>
           {showBackButton ? (
             // Sub-screen header with Back button
@@ -151,7 +151,7 @@ const PhoneFrame = ({
       </div>
 
       {/* Bottom Navigation Bar - Scrolling Wheel / Carousel Style */}
-      {currentScreen !== 'login' && (
+      {currentScreen !== 'login' && currentScreen !== 'qr-scanner' && (
         <div className="payit-navbar-container">
           <div 
             className="payit-navbar-track"

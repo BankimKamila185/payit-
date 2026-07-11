@@ -41,6 +41,48 @@ const PhoneFrame = ({
     }
   };
 
+  const touchStartXRef = React.useRef(0);
+  const touchStartYRef = React.useRef(0);
+
+  const navigatePage = (direction) => {
+    const screens = ['banking', 'explore', 'transfer', 'slice-shield', 'activity'];
+    let currentIndex = 0;
+    if (['banking', 'check-balance', 'upi-settings'].includes(currentScreen)) currentIndex = 0;
+    else if (['explore', 'recharge-bills'].includes(currentScreen)) currentIndex = 1;
+    else if (['transfer', 'qr-scanner'].includes(currentScreen)) currentIndex = 2;
+    else if (currentScreen === 'slice-shield') currentIndex = 3;
+    else if (['activity', 'paid-success'].includes(currentScreen)) currentIndex = 4;
+    else return;
+
+    let targetIndex = currentIndex;
+    if (direction === 'prev') {
+      targetIndex = Math.max(0, currentIndex - 1);
+    } else if (direction === 'next') {
+      targetIndex = Math.min(screens.length - 1, currentIndex + 1);
+    }
+
+    if (targetIndex !== currentIndex) {
+      onScreenChange(screens[targetIndex]);
+    }
+  };
+
+  const handleTouchStart = (e) => {
+    touchStartXRef.current = e.touches[0].clientX;
+    touchStartYRef.current = e.touches[0].clientY;
+  };
+
+  const handleTouchEnd = (e) => {
+    const diffX = e.changedTouches[0].clientX - touchStartXRef.current;
+    const diffY = e.changedTouches[0].clientY - touchStartYRef.current;
+    if (Math.abs(diffX) > 70 && Math.abs(diffY) < 45) {
+      if (diffX > 0) {
+        navigatePage('prev');
+      } else {
+        navigatePage('next');
+      }
+    }
+  };
+
   React.useEffect(() => {
     const updateTime = () => {
       const now = new Date();
@@ -133,7 +175,11 @@ const PhoneFrame = ({
       )}
 
       {/* Viewport for Active Screen Content */}
-      <div style={styles.screenContent}>
+      <div 
+        style={styles.screenContent}
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+      >
         {children}
       </div>
 

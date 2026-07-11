@@ -17,6 +17,8 @@ import RechargeBills from './screens/RechargeBills';
 import FraudReportForm from './screens/FraudReportForm';
 import OnboardingFlow from './screens/OnboardingFlow';
 import PayeeSelector from './screens/PayeeSelector';
+import ReferPage from './screens/ReferPage';
+import AutopayPage from './screens/AutopayPage';
 import { api, getDeviceId, saveSession, getSession, clearSession } from './api';
 
 import { Shield, Lock, ShieldCheck, AlertTriangle, Fingerprint, Phone, X, Check, Bell, Clock, MapPin, Smartphone, ShieldAlert } from 'lucide-react';
@@ -556,7 +558,8 @@ function App() {
             }}
             onPromoClick={(id) => {
               if (id === 'spends') pushScreen('analytics');
-              else if (id === 'autopay') pushScreen('upi-settings');
+              else if (id === 'autopay') pushScreen('autopay');
+              else if (id === 'referral') pushScreen('refer');
               else {
                 setRecipient("payit rewards bonus");
                 pushScreen('transfer');
@@ -713,6 +716,14 @@ function App() {
             onSubmitSuccess={handleFraudReportSuccess}
           />
         );
+      case 'refer':
+        return (
+          <ReferPage onBack={popScreen} />
+        );
+      case 'autopay':
+        return (
+          <AutopayPage onBack={popScreen} />
+        );
       default:
         return (
           <Banking 
@@ -738,13 +749,15 @@ function App() {
       'upi-settings': 'UPI Settings',
       transfer: 'Transfer',
       'payee-selector': 'Select Payee',
-      'fraud-report': ''
+      'fraud-report': '',
+      'refer': 'Invite & Earn',
+      'autopay': ''
     };
     return titles[activeScreen] || '';
   };
 
   const showBackButton = () => {
-    return ['recharge-bills', 'analytics', 'check-balance', 'upi-settings', 'transfer', 'qr-scanner', 'paid-success', 'fraud-report', 'payee-selector'].includes(activeScreen);
+    return ['recharge-bills', 'analytics', 'check-balance', 'upi-settings', 'transfer', 'qr-scanner', 'paid-success', 'fraud-report', 'payee-selector', 'refer', 'autopay'].includes(activeScreen);
   };
 
   // While restoring a saved session on open, don't flash the login screen.

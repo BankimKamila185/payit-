@@ -1,9 +1,9 @@
 /**
- * QrScanner.jsx — Camera-based UPI QR code scanner
+ * QrScanner.jsx — Camera-based UPI QR code scanner with a beautiful full-screen camera layout
  *
  * Approach:
  *  - getUserMedia (rear camera preferred)
- *  - setInterval at 8fps for scan frames (more reliable than rAF on mobile)
+ *  - setInterval at 8fps for scan frames
  *  - jsQR with attemptBoth for dark/light QR variants
  *  - Cleans up on unmount / close / rescan
  */
@@ -16,12 +16,10 @@ function parseUpiUri(raw) {
   if (!raw) return null;
   raw = raw.trim();
   
-  // Try parsing as URL first (support upi://pay?...)
   try {
     const urlStr = raw.startsWith('upi://') ? raw : 'upi://x?' + raw;
     const url = new URL(urlStr);
     
-    // Support both lowercase and uppercase query parameters (standard UPI can be case-insensitive)
     const pa = url.searchParams.get('pa') || url.searchParams.get('PA') || '';
     const pn = url.searchParams.get('pn') || url.searchParams.get('PN') || '';
     
@@ -31,7 +29,6 @@ function parseUpiUri(raw) {
     }
   } catch (_) {/* ignore */}
 
-  // Fallback: search for a valid VPA pattern (e.g., name@bank) in the raw string using regex
   const vpaRegex = /[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z]{2,64}/;
   const match = raw.match(vpaRegex);
   if (match) {
@@ -47,7 +44,7 @@ export default function QrScanner({ onClose, onScanSuccess }) {
   const videoRef    = useRef(null);
   const canvasRef   = useRef(null);
   const streamRef   = useRef(null);
-  const timerRef    = useRef(null);   // setInterval handle
+  const timerRef    = useRef(null);
   const trackRef    = useRef(null);
 
   const [phase, setPhase]   = useState('requesting'); // requesting | live | denied | found
@@ -82,7 +79,6 @@ export default function QrScanner({ onClose, onScanSuccess }) {
     try { imgData = ctx.getImageData(0, 0, cvs.width, cvs.height); }
     catch (_) { return; }
 
-    // jsqr exports { default: fn } in CJS; Vite ESM interop may give the fn directly or wrapped
     const decode = (typeof jsQR === 'function') ? jsQR : jsQR?.default;
     if (typeof decode !== 'function') { console.warn('[QR] jsQR decode fn not found'); return; }
 
@@ -148,12 +144,9 @@ export default function QrScanner({ onClose, onScanSuccess }) {
 
     vid.srcObject = stream;
 
-    // Wait for at least metadata to be loaded before calling play()
-    // (required on Safari/iOS where play() before loadedmetadata throws)
     await new Promise((resolve) => {
-      if (vid.readyState >= 1) { resolve(); return; } // already have metadata
+      if (vid.readyState >= 1) { resolve(); return; }
       vid.addEventListener('loadedmetadata', resolve, { once: true });
-      // Safety timeout: resolve after 2s regardless
       setTimeout(resolve, 2000);
     });
 
@@ -195,106 +188,131 @@ export default function QrScanner({ onClose, onScanSuccess }) {
   // ─── Render ───────────────────────────────────────────────────────────────
   return (
     <div style={S.root}>
+      {/* video is always rendered so the ref stays valid */}
+      <video
+        ref={videoRef}
+        style={{ ...S.video, visibility: phase === 'live' ? 'visible' : 'hidden' }}
+        autoPlay
+        playsInline
+        muted
+      />
 
-      {/* top bar */}
-      <div style={S.bar}>
-        <button style={S.barBtn} onClick={handleClose} aria-label="Close">
-          <X size={20} color="#fff" />
-        </button>
-        <span style={S.barTitle}>Scan &amp; Pay</span>
-        {torchOk ? (
-          <button style={S.barBtn} onClick={toggleTorch} aria-label="Flashlight">
-            {torch ? <ZapOff size={18} color="#ffdd57" /> : <Zap size={18} color="#fff" />}
-          </button>
-        ) : <div style={{ width: 36 }} />}
-      </div>
+      {/* hidden canvas for frame capture */}
+      <canvas ref={canvasRef} style={{ display: 'none' }} />
 
-      {/* viewport */}
-      <div style={S.viewport}>
-
-        {/* video is always rendered so the ref stays valid */}
-        <video
-          ref={videoRef}
-          style={{ ...S.video, visibility: phase === 'live' ? 'visible' : 'hidden' }}
-          autoPlay
-          playsInline
-          muted
-        />
-
-        {/* hidden canvas for frame capture */}
-        <canvas ref={canvasRef} style={{ display: 'none' }} />
-
-        {/* ── requesting ── */}
-        {phase === 'requesting' && (
-          <div style={S.center}>
-            <div style={S.spinner} />
-            <p style={S.centerText}>Opening camera…</p>
-          </div>
-        )}
-
-        {/* ── denied / error ── */}
-        {phase === 'denied' && (
-          <div style={S.center}>
-            <CameraOff size={52} color="#eb3b88" style={{ marginBottom: 20 }} />
-            <p style={{ ...S.centerText, color: '#fff', fontWeight: 700, fontSize: 15, marginBottom: 10 }}>
-              Camera unavailable
-            </p>
-            <p style={{ ...S.centerText, fontSize: 12, color: '#888', lineHeight: 1.7, maxWidth: 260 }}>
-              {errMsg}
-            </p>
-            <button style={S.retryBtn} onClick={startCamera}>Try again</button>
-          </div>
-        )}
-
-        {/* ── live: scanner frame ── */}
-        {phase === 'live' && (
-          <>
-            {/* dim everything outside the target frame */}
-            <div style={S.vigTop}    />
-            <div style={S.vigBottom} />
-            <div style={S.vigLeft}   />
-            <div style={S.vigRight}  />
-
-            {/* target frame corners */}
-            <div style={S.frameBox}>
-              <span style={{ ...S.corner, top: 0, left: 0, borderTopWidth: 3, borderLeftWidth: 3 }} />
-              <span style={{ ...S.corner, top: 0, right: 0, borderTopWidth: 3, borderRightWidth: 3 }} />
-              <span style={{ ...S.corner, bottom: 0, left: 0, borderBottomWidth: 3, borderLeftWidth: 3 }} />
-              <span style={{ ...S.corner, bottom: 0, right: 0, borderBottomWidth: 3, borderRightWidth: 3 }} />
-              {/* animated scan line */}
-              <div style={S.scanLine} />
-            </div>
-
-            <p style={S.hint}>Point at any UPI QR code</p>
-          </>
-        )}
-
-        {/* ── found ── */}
-        {phase === 'found' && found && (
-          <div style={S.foundOverlay}>
-            <div style={S.foundCircle}>
-              <Check size={34} color="#000" strokeWidth={3} />
-            </div>
-            <p style={S.foundBadge}>QR Detected</p>
-            <p style={S.foundName}>{found.name}</p>
-            <p style={S.foundVpa}>{found.vpa}</p>
-            <button style={S.payBtn} onClick={handleConfirm}>
-              Pay now&nbsp;<ArrowRight size={16} />
-            </button>
-            <button style={S.rescanBtn} onClick={startCamera}>Scan again</button>
-          </div>
-        )}
-      </div>
-
-      {/* footer */}
-      <div style={S.footer}>
-        <p style={S.footerNote}>Works with all UPI QR codes</p>
-        <div style={S.chips}>
-          {[['GPay','#22e67b'],['PhonePe','#6e3cff'],['Paytm','#00bcd4'],['BHIM','#eb3b88'],['payit','#aa33ff']].map(([n,c]) => (
-            <span key={n} style={{ ...S.chip, color: c, borderColor: c + '33' }}>{n}</span>
-          ))}
+      {/* ── requesting ── */}
+      {phase === 'requesting' && (
+        <div style={S.center}>
+          <div style={S.spinner} />
+          <p style={S.centerText}>Opening camera…</p>
         </div>
-      </div>
+      )}
+
+      {/* ── denied / error ── */}
+      {phase === 'denied' && (
+        <div style={S.center}>
+          <CameraOff size={52} color="#eb3b88" style={{ marginBottom: 20 }} />
+          <p style={{ ...S.centerText, color: '#fff', fontWeight: 700, fontSize: 15, marginBottom: 10 }}>
+            Camera unavailable
+          </p>
+          <p style={{ ...S.centerText, fontSize: 12, color: '#888', lineHeight: 1.7, maxWidth: 260 }}>
+            {errMsg}
+          </p>
+          <button style={S.retryBtn} onClick={startCamera}>Try again</button>
+          {/* Circular close button for error state */}
+          <button style={S.closeCircleBtn} onClick={handleClose} aria-label="Close">
+            <X size={24} color="#fff" />
+          </button>
+        </div>
+      )}
+
+      {/* ── live: scanner overlay ── */}
+      {phase === 'live' && (
+        <>
+          {/* Top Right Flash button */}
+          {torchOk && (
+            <button style={S.flashBtn} onClick={toggleTorch} aria-label="Flashlight">
+              {torch ? <ZapOff size={22} color="#ffdd57" /> : <Zap size={22} color="#fff" />}
+            </button>
+          )}
+
+          {/* target frame corners */}
+          <div style={S.frameBox}>
+            <span style={{ ...S.corner, top: 0, left: 0, borderTopWidth: 3, borderLeftWidth: 3 }} />
+            <span style={{ ...S.corner, top: 0, right: 0, borderTopWidth: 3, borderRightWidth: 3 }} />
+            <span style={{ ...S.corner, bottom: 0, left: 0, borderBottomWidth: 3, borderLeftWidth: 3 }} />
+            <span style={{ ...S.corner, bottom: 0, right: 0, borderBottomWidth: 3, borderRightWidth: 3 }} />
+            {/* animated scan line */}
+            <div style={S.scanLine} />
+          </div>
+
+          {/* Bottom info section */}
+          <div style={S.bottomSection}>
+            <div style={S.hintContainer}>
+              <div style={S.hintTextRow}>
+                <span>Scan any </span>
+                {/* UPI logo */}
+                <svg width="28" height="10" viewBox="0 0 40 15" fill="none" style={{ margin: '0 4px', verticalAlign: 'middle' }}>
+                  <path d="M2 2 H6 L8 9 L10 2 H14" stroke="#ffffff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+                  <path d="M17 2 H21 V5 H17 Z M17 5 H21 V12 H17 Z" fill="#ffffff" />
+                  <path d="M25 2 H29 C31 2 32 3 32 5 C32 7 31 8 29 8 H25 V12 H25 Z" fill="#ffffff" />
+                  <path d="M36 2 H40" stroke="#ff8c00" strokeWidth="2.2" strokeLinecap="round" />
+                  <path d="M38 2 V12" stroke="#22e67b" strokeWidth="2.2" strokeLinecap="round" />
+                </svg>
+                <span> QR code</span>
+              </div>
+              <div style={S.logoRow}>
+                <span style={S.sliceLogo}>slice</span>
+                <div style={S.brandItem}>
+                  <div style={S.phonepeCircle}>pe</div>
+                  <span style={S.brandName}>PhonePe</span>
+                </div>
+                <div style={S.brandItem}>
+                  <div style={S.gpayCircle}>
+                    <div style={{width: 5, height: 5, borderRadius: '50%', backgroundColor: '#4285F4'}} />
+                    <div style={{width: 5, height: 5, borderRadius: '50%', backgroundColor: '#34A853'}} />
+                  </div>
+                  <span style={S.brandName}>Google Pay</span>
+                </div>
+                <span style={S.paytmLogo}>Paytm</span>
+              </div>
+            </div>
+
+            {/* Bottom floating actions */}
+            <div style={S.actionRow}>
+              {/* Gallery upload placeholder */}
+              <button style={S.actionCircleBtn} aria-label="Upload from gallery">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                  <circle cx="8.5" cy="8.5" r="1.5"/>
+                  <polyline points="21 15 16 10 5 21"/>
+                </svg>
+              </button>
+
+              {/* Close button */}
+              <button style={S.actionCircleBtn} onClick={handleClose} aria-label="Close">
+                <X size={24} color="#fff" />
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ── found ── */}
+      {phase === 'found' && found && (
+        <div style={S.foundOverlay}>
+          <div style={S.foundCircle}>
+            <Check size={34} color="#000" strokeWidth={3} />
+          </div>
+          <p style={S.foundBadge}>QR Detected</p>
+          <p style={S.foundName}>{found.name}</p>
+          <p style={S.foundVpa}>{found.vpa}</p>
+          <button style={S.payBtn} onClick={handleConfirm}>
+            Pay now&nbsp;<ArrowRight size={16} />
+          </button>
+          <button style={S.rescanBtn} onClick={startCamera}>Scan again</button>
+        </div>
+      )}
 
       <style>{`
         @keyframes qs-spin  { to { transform: rotate(360deg); } }
@@ -310,45 +328,35 @@ export default function QrScanner({ onClose, onScanSuccess }) {
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 const NEON     = '#22e67b';
-const FRAME_W  = 220;   // px — target box size
-const VIG_CLR  = 'rgba(0,0,0,0.6)';
 
 const S = {
   root: {
-    display: 'flex', flexDirection: 'column', height: '100%',
-    background: '#000', overflow: 'hidden', userSelect: 'none',
-  },
-
-  /* bar */
-  bar: {
-    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-    padding: '0 10px', height: 52, flexShrink: 0,
-    background: 'linear-gradient(180deg,rgba(0,0,0,.95),transparent)',
-    position: 'relative', zIndex: 20,
-  },
-  barBtn: {
-    width: 36, height: 36, borderRadius: '50%', background: 'rgba(255,255,255,0.08)',
-    border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-  },
-  barTitle: { fontSize: 15, fontWeight: 700, color: '#fff' },
-
-  /* viewport */
-  viewport: {
-    flex: 1, position: 'relative', overflow: 'hidden',
+    position: 'relative',
+    height: '100%',
+    width: '100%',
     background: '#000',
-    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    overflow: 'hidden',
+    userSelect: 'none',
   },
   video: {
-    position: 'absolute', inset: 0, width: '100%', height: '100%',
+    position: 'absolute',
+    inset: 0,
+    width: '100%',
+    height: '100%',
     objectFit: 'cover',
+    zIndex: 1,
   },
-
-  /* centered state overlay */
   center: {
-    position: 'absolute', inset: 0, zIndex: 10,
+    position: 'absolute',
+    inset: 0,
+    zIndex: 10,
     background: '#000',
-    display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-    padding: 32, textAlign: 'center',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 32,
+    textAlign: 'center',
   },
   centerText: { color: '#aaa', fontSize: 13, margin: 0 },
   spinner: {
@@ -360,88 +368,206 @@ const S = {
     marginTop: 24, padding: '11px 28px', borderRadius: 14,
     background: NEON, color: '#000', border: 'none',
     fontSize: 14, fontWeight: 700, cursor: 'pointer',
+    marginBottom: 20,
   },
-
-  /* vignette panels (4 divs, not box-shadow, to avoid clipping issues) */
-  vigTop: {
-    position: 'absolute', top: 0, left: 0, right: 0,
-    height: `calc(50% - ${FRAME_W / 2}px)`, background: VIG_CLR, zIndex: 2,
+  closeCircleBtn: {
+    width: 56,
+    height: 56,
+    borderRadius: '50%',
+    background: 'rgba(255, 255, 255, 0.15)',
+    backdropFilter: 'blur(10px)',
+    border: 'none',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    cursor: 'pointer',
   },
-  vigBottom: {
-    position: 'absolute', bottom: 0, left: 0, right: 0,
-    height: `calc(50% - ${FRAME_W / 2}px)`, background: VIG_CLR, zIndex: 2,
+  flashBtn: {
+    position: 'absolute',
+    top: 24,
+    right: 24,
+    zIndex: 10,
+    width: 44,
+    height: 44,
+    borderRadius: '50%',
+    background: 'rgba(0, 0, 0, 0.35)',
+    backdropFilter: 'blur(8px)',
+    border: '1px solid rgba(255, 255, 255, 0.1)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    cursor: 'pointer',
   },
-  vigLeft: {
-    position: 'absolute', top: `calc(50% - ${FRAME_W / 2}px)`, left: 0,
-    width: `calc(50% - ${FRAME_W / 2}px)`, height: FRAME_W, background: VIG_CLR, zIndex: 2,
-  },
-  vigRight: {
-    position: 'absolute', top: `calc(50% - ${FRAME_W / 2}px)`, right: 0,
-    width: `calc(50% - ${FRAME_W / 2}px)`, height: FRAME_W, background: VIG_CLR, zIndex: 2,
-  },
-
-  /* target frame */
   frameBox: {
     position: 'absolute',
-    width: FRAME_W, height: FRAME_W,
-    top: '50%', left: '50%',
+    width: 240,
+    height: 240,
+    top: '40%',
+    left: '50%',
     transform: 'translate(-50%, -50%)',
-    zIndex: 3,
+    zIndex: 5,
   },
   corner: {
-    position: 'absolute', width: 28, height: 28,
-    borderStyle: 'solid', borderColor: NEON, borderWidth: 0,
-    borderRadius: 3,
+    position: 'absolute',
+    width: 32,
+    height: 32,
+    borderStyle: 'solid',
+    borderColor: '#ffffff',
+    borderWidth: 0,
+    borderRadius: 8,
   },
   scanLine: {
-    position: 'absolute', left: 6, right: 6, height: 2,
-    background: `linear-gradient(90deg, transparent, ${NEON}, transparent)`,
-    boxShadow: `0 0 10px ${NEON}`,
+    position: 'absolute',
+    left: 6,
+    right: 6,
+    height: 2,
+    background: 'linear-gradient(90deg, transparent, #ffffff, transparent)',
+    boxShadow: '0 0 10px #ffffff',
     animation: 'qs-sweep 2s ease-in-out infinite',
     borderRadius: 1,
   },
-  hint: {
-    position: 'absolute', bottom: '14%', zIndex: 5,
-    background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(8px)',
-    color: '#fff', fontSize: 12, fontWeight: 500, margin: 0,
-    padding: '7px 18px', borderRadius: 24,
-    border: '1px solid rgba(255,255,255,0.07)',
+  bottomSection: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    zIndex: 10,
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    padding: '24px 24px 40px',
+    background: 'linear-gradient(0deg, rgba(0, 0, 0, 0.8) 0%, rgba(0, 0, 0, 0.4) 60%, transparent 100%)',
   },
-
-  /* found */
+  hintContainer: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: '12px',
+    marginBottom: '32px',
+  },
+  hintTextRow: {
+    color: '#ffffff',
+    fontSize: '13px',
+    fontWeight: '600',
+    letterSpacing: '0.2px',
+    display: 'flex',
+    alignItems: 'center',
+  },
+  logoRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '16px',
+  },
+  sliceLogo: {
+    color: '#ffffff',
+    fontSize: '14px',
+    fontWeight: '800',
+    fontStyle: 'italic',
+    letterSpacing: '-0.5px',
+  },
+  brandItem: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '4px',
+  },
+  phonepeCircle: {
+    width: 14,
+    height: 14,
+    borderRadius: '50%',
+    backgroundColor: '#5f259f',
+    color: '#ffffff',
+    fontSize: '8px',
+    fontWeight: '800',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  gpayCircle: {
+    width: 14,
+    height: 14,
+    borderRadius: '50%',
+    backgroundColor: '#ffffff',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '1px',
+  },
+  brandName: {
+    color: '#ffffff',
+    fontSize: '11px',
+    fontWeight: '600',
+    opacity: 0.85,
+  },
+  paytmLogo: {
+    color: '#00baf2',
+    fontSize: '13px',
+    fontWeight: '800',
+  },
+  actionRow: {
+    width: '100%',
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    maxWidth: '280px',
+  },
+  actionCircleBtn: {
+    width: 56,
+    height: 56,
+    borderRadius: '50%',
+    background: 'rgba(255, 255, 255, 0.15)',
+    backdropFilter: 'blur(10px)',
+    border: 'none',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    cursor: 'pointer',
+    transition: 'background 0.2s',
+  },
   foundOverlay: {
-    position: 'absolute', inset: 0, zIndex: 15,
+    position: 'absolute',
+    inset: 0,
+    zIndex: 15,
     background: 'rgba(0,0,0,0.93)',
-    display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
     padding: 28,
   },
   foundCircle: {
-    width: 76, height: 76, borderRadius: '50%', background: NEON,
-    display: 'flex', alignItems: 'center', justifyContent: 'center',
-    marginBottom: 20, boxShadow: `0 0 40px ${NEON}55`,
+    width: 76,
+    height: 76,
+    borderRadius: '50%',
+    background: '#22e67b',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 20,
+    boxShadow: '0 0 40px rgba(34, 230, 123, 0.35)',
   },
-  foundBadge: { color: NEON, fontSize: 11, fontWeight: 800, letterSpacing: 1.2, margin: '0 0 8px' },
+  foundBadge: { color: '#22e67b', fontSize: 11, fontWeight: 800, letterSpacing: 1.2, margin: '0 0 8px' },
   foundName:  { color: '#fff', fontSize: 22, fontWeight: 800, margin: '0 0 4px' },
   foundVpa:   { color: '#555', fontSize: 13, margin: '0 0 28px' },
   payBtn: {
-    background: NEON, color: '#000', border: 'none', borderRadius: 16,
-    padding: '14px 40px', fontSize: 16, fontWeight: 800, cursor: 'pointer',
-    display: 'flex', alignItems: 'center', gap: 6, marginBottom: 14,
+    background: '#22e67b',
+    color: '#000',
+    border: 'none',
+    borderRadius: 16,
+    padding: '14px 40px',
+    fontSize: 16,
+    fontWeight: 800,
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 14,
   },
   rescanBtn: {
-    background: 'none', border: 'none', color: '#555',
-    fontSize: 13, fontWeight: 600, cursor: 'pointer',
-  },
-
-  /* footer */
-  footer: {
-    padding: '10px 16px 22px', background: 'rgba(0,0,0,0.95)',
-    textAlign: 'center', flexShrink: 0,
-  },
-  footerNote: { color: '#2a2a2a', fontSize: 11, fontWeight: 600, margin: '0 0 8px' },
-  chips: { display: 'flex', justifyContent: 'center', flexWrap: 'wrap', gap: 6 },
-  chip: {
-    fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 20,
-    background: 'rgba(255,255,255,0.03)', border: '1px solid transparent',
+    background: 'none',
+    border: 'none',
+    color: '#555',
+    fontSize: 13,
+    fontWeight: 600,
+    cursor: 'pointer',
   },
 };

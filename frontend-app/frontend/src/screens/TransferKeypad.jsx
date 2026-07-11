@@ -9,7 +9,8 @@ const TransferKeypad = ({
   onOpenScanner,
   onCheckBalance,
   userInitial = "U",
-  recipientVpa = ""
+  recipientVpa = "",
+  payeeRisk = null
 }) => {
   const [amount, setAmount] = useState(prefilledAmount ? prefilledAmount.toString() : "");
 
@@ -108,6 +109,25 @@ const TransferKeypad = ({
             <span style={styles.scamWarningDesc}>
               Warning: This recipient UPI has been reported 40+ times for cyber fraud lottery claims. Transfers may result in immediate loss of funds.
             </span>
+          </div>
+        </div>
+      )}
+
+      {/* REAL pre-payment beneficiary risk (from /precheck) — warns BEFORE you pay */}
+      {payeeRisk && payeeRisk.warn && !isFlaggedScam() && (
+        <div style={{
+          ...styles.scamWarningCard,
+          borderColor: payeeRisk.risk_level === 'high' ? 'rgba(235,59,136,0.4)' : 'rgba(255,140,0,0.4)',
+          backgroundColor: payeeRisk.risk_level === 'high' ? 'rgba(235,59,136,0.06)' : 'rgba(255,140,0,0.06)',
+        }}>
+          <AlertTriangle size={18} color={payeeRisk.risk_level === 'high' ? 'var(--accent-pink)' : '#ff8c00'} style={{ marginTop: 2 }} />
+          <div style={styles.scamWarningText}>
+            <span style={{ ...styles.scamWarningTitle, color: payeeRisk.risk_level === 'high' ? 'var(--accent-pink)' : '#ff8c00' }}>
+              {payeeRisk.risk_level === 'high' ? 'High-risk payee — think twice' : 'Heads up before you pay'}
+            </span>
+            {(payeeRisk.reasons || []).slice(0, 2).map((r, i) => (
+              <span key={i} style={styles.scamWarningDesc}>• {r}</span>
+            ))}
           </div>
         </div>
       )}

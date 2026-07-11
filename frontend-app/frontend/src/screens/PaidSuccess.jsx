@@ -27,10 +27,43 @@ const PaidSuccess = ({
   const date = transactionDetails.date || "25 Jun, 11:54 AM";
   const upiRef = transactionDetails.upiRef || "617871427501";
   const transId = transactionDetails.transId || "PAY27867B1E91953D47D9315D39D8361280";
-  const status = transactionDetails.status || "success"; // 'success', 'blocked', 'cooling_off', 'recalled'
+  const status = transactionDetails.status || "success"; // 'success','blocked','flagged','cooling_off','recalled'
   const timeLeft = transactionDetails.timeLeft !== undefined ? transactionDetails.timeLeft : 0;
   const reasons = transactionDetails.reasons || [];
   const score = transactionDetails.score;
+  const postMessage = transactionDetails.postMessage;
+
+  // ---- FLAGGED after completion: money DID move, but re-check flagged it -> offer recall ----
+  if (status === 'flagged') {
+    return (
+      <div style={styles.container} className="animate-slide-up">
+        <div style={styles.topBar}>
+          <span style={{ color: '#ff8c00', fontWeight: 700, textTransform: 'uppercase',
+                         fontSize: 11, letterSpacing: 0.5 }}>Flagged after payment</span>
+        </div>
+        <div style={{ ...styles.blockedWrapper, backgroundColor: 'rgba(255,140,0,0.05)',
+                      border: '1px solid rgba(255,140,0,0.2)' }}>
+          <div style={{ ...styles.blockedPulse, backgroundColor: 'rgba(255,140,0,0.1)' }}>
+            <Clock size={58} color="#ff8c00" />
+          </div>
+          <h2 style={{ ...styles.amountText, color: '#ff8c00' }}>Paid ₹{amount}</h2>
+          <p style={styles.recipientSub}>To {recipientName}</p>
+          <p style={{ ...styles.blockedBannerText, color: '#ff8c00' }}>
+            {postMessage || 'Our system flagged this payment right after. If confirmed fraud, money will be returned.'}
+          </p>
+        </div>
+        <button
+          onClick={() => onRecallTransaction && onRecallTransaction(transactionDetails.txId || transId)}
+          style={styles.recallBtnBig}>
+          <RotateCcw size={16} style={{ marginRight: 6 }} />
+          Recall payment — get ₹{amount} back now
+        </button>
+        <div style={{ ...styles.footer, marginTop: 12 }}>
+          <button onClick={onPayAgain} style={styles.payAgainBtn}>Keep it / Back to home</button>
+        </div>
+      </div>
+    );
+  }
 
   // ---- BLOCKED by Fraud Shield: a dedicated RED screen (never a green "success") ----
   if (status === 'blocked') {

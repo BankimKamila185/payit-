@@ -55,6 +55,7 @@ function App() {
   // --- REAL login: null until the user logs in (device binds on login) ---
   const [currentUser, setCurrentUser] = useState(null);
   const [currentUserName, setCurrentUserName] = useState('');
+  const [payeeRisk, setPayeeRisk] = useState(null);     // pre-payment beneficiary risk {risk_level, warn, reasons}
   const [realTxns, setRealTxns] = useState([]);
 
   const [booting, setBooting] = useState(true);         // checking saved session on open
@@ -113,6 +114,19 @@ function App() {
     if (currentUser) api.history(currentUser).then((r) => { if (r.ok) setRealTxns(r.data); });
   };
 
+  // PRE-PAYMENT beneficiary check: the moment a payee is chosen, score WHO they are
+  // (blacklist/new account/never-paid/mule) and warn early — before amount/PIN.
+  const runPrecheck = (vpa) => {
+    setPayeeRisk(null);
+    if (!currentUser || !vpa) return;
+    api.precheck(currentUser, vpa).then((r) => {
+      if (r.ok) {
+        setPayeeRisk(r.data);
+        if (r.data.warn) triggerNotification(`⚠️ ${r.data.reasons?.[0] || 'Risky payee'}`, "alert");
+      }
+    }).catch(() => {});
+  };
+
   // REAL "Pay to UPI ID": type ANY vpa -> backend resolves name/age -> go pay it.
   // This is how you reach someone NOT in your contacts (incl. a mule).
   const handlePayToVpa = async (raw) => {
@@ -124,6 +138,7 @@ function App() {
     setRecipient(name);
     setSelectedPayee({ name, vpa });        // exact target -> pays THIS vpa
     setPayAmount('');
+    runPrecheck(vpa);                        // early beneficiary risk warning
     pushScreen('transfer');
     return { ok: true, name };
   };
@@ -360,8 +375,14 @@ function App() {
         return;
       } else {                                  // SAFE
         setBalance(data.sender_balance);
-        setLastTx({ ...baseTx, status: 'success' });
-        triggerNotification("Payment successful", "info");
+        if (data.post_review) {                 // completed, but flagged in hindsight
+          setLastTx({ ...baseTx, status: 'flagged', postMessage: data.post_message,
+                      txId: data.transaction_id });
+          triggerNotification("⚠️ Payment flagged after completion — recall available", "alert");
+        } else {
+          setLastTx({ ...baseTx, status: 'success' });
+          triggerNotification("Payment successful", "info");
+        }
         pushScreen('paid-success');
       }
       refreshTxns();                            // reload real history after any result
@@ -377,9 +398,14 @@ function App() {
     const v = await api.verifyOtp(otpModal.txId, code);
     if (v.ok) {
       setBalance(v.data.sender_balance);
-      setLastTx({ ...otpModal.baseTx, status: 'success' });
       setOtpModal(null); setOtpInput("");
-      triggerNotification("Verified — payment completed", "info");
+      if (v.data.post_review) {
+        setLastTx({ ...otpModal.baseTx, status: 'flagged', postMessage: v.data.post_message, txId: otpModal.txId });
+        triggerNotification("⚠️ Payment flagged after completion — recall available", "alert");
+      } else {
+        setLastTx({ ...otpModal.baseTx, status: 'success' });
+        triggerNotification("Verified — payment completed", "info");
+      }
       pushScreen('paid-success');
       refreshTxns();
     } else {
@@ -489,16 +515,24 @@ function App() {
   };
 
   // --- RECALL / CANCEL TRANSACTION ---
-  const handleRecallTransaction = (txId) => {
+  const handleRecallTransaction = async (txId) => {
+    const realTxId = lastTx && lastTx.txId;   // real backend txn -> actually reverse
+    if (realTxId) {
+      const r = await api.recall(realTxId);
+      if (r.ok) {
+        setBalance(r.data.sender_balance);
+        setLastTx(prev => ({ ...prev, status: 'recalled', timeLeft: 0 }));
+        triggerNotification(`✅ ${r.data.message}`, "info");
+        refreshTxns();
+      } else {
+        triggerNotification(r.data.detail || "Recall failed", "alert");
+      }
+      return;
+    }
+    // legacy local cooling-off flow
     setPendingTransactions(prev => prev.filter(tx => tx.id !== txId));
     triggerNotification("Transaction Cancelled: Funds recalled safely", "info");
-    
-    // Update lastTx state to show recalled
-    setLastTx(prev => ({
-      ...prev,
-      status: 'recalled',
-      timeLeft: 0
-    }));
+    setLastTx(prev => ({ ...prev, status: 'recalled', timeLeft: 0 }));
   };
 
   // --- ONE-TAP FRAUD REPORT DRAWERS ---
@@ -565,6 +599,7 @@ function App() {
               setRecipient(displayName);
               setSelectedPayee({ name: displayName, vpa });   // exact target, wins over name-map
               setPayAmount("");
+              runPrecheck(vpa);                               // early beneficiary risk warning
               pushScreen('transfer');
             }}
             onCheckBalance={() => pushScreen('check-balance')}
@@ -706,6 +741,7 @@ function App() {
             recipientName={recipient}
             recipientVpa={(selectedPayee && selectedPayee.name === recipient)
               ? selectedPayee.vpa : (NAME_TO_VPA[recipient] || '')}
+            payeeRisk={payeeRisk}
             userInitial={(currentUserName || 'U').trim().charAt(0).toUpperCase()}
             prefilledAmount={payAmount}
             onTransferSuccess={(amt) => handlePaymentProcess(amt, false)}

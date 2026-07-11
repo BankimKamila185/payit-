@@ -59,6 +59,8 @@ export const api = {
   login: (vpa, pin) => post("/auth/login", { vpa, pin, device_id: getDeviceId() }),
   verifyDevice: (vpa, otp) => post("/auth/verify-device", { vpa, otp, device_id: getDeviceId() }),
   resolve: (vpa) => get(`/accounts/${encodeURIComponent(vpa)}`),
+  precheck: (sender_vpa, receiver_vpa) => post("/precheck", { sender_vpa, receiver_vpa }),
+  recall: (txid) => post(`/pay/recall/${txid}`, {}),
   balance: (vpa) => get(`/balance/${encodeURIComponent(vpa)}`),
   history: (vpa) => get(`/transactions/${encodeURIComponent(vpa)}`),
   pay: ({ sender_vpa, receiver_vpa, amount, pin, type = "PAY", channel = "MANUAL" }) =>

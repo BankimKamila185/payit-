@@ -59,6 +59,7 @@ _pending_device_otp = {}               # (vpa, device_id) -> otp for a new-devic
 _pending_pay_otp = {}                  # txid -> {code, attempts, expires} for a REVIEW step-up
 PIN_MAX_FAILS = 3
 LOCK_SECONDS = 60
+NEW_DEVICE_LIMIT = 2000          # ₹ cap per txn on a freshly-bound (provisional) device
 
 
 def _pin_ok(acc, pin: str) -> bool:
@@ -210,6 +211,10 @@ class OtpReq(BaseModel):
     pending_txn_id: int
     otp: str
 
+class PrecheckReq(BaseModel):
+    sender_vpa: str
+    receiver_vpa: str
+
 
 # ------------------------------------------------------------------ auth
 @app.post("/auth/login")
@@ -274,9 +279,13 @@ def verify_device(req: DeviceOtpReq):
     if not expected or req.otp != expected:
         con.close(); raise HTTPException(400, "Invalid OTP")
     _pending_device_otp.pop((req.vpa, req.device_id), None)
+    # NEW device is bound as PROVISIONAL -> reduced ₹2000/txn cooling-off limit for 24h
+    # (real NPCI rule: freshly-registered device is capped to blunt account-takeover drain)
     con.execute("INSERT INTO devices (user_id, device_fingerprint, status, binding_age_days, is_rooted, created_at) VALUES (?,?,?,?,?,?)",
-                (acc["user_id"], req.device_id, "active", 0, 0, now_iso()))
+                (acc["user_id"], req.device_id, "provisional", 0, 0, now_iso()))
     out = _issue_session(con, acc)
+    out["device_status"] = "provisional"
+    out["new_device_limit"] = NEW_DEVICE_LIMIT
     con.close()
     return out
 
@@ -303,6 +312,48 @@ def balance(vpa: str):
     return {"vpa": vpa, "balance": acc["balance"]}
 
 
+BRAND_SCAM_KW = ("refund", "support", "kyc", "prize", "cash", "lottery", "help",
+                 "care", "update", "verify", "reward", "offer")
+
+
+@app.post("/precheck")
+def precheck(req: PrecheckReq):
+    """Pre-payment BENEFICIARY risk check — runs the moment a payee is selected
+    (before amount/PIN), so the user gets an EARLY warning if the receiver looks
+    risky. Amount-independent; focuses on WHO you're about to pay."""
+    con = db()
+    r = con.execute("SELECT a.*, u.name FROM accounts a JOIN users u ON u.id=a.user_id WHERE a.vpa=?",
+                    (req.receiver_vpa,)).fetchone()
+    if not r:
+        con.close(); raise HTTPException(404, "receiver not found")
+    s = con.execute("SELECT id FROM accounts WHERE vpa=?", (req.sender_vpa,)).fetchone()
+    reasons, risk = [], 0
+
+    if r["blacklisted"]:
+        reasons.append("⚠️ This account is on the fraud blacklist — do NOT pay"); risk = 100
+    if r["account_age_days"] < 7:
+        reasons.append(f"Very new account — only {r['account_age_days']} days old"); risk = max(risk, 60)
+    if s and not r["is_merchant"]:
+        paid = con.execute("SELECT COUNT(*) c FROM transactions WHERE sender_account_id=? AND receiver_account_id=?",
+                           (s["id"], r["id"])).fetchone()["c"]
+        if paid == 0:
+            reasons.append("You've never paid this person before"); risk = max(risk, 35)
+    cutoff = (datetime.now() - timedelta(minutes=60)).isoformat()
+    fanin = con.execute("SELECT COUNT(DISTINCT sender_account_id) c FROM transactions WHERE receiver_account_id=? AND created_at > ?",
+                        (r["id"], cutoff)).fetchone()["c"]
+    if fanin >= 5 and not r["is_merchant"]:
+        reasons.append(f"Receiver got money from {fanin} different people recently (mule pattern)"); risk = max(risk, 55)
+    local = req.receiver_vpa.split("@")[0].lower()
+    if any(k in local for k in BRAND_SCAM_KW) and not r["is_merchant"]:
+        reasons.append("VPA name contains a brand/scam-style keyword"); risk = max(risk, 50)
+    con.close()
+
+    level = "high" if risk >= 60 else "medium" if risk >= 35 else "low"
+    return {"receiver_name": r["name"], "receiver_age_days": r["account_age_days"],
+            "is_merchant": bool(r["is_merchant"]), "blacklisted": bool(r["blacklisted"]),
+            "risk_level": level, "warn": risk >= 35, "risk_score": risk, "reasons": reasons}
+
+
 # ------------------------------------------------------------------ pay (core)
 def _log_fraud(con, txid, out):
     con.execute("INSERT INTO fraud_scores (transaction_id, cumulative_score, label, created_at) VALUES (?,?,?,?)",
@@ -327,7 +378,7 @@ def pay(req: PayReq):
         con.close(); raise HTTPException(400, f"Amount exceeds ₹{UPI_TXN_CAP:,} UPI limit")
 
     # ---- 2nd factor: verify UPI PIN (device is the 1st factor). PIN is MANDATORY ----
-    srow = con.execute("SELECT upi_pin_hash FROM accounts WHERE vpa=?", (req.sender_vpa,)).fetchone()
+    srow = con.execute("SELECT id, user_id, upi_pin_hash FROM accounts WHERE vpa=?", (req.sender_vpa,)).fetchone()
     if not srow:
         con.close(); raise HTTPException(404, "sender not found")
     if _pin_lock_until.get(req.sender_vpa, 0) > time.time():
@@ -340,6 +391,14 @@ def pay(req: PayReq):
             con.close(); raise HTTPException(423, "Too many wrong PINs — locked for 60s")
         con.close(); raise HTTPException(401, "Incorrect UPI PIN")
     _pin_fails[req.sender_vpa] = 0
+
+    # ---- new-device cooling-off: a PROVISIONAL device is capped to ₹2000/txn ----
+    if req.device_id:
+        dev = con.execute("SELECT status FROM devices WHERE user_id=? AND device_fingerprint=?",
+                          (srow["user_id"], req.device_id)).fetchone()
+        if dev and dev["status"] == "provisional" and req.amount > NEW_DEVICE_LIMIT:
+            con.close()
+            raise HTTPException(403, f"New device — ₹{NEW_DEVICE_LIMIT:,} limit for 24h (security cooling-off). Login from your usual device for higher amounts.")
 
     feats = enrich_from_db(con, req.sender_vpa, req.receiver_vpa, req)
 
@@ -387,11 +446,42 @@ def pay(req: PayReq):
     # SAFE -> atomic transfer
     con.execute("UPDATE accounts SET balance = balance - ?, txn_count = txn_count + 1 WHERE id=?", (req.amount, sid))
     con.execute("UPDATE accounts SET balance = balance + ?, txn_count = txn_count + 1 WHERE id=?", (req.amount, rid))
+
+    # POST-PAYMENT second look: even after a SAFE debit, re-check in hindsight.
+    # If the receiver is a newish account or the score was borderline, we flag it
+    # for auto-reversal and tell the user "money will be returned".
+    post_review = (feats["receiver_account_age_days"] < 90) or (25 <= out["score"] < 35)
+    post_msg = None
+    if post_review:
+        con.execute("UPDATE transactions SET status='flagged' WHERE id=?", (txid,))
+        con.execute("INSERT INTO alerts (transaction_id, status, severity, created_at) VALUES (?,?,?,?)",
+                    (txid, "post_review", "high", now_iso()))
+        post_msg = (f"Payment done, but our system flagged it right after. If confirmed fraud, "
+                    f"₹{req.amount:.0f} will be returned to you. You can also recall it now.")
     con.commit()
     new_bal = con.execute("SELECT balance FROM accounts WHERE id=?", (sid,)).fetchone()["balance"]
     con.close()
     return {"result": "SUCCESS", "transaction_id": txid, **out,
-            "message": "Payment successful.", "sender_balance": new_bal}
+            "message": "Payment successful.", "sender_balance": new_bal,
+            "post_review": post_review, "post_message": post_msg}
+
+
+@app.post("/pay/recall/{txid}")
+def recall(txid: int):
+    """Reverse a completed payment (auto-reversal / user recall) — money returns to sender."""
+    con = db()
+    tx = con.execute("SELECT * FROM transactions WHERE id=? AND status IN ('success','flagged')", (txid,)).fetchone()
+    if not tx:
+        con.close(); raise HTTPException(404, "transaction not found or not reversible")
+    con.execute("UPDATE accounts SET balance = balance + ? WHERE id=?", (tx["amount"], tx["sender_account_id"]))
+    con.execute("UPDATE accounts SET balance = balance - ? WHERE id=?", (tx["amount"], tx["receiver_account_id"]))
+    con.execute("UPDATE transactions SET status='recalled' WHERE id=?", (txid,))
+    con.commit()
+    bal = con.execute("SELECT balance FROM accounts WHERE id=?", (tx["sender_account_id"],)).fetchone()["balance"]
+    con.close()
+    return {"result": "RECALLED", "transaction_id": txid, "amount": tx["amount"],
+            "message": f"Payment recalled — ₹{tx['amount']:.0f} returned to your account.",
+            "sender_balance": bal}
 
 
 @app.post("/pay/verify-otp")
@@ -419,11 +509,23 @@ def verify_otp(req: OtpReq):
     _pending_pay_otp.pop(req.pending_txn_id, None)
     con.execute("UPDATE accounts SET balance = balance - ?, txn_count = txn_count + 1 WHERE id=?", (tx["amount"], tx["sender_account_id"]))
     con.execute("UPDATE accounts SET balance = balance + ?, txn_count = txn_count + 1 WHERE id=?", (tx["amount"], tx["receiver_account_id"]))
-    con.execute("UPDATE transactions SET status='success' WHERE id=?", (tx["id"],))
+    # post-payment second look (newish receiver -> flag for reversal even after OTP)
+    rage = con.execute("SELECT account_age_days FROM accounts WHERE id=?", (tx["receiver_account_id"],)).fetchone()["account_age_days"]
+    post_review = rage < 90
+    post_msg = None
+    if post_review:
+        con.execute("UPDATE transactions SET status='flagged' WHERE id=?", (tx["id"],))
+        con.execute("INSERT INTO alerts (transaction_id, status, severity, created_at) VALUES (?,?,?,?)",
+                    (tx["id"], "post_review", "high", now_iso()))
+        post_msg = (f"Payment done, but our system flagged it right after. If confirmed fraud, "
+                    f"₹{tx['amount']:.0f} will be returned to you. You can also recall it now.")
+    else:
+        con.execute("UPDATE transactions SET status='success' WHERE id=?", (tx["id"],))
     con.commit()
     bal = con.execute("SELECT balance FROM accounts WHERE id=?", (tx["sender_account_id"],)).fetchone()["balance"]
     con.close()
-    return {"result": "SUCCESS", "transaction_id": tx["id"], "message": "Verified — payment completed.", "sender_balance": bal}
+    return {"result": "SUCCESS", "transaction_id": tx["id"], "message": "Verified — payment completed.",
+            "sender_balance": bal, "post_review": post_review, "post_message": post_msg}
 
 
 # ------------------------------------------------------------------ history / report / stats

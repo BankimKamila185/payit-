@@ -1,8 +1,5 @@
 import React from 'react';
 import { 
-  Wifi, 
-  Battery, 
-  Signal, 
   Home, 
   Compass, 
   QrCode, 
@@ -24,8 +21,6 @@ const PhoneFrame = ({
   showBackButton = false, 
   onBackClick 
 }) => {
-  // Format current time
-  const [time, setTime] = React.useState('11:54 AM');
   const [isEyeClosed, setIsEyeClosed] = React.useState(false);
   const lastScanClickRef = React.useRef(0);
 
@@ -83,37 +78,9 @@ const PhoneFrame = ({
     }
   };
 
-  React.useEffect(() => {
-    const updateTime = () => {
-      const now = new Date();
-      let hours = now.getHours();
-      const minutes = now.getMinutes().toString().padStart(2, '0');
-      const ampm = hours >= 12 ? 'PM' : 'AM';
-      hours = hours % 12;
-      hours = hours ? hours : 12; // the hour '0' should be '12'
-      setTime(`${hours}:${minutes} ${ampm}`);
-    };
-    updateTime();
-    const interval = setInterval(updateTime, 60000);
-    return () => clearInterval(interval);
-  }, []);
-
   return (
     <div className="phone-container">
-      {/* Speaker and Camera Notch */}
-      <div style={styles.notchContainer}>
-        <div style={styles.notchLeft}>
-          <span style={styles.timeText}>{time.split(' ')[0]}</span>
-        </div>
-        <div style={styles.cameraNotch}></div>
-        <div style={styles.notchRight}>
-          <Signal size={12} style={styles.statusBarIcon} />
-          <Wifi size={12} style={styles.statusBarIcon} />
-          <div style={styles.batteryContainer}>
-            <Battery size={14} style={styles.statusBarIcon} />
-          </div>
-        </div>
-      </div>
+
 
       {/* Screen Header (Dynamic Layout matching screenshots) */}
       {currentScreen !== 'login' && (
@@ -297,48 +264,7 @@ const PhoneFrame = ({
 };
 
 const styles = {
-  notchContainer: {
-    height: '44px',
-    padding: '0 24px',
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    zIndex: 999,
-    backgroundColor: '#000000',
-  },
-  notchLeft: {
-    display: 'flex',
-    alignItems: 'center',
-  },
-  timeText: {
-    color: '#ffffff',
-    fontSize: '13px',
-    fontWeight: '600',
-    letterSpacing: '-0.1px',
-    fontFamily: 'var(--font-display)',
-  },
-  cameraNotch: {
-    width: '110px',
-    height: '30px',
-    backgroundColor: '#000000',
-    borderRadius: '0 0 16px 16px',
-    position: 'absolute',
-    left: '50%',
-    transform: 'translateX(-50%)',
-    top: '0',
-  },
-  notchRight: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '6px',
-  },
-  statusBarIcon: {
-    color: '#ffffff',
-  },
-  batteryContainer: {
-    display: 'flex',
-    alignItems: 'center',
-  },
+
   header: {
     height: '56px',
     padding: '0 18px',

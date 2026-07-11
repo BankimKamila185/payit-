@@ -56,7 +56,7 @@ export default function QrScanner({ onClose, onScanSuccess }) {
     const vid = videoRef.current;
     const cvs = canvasRef.current;
     if (!vid || !cvs || vid.paused || vid.ended) return;
-    if (vid.readyState < 3) return; // HAVE_FUTURE_DATA — ensures a real frame exists
+    if (vid.readyState < 2) return;
     if (vid.videoWidth === 0 || vid.videoHeight === 0) return;
 
     cvs.width  = vid.videoWidth;
@@ -68,11 +68,15 @@ export default function QrScanner({ onClose, onScanSuccess }) {
     try { imgData = ctx.getImageData(0, 0, cvs.width, cvs.height); }
     catch (_) { return; }
 
-    const result = jsQR(imgData.data, imgData.width, imgData.height, {
+    // jsqr exports { default: fn } in CJS; Vite ESM interop may give the fn directly or wrapped
+    const decode = (typeof jsQR === 'function') ? jsQR : jsQR?.default;
+    if (typeof decode !== 'function') { console.warn('[QR] jsQR decode fn not found'); return; }
+
+    const result = decode(imgData.data, imgData.width, imgData.height, {
       inversionAttempts: 'attemptBoth',
     });
 
-    if (result && result.data) {
+    if (result?.data) {
       const parsed = parseUpiUri(result.data);
       if (parsed) {
         stopEverything();
@@ -84,7 +88,7 @@ export default function QrScanner({ onClose, onScanSuccess }) {
 
   // ── start camera ──────────────────────────────────────────────────────────
   async function startCamera() {
-    stopEverything();           // clear any previous session
+    stopEverything();
     setPhase('requesting');
     setErrMsg('');
     setFound(null);
@@ -95,7 +99,6 @@ export default function QrScanner({ onClose, onScanSuccess }) {
       return;
     }
 
-    // Try rear camera first, fall back to any camera
     let stream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({
@@ -104,7 +107,6 @@ export default function QrScanner({ onClose, onScanSuccess }) {
       });
     } catch (e1) {
       try {
-        // Some desktop browsers only have a front camera
         stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
       } catch (e2) {
         const msg =
@@ -122,7 +124,6 @@ export default function QrScanner({ onClose, onScanSuccess }) {
     const track = stream.getVideoTracks()[0];
     trackRef.current = track;
 
-    // Detect torch
     try {
       const caps = track.getCapabilities?.() ?? {};
       setTorchOk(!!caps.torch);
@@ -133,24 +134,24 @@ export default function QrScanner({ onClose, onScanSuccess }) {
 
     vid.srcObject = stream;
 
-    // Use 'canplay' — fires when enough data is available to begin playback
-    vid.oncanplay = () => {
-      vid.play()
-        .then(() => {
-          setPhase('live');
-          // Start scan loop: 8fps is plenty for QR scanning and is gentle on CPU
-          timerRef.current = setInterval(scanTick, 125);
-        })
-        .catch(e => {
-          setErrMsg(`Video playback failed: ${e.message}. Try reloading.`);
-          setPhase('denied');
-        });
-    };
+    // Wait for at least metadata to be loaded before calling play()
+    // (required on Safari/iOS where play() before loadedmetadata throws)
+    await new Promise((resolve) => {
+      if (vid.readyState >= 1) { resolve(); return; } // already have metadata
+      vid.addEventListener('loadedmetadata', resolve, { once: true });
+      // Safety timeout: resolve after 2s regardless
+      setTimeout(resolve, 2000);
+    });
 
-    vid.onerror = (e) => {
-      setErrMsg('Video stream error. Try reloading.');
+    try {
+      await vid.play();
+      setPhase('live');
+      timerRef.current = setInterval(scanTick, 125);
+    } catch (e) {
+      console.error('[QR] play() failed:', e);
+      setErrMsg(`Video playback failed: ${e.message}. Try reloading.`);
       setPhase('denied');
-    };
+    }
   }
 
   // ── torch toggle ──────────────────────────────────────────────────────────

@@ -147,6 +147,61 @@ export class FraudService {
       }
     }
 
+    // ── Rule G: Python ML Engine /score Integration ──────────────────────────
+    // Contact Python ML server to get the ensemble score and SHAP reason codes
+    try {
+      const mlHost = process.env.ML_ENGINE_URL || 'https://payit-ru7o.onrender.com';
+      const response = await fetch(`${mlHost}/score`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sender_vpa: account.account_number + "@payit",
+          receiver_vpa: receiverAccount ? receiverAccount.account_number + "@payit" : "unknown@payit",
+          amount,
+          hour: new Date(transaction.created_at || new Date()).getHours(),
+          type: "PAY",
+          channel: transaction.ip_address === '127.0.0.1' ? 'MANUAL' : 'QR',
+          device_id: device_id || "",
+          rooted: transaction.rooted || 0,
+          screen_share: transaction.screen_share || 0,
+          sim_mismatch: transaction.sim_mismatch || 0,
+        }),
+      });
+
+      if (response.ok) {
+        const mlVerdict: any = await response.json();
+        // Blend ML score with local rules
+        if (mlVerdict && typeof mlVerdict.score === 'number') {
+          cumulativeScore = Math.max(cumulativeScore, mlVerdict.score);
+          // If ML engine triggered specific reasons, map them into triggeredMatches
+          if (Array.isArray(mlVerdict.reasons)) {
+            for (const reason of mlVerdict.reasons) {
+              const lowerReason = reason.toLowerCase();
+              let patternName = 'velocity_check'; // default fallback mapping
+              if (lowerReason.includes('device')) patternName = 'new_device_high_amount';
+              else if (lowerReason.includes('blacklist') || lowerReason.includes('mule')) patternName = 'blacklisted_ip_match';
+              else if (lowerReason.includes('travel') || lowerReason.includes('geo')) patternName = 'impossible_travel';
+              else if (lowerReason.includes('drawdown') || lowerReason.includes('balance')) patternName = 'high_balance_drawdown';
+              else if (lowerReason.includes('dormant') || lowerReason.includes('lifetime')) patternName = 'dormant_account_spike';
+              else if (lowerReason.includes('receiver') || lowerReason.includes('old')) patternName = 'new_receiver_account';
+              else if (lowerReason.includes('otp')) patternName = 'otp_brute_force';
+
+              if (!triggeredMatches.some(m => m.details.includes(reason))) {
+                const p = getPattern(patternName);
+                triggeredMatches.push({
+                  patternName,
+                  score: p.score,
+                  details: `[AI Engine] ${reason}`,
+                });
+              }
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[FraudService] Failed to contact Python ML Engine, falling back to local scoring:', err);
+    }
+
     // ── 4. WRITE SCORES + MATCHES to DB ───────────────────────────────────────
     if (cumulativeScore > 0) {
       await FraudScoreRepository.create({ transaction_id: txId, cumulative_score: cumulativeScore });

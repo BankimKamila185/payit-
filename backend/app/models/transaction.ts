@@ -6,5 +6,8 @@ export interface Transaction {
   status: 'pending' | 'success' | 'failed' | 'flagged' | 'rejected' | string;
   ip_address: string;
   device_id?: string | null; // UUID
+  rooted?: number;
+  screen_share?: number;
+  sim_mismatch?: number;
   created_at: Date;
 }

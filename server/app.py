@@ -37,6 +37,7 @@ app = FastAPI(title="Payit Backend", version="1.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 engine: FraudEngine | None = None
+_pin_fails: dict[str, dict] = {}  # vpa -> {"attempts": count, "lockout_until": float}
 
 
 # ------------------------------------------------------------------ DB helpers
@@ -530,9 +531,34 @@ def pay(req: PayReq):
     srow = con.execute("SELECT upi_pin_hash FROM accounts WHERE vpa=?", (req.sender_vpa,)).fetchone()
     if not srow:
         con.close(); raise HTTPException(404, "sender not found")
-    if req.pin and srow["upi_pin_hash"] and \
-            hashlib.sha256(req.pin.encode()).hexdigest() != srow["upi_pin_hash"]:
-        con.close(); raise HTTPException(401, "Incorrect UPI PIN")
+
+    # Check wrong PIN lockout
+    now_ts = time.time()
+    pf = _pin_fails.get(req.sender_vpa, {"attempts": 0, "lockout_until": 0.0})
+    if now_ts < pf["lockout_until"]:
+        con.close()
+        remaining = int(round(pf["lockout_until"] - now_ts))
+        raise HTTPException(423, f"Too many wrong PIN attempts. Locked out. Try again in {remaining}s.")
+
+    if req.pin and srow["upi_pin_hash"]:
+        pin_hash = hashlib.sha256(req.pin.encode()).hexdigest()
+        if pin_hash != srow["upi_pin_hash"]:
+            pf["attempts"] += 1
+            if pf["attempts"] >= 3:
+                pf["lockout_until"] = now_ts + 60
+                pf["attempts"] = 0
+                _pin_fails[req.sender_vpa] = pf
+                con.close()
+                raise HTTPException(423, "Too many wrong PIN attempts. Locked out for 60s.")
+            else:
+                _pin_fails[req.sender_vpa] = pf
+                con.close()
+                left = 3 - pf["attempts"]
+                raise HTTPException(401, f"Incorrect UPI PIN. {left} attempt(s) remaining.")
+
+    # Success -> reset PIN attempts
+    if req.sender_vpa in _pin_fails:
+        _pin_fails[req.sender_vpa] = {"attempts": 0, "lockout_until": 0.0}
 
     feats = enrich_from_db(con, req.sender_vpa, req.receiver_vpa, req)
 
@@ -602,11 +628,28 @@ def verify_otp(req: OtpReq):
         "SELECT * FROM otp_verifications WHERE user_id=? AND status='pending' AND expires_at > ? ORDER BY id DESC LIMIT 1",
         (user_id, datetime.now().isoformat())
     ).fetchone()
-    if not otp or otp["code"] != req.otp:
-        if otp:
-            con.execute("UPDATE otp_verifications SET attempts = attempts + 1 WHERE id=?", (otp["id"],))
+
+    if not otp:
+        con.close(); raise HTTPException(400, "OTP expired or not found. Please request a new one.")
+
+    if otp["attempts"] >= 3:
+        con.execute("UPDATE otp_verifications SET status='expired' WHERE id=?", (otp["id"],))
+        con.execute("UPDATE transactions SET status='rejected' WHERE id=?", (tx["id"],))
         con.commit(); con.close()
-        raise HTTPException(400, "invalid OTP")
+        raise HTTPException(423, "Too many wrong OTP attempts. Transaction cancelled.")
+
+    if otp["code"] != req.otp:
+        new_attempts = otp["attempts"] + 1
+        con.execute("UPDATE otp_verifications SET attempts = ? WHERE id=?", (new_attempts, otp["id"]))
+        if new_attempts >= 3:
+            con.execute("UPDATE otp_verifications SET status='expired' WHERE id=?", (otp["id"],))
+            con.execute("UPDATE transactions SET status='rejected' WHERE id=?", (tx["id"],))
+            con.commit(); con.close()
+            raise HTTPException(423, "Too many wrong OTP attempts. Transaction cancelled.")
+        else:
+            con.commit(); con.close()
+            left = 3 - new_attempts
+            raise HTTPException(400, f"Incorrect OTP. {left} attempt(s) remaining.")
     # OTP ok -> complete transfer
     con.execute("UPDATE otp_verifications SET status='verified' WHERE id=?", (otp["id"],))
     con.execute("UPDATE accounts SET balance = balance - ?, txn_count = txn_count + 1 WHERE id=?", (tx["amount"], tx["sender_account_id"]))

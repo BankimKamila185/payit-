@@ -74,6 +74,14 @@ describe('FraudService', () => {
     (FraudScoreRepository.create as any).mockResolvedValue({});
     (AlertRepository.create as any).mockResolvedValue({});
     (AuditLogRepository.create as any).mockResolvedValue({});
+
+    // Mock global fetch to isolate tests from real ML server calls
+    (global as any).fetch = jest.fn().mockImplementation(() =>
+      Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ score: 0, reasons: [] }),
+      } as any)
+    );
   });
 
   // ─── Blacklist ───────────────────────────────────────────────────────────────
@@ -277,6 +285,51 @@ describe('FraudService', () => {
       expect(result.score).toBe(0);
       expect(result.matches).toHaveLength(0);
       expect(AlertRepository.create as any).not.toHaveBeenCalled();
+    });
+  });
+
+  // ─── Python ML Engine Integration ──────────────────────────────────────────
+  describe('Python ML Engine Integration', () => {
+    it('should blend high ML score and record custom ML matches', async () => {
+      // Mock fetch returning high risk score and SHAP reasons
+      (global as any).fetch = jest.fn().mockImplementation(() =>
+        Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            score: 85,
+            label: 'BLOCK',
+            reasons: ['Velocity spike: 5 transfers', 'New / unrecognised device'],
+          }),
+        } as any)
+      );
+
+      const result = await FraudService.evaluate(mockTransaction);
+
+      expect(result.score).toBe(85);
+      expect(result.verdict).toBe('alerted');
+      // Reasons mapped back to correct pattern names
+      expect(result.matches).toContain('velocity_check');
+      expect(result.matches).toContain('new_device_high_amount');
+
+      // Verify DB matches creation
+      expect(TransactionFraudMatchRepository.create as any).toHaveBeenCalled();
+    });
+
+    it('should fall back gracefully to local rule scoring if ML call fails', async () => {
+      // Mock fetch throwing an error (e.g. network timeout)
+      (global as any).fetch = jest.fn().mockImplementation(() =>
+        Promise.reject(new Error('Network unreachable'))
+      );
+
+      // Trigger a local velocity flag (+40)
+      (TransactionRepository.countRecentTransactionsByUser as any).mockResolvedValue(6);
+
+      const result = await FraudService.evaluate(mockTransaction);
+
+      // Local score should still apply successfully
+      expect(result.score).toBe(40);
+      expect(result.verdict).toBe('flagged');
+      expect(result.matches).toContain('velocity_check');
     });
   });
 });

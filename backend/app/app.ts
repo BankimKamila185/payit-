@@ -71,6 +71,11 @@ app.post('/api/transactions', async (req: Request, res: Response): Promise<void>
       device_id,
     });
 
+    // Attach in-memory RASP properties for the ML / Fraud service evaluation
+    transaction.rooted = req.body.rooted ? Number(req.body.rooted) : 0;
+    transaction.screen_share = req.body.screen_share ? Number(req.body.screen_share) : 0;
+    transaction.sim_mismatch = req.body.sim_mismatch ? Number(req.body.sim_mismatch) : 0;
+
     // Step 2: Run fraud scoring service
     const fraudResult = await FraudService.evaluate(transaction);
 

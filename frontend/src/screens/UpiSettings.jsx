@@ -32,10 +32,10 @@ const UpiQrCard = ({ upiId, userName }) => {
         width: 220,
         margin: 2,
         color: {
-          dark: '#ffffff',   // white modules on dark bg
-          light: '#141414',  // dark background
+          dark: '#000000',   // black modules
+          light: '#ffffff',  // white background
         },
-        errorCorrectionLevel: 'H', // highest — allows embedding logo later
+        errorCorrectionLevel: 'M',
       });
     } catch (err) {
       console.error('QR generation failed:', err);
@@ -70,7 +70,6 @@ const UpiQrCard = ({ upiId, userName }) => {
   // Download QR as PNG
   const handleDownload = () => {
     if (!canvasRef.current) return;
-    // Draw a branded version: padded white background + payit label
     const src = canvasRef.current;
     const pad = 24;
     const labelH = 40;
@@ -80,7 +79,7 @@ const UpiQrCard = ({ upiId, userName }) => {
     const ctx = out.getContext('2d');
 
     // Background
-    ctx.fillStyle = '#141414';
+    ctx.fillStyle = '#ffffff';
     ctx.roundRect(0, 0, out.width, out.height, 20);
     ctx.fill();
 
@@ -88,7 +87,7 @@ const UpiQrCard = ({ upiId, userName }) => {
     ctx.drawImage(src, pad, pad);
 
     // payit branding label
-    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.fillStyle = '#000000';
     ctx.font = 'bold 13px system-ui, sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText(`payit · ${upiId}`, out.width / 2, src.height + pad + 24);
@@ -129,10 +128,6 @@ const UpiQrCard = ({ upiId, userName }) => {
       {/* QR Code Canvas */}
       <div style={S.qrCanvasWrap}>
         <canvas ref={canvasRef} style={S.canvas} id="upi-qr-canvas" />
-        {/* payit wordmark overlay at bottom of QR */}
-        <div style={S.qrBrand}>
-          <span style={S.qrBrandText}>payit</span>
-        </div>
       </div>
 
       {/* UPI ID + copy */}
@@ -282,28 +277,14 @@ const S = {
     position: 'relative',
     borderRadius: 16,
     overflow: 'hidden',
-    border: '1px solid rgba(255,255,255,0.06)',
-    background: '#141414',
+    border: '1px solid rgba(255,255,255,0.08)',
+    background: '#ffffff',
+    padding: 10,
+    boxShadow: '0 4px 20px rgba(0, 0, 0, 0.4)',
   },
   canvas: {
     display: 'block',
-    borderRadius: 14,
-  },
-  qrBrand: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    background: 'rgba(20,20,20,0.82)',
-    backdropFilter: 'blur(4px)',
-    textAlign: 'center',
-    padding: '3px 0 5px',
-  },
-  qrBrandText: {
-    fontSize: 11,
-    fontWeight: 800,
-    letterSpacing: 1,
-    color: 'rgba(255,255,255,0.5)',
+    borderRadius: 8,
   },
   upiInfo: {
     display: 'flex',

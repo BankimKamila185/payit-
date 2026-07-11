@@ -186,9 +186,10 @@ const PhoneFrame = ({
             <div className="nav-item-wrapper">
               <div className="qrScannerNavWrapper">
                 <button 
-                  onClick={() => onScreenChange('qr-scanner')} 
+                  onDoubleClick={() => onScreenChange('qr-scanner')} 
                   className={`nav-circle-btn ${currentScreen === 'qr-scanner' ? 'active' : ''}`}
                   aria-label="Scan QR Code"
+                  title="Double click to scan QR"
                 >
                   <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
                     <rect className="anim-qr-border" x="4" y="4" width="16" height="16" rx="4" stroke="currentColor" strokeWidth="2.5" />

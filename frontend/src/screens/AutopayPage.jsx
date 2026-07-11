@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import LogoAvatar from '../components/LogoAvatar';
 
 const AUTOPAY_LIST = [
   {
@@ -84,9 +85,7 @@ function AutopayDetail({ item, onBack }) {
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
           </button>
           <span style={detailStyles.headerTitle}>{item.name}</span>
-          <div style={{ ...detailStyles.merchantIcon, backgroundColor: item.color }}>
-            {item.initial}
-          </div>
+          <LogoAvatar name={item.name} size={36} />
         </div>
 
         {/* Status Card */}
@@ -233,9 +232,7 @@ export default function AutopayPage({ onBack }) {
             onClick={() => setSelectedItem(item)}
           >
             <div style={listStyles.cardLeft}>
-              <div style={{ ...listStyles.merchantIcon, backgroundColor: item.color }}>
-                {item.initial}
-              </div>
+              <LogoAvatar name={item.name} size={40} />
               <div style={listStyles.cardInfo}>
                 <span style={listStyles.cardName}>{item.name}</span>
                 <span style={listStyles.cardDesc}>{item.desc}</span>

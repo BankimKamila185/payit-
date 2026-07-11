@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { ChevronLeft, Search, Smartphone, Building, User, FileText, X } from 'lucide-react';
+import LogoAvatar from '../components/LogoAvatar';
 
 const FAVOURITES = [
   { name: 'Om Madan Sahani', vpa: 'om.sahani@okaxis', initial: 'O', color: '#c53929' },
@@ -136,9 +137,7 @@ export default function PayeeSelector({ amount, balance = 5000.00, onBack, onPay
           <div style={styles.section}>
             <h4 style={styles.sectionTitle}>SELECTED PAYEE</h4>
             <div style={styles.selectedPayeeCard}>
-              <div style={{ ...styles.avatarCircle, backgroundColor: resolvedPayee.color }}>
-                {resolvedPayee.initial}
-              </div>
+              <LogoAvatar name={resolvedPayee.name} size={48} />
               <div style={styles.payeeInfo}>
                 <span style={styles.payeeName}>{resolvedPayee.name}</span>
                 <span style={styles.payeeVpa}>{resolvedPayee.vpa}</span>
@@ -204,9 +203,7 @@ export default function PayeeSelector({ amount, balance = 5000.00, onBack, onPay
                     style={styles.favItem}
                     onClick={() => handleFavClick(fav)}
                   >
-                    <div style={{ ...styles.favAvatar, backgroundColor: fav.color }}>
-                      {fav.initial}
-                    </div>
+                    <LogoAvatar name={fav.name} size={44} />
                     <span style={styles.favName}>{fav.name.split(' ').slice(0, 2).join(' ')}</span>
                   </div>
                 ))}

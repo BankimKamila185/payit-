@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Search, ArrowDownLeft, ArrowUpRight, AlertCircle, ShieldAlert } from 'lucide-react';
+import LogoAvatar from '../components/LogoAvatar';
 
 const Activity = ({ onTransactionSelect, onReportFraud, liveTxns, me }) => {
   const [searchQuery, setSearchQuery] = useState("");
@@ -86,18 +87,17 @@ const Activity = ({ onTransactionSelect, onReportFraud, liveTxns, me }) => {
               style={styles.txRow}
             >
               <div style={styles.txLeft}>
-                <div 
-                  style={{
-                    ...styles.avatarBox,
-                    backgroundColor: tx.recipient === "Money added" 
-                      ? 'rgba(34, 230, 123, 0.08)' 
-                      : tx.recipient === "Repayment" 
-                      ? 'rgba(235, 59, 136, 0.08)' 
-                      : '#1c1c1f'
-                  }}
-                >
-                  {getIcon(tx)}
-                </div>
+                {tx.recipient === 'Money added' ? (
+                  <div style={{ ...styles.avatarBox, backgroundColor: 'rgba(34, 230, 123, 0.08)' }}>
+                    <ArrowDownLeft size={16} color="var(--accent-neon)" />
+                  </div>
+                ) : tx.recipient === 'Repayment' ? (
+                  <div style={{ ...styles.avatarBox, backgroundColor: 'rgba(235, 59, 136, 0.08)' }}>
+                    <ArrowUpRight size={16} color="var(--accent-pink)" />
+                  </div>
+                ) : (
+                  <LogoAvatar name={tx.recipient} size={40} style={{ borderRadius: '50%' }} />
+                )}
                 <div style={styles.txInfo}>
                   <span style={styles.txRecipient}>{tx.recipient}</span>
                   <span style={styles.txDate}>{tx.date}</span>

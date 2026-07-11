@@ -6,7 +6,7 @@ checks each flows correctly. Run backend first on :3000.
 import urllib.request, urllib.error, json, sqlite3, time
 from pathlib import Path
 
-BASE = "http://127.0.0.1:3000"
+BASE = "https://payit-ru7o.onrender.com"
 DB = Path(__file__).resolve().parent / "db" / "payit.db"
 
 

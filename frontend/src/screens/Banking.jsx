@@ -18,11 +18,92 @@ const Banking = ({
   liveTxns = [],
   me = "",
   balance = 0,
-  userName = ""
+  userName = "",
+  theme = "dark"
 }) => {
   const savingsBalance = Number(balance) || 0;          // REAL logged-in balance
   const holderName = (userName || 'Account Holder').toUpperCase();
   const moniesPoints = 3902;
+
+  if (theme === 'light') {
+    return (
+      <div style={lightStyles.container} className="animate-slide-up">
+        {/* Savings Card */}
+        <div style={lightStyles.card}>
+          <div style={lightStyles.cardHeaderRow}>
+            <span style={lightStyles.cardLabel}>Savings ••••5069</span>
+            <span style={lightStyles.badgeGreen}>
+              <span style={{ marginRight: '4px', fontSize: '12px' }}>🌱</span>Daily interest
+            </span>
+          </div>
+          <div style={lightStyles.balanceRow}>
+            <span style={lightStyles.balanceValue}>₹{savingsBalance.toLocaleString('en-IN')}</span>
+          </div>
+          <div style={lightStyles.interestRow}>
+            <span style={lightStyles.interestText}>↑ Earning interest at 100% RBI repo rate</span>
+          </div>
+          
+          {/* Invite sub-card */}
+          <div style={lightStyles.inviteCard} onClick={() => onAddMoney("Referral", 500)}>
+            <div style={lightStyles.inviteIconBox}>
+              <span style={{ fontSize: '16px' }}>🎁</span>
+            </div>
+            <div style={lightStyles.inviteTexts}>
+              <span style={lightStyles.inviteTitle}>Invite & earn ₹500</span>
+              <span style={lightStyles.inviteDesc}>Bring your friends to slice</span>
+            </div>
+          </div>
+        </div>
+
+        {/* slice atom Card */}
+        <div style={lightStyles.card}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', flex: 1 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={lightStyles.cardTitle}>slice atom</span>
+                <span style={lightStyles.badgeGreen}>✦ Live now</span>
+              </div>
+              <p style={lightStyles.cardDesc}>Set money aside, watch it grow</p>
+              <button 
+                onClick={() => onCheckBalance()} 
+                style={lightStyles.letsGoBtn}
+              >
+                Let's go
+              </button>
+            </div>
+            
+            {/* Mascot Illustration */}
+            <div style={lightStyles.mascotContainer}>
+              <div style={lightStyles.mascot}>
+                <div style={lightStyles.mascotBody}>
+                  <div style={lightStyles.mascotEyes}>
+                    <div style={lightStyles.mascotEye}></div>
+                    <div style={lightStyles.mascotEye}></div>
+                  </div>
+                  <div style={lightStyles.mascotSmile}></div>
+                </div>
+              </div>
+              <div style={lightStyles.jar}>
+                <div style={lightStyles.jarCoinSlot}></div>
+                <div style={lightStyles.jarHighlight}></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Fixed deposits Card */}
+        <div style={lightStyles.card} onClick={onFixedDepositClick}>
+          <div style={lightStyles.cardHeaderRow}>
+            <span style={lightStyles.cardTitle}>Fixed deposits</span>
+            <span style={lightStyles.badgeBlue}>⚡ Instant withdrawal</span>
+          </div>
+          <div style={lightStyles.balanceRow}>
+            <span style={lightStyles.balanceValue}>₹0</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const [activeCardIndex, setActiveCardIndex] = useState(0);
   const [isFlipped, setIsFlipped] = useState(false);
@@ -285,10 +366,9 @@ const Banking = ({
                 opacity: isLocked ? 0.4 : 1,
                 cursor: isLocked ? 'not-allowed' : 'pointer',
                 height: '44px',
-                backgroundColor: '#1c1c1f',
-                border: '1px solid #232326',
-                borderRadius: '16px',
-                color: '#ffffff',
+                backgroundColor: 'var(--surface-hover)',
+                border: '1px solid var(--border-color)',
+                color: 'var(--text-primary)',
                 fontWeight: '700',
                 fontSize: '13px'
               }}
@@ -320,10 +400,9 @@ const Banking = ({
                 opacity: isLocked ? 0.4 : 1,
                 cursor: isLocked ? 'not-allowed' : 'pointer',
                 height: '44px',
-                backgroundColor: '#1c1c1f',
-                border: '1px solid #232326',
-                borderRadius: '16px',
-                color: '#ffffff',
+                backgroundColor: 'var(--surface-hover)',
+                border: '1px solid var(--border-color)',
+                color: 'var(--text-primary)',
                 fontWeight: '700',
                 fontSize: '13px'
               }}
@@ -356,10 +435,9 @@ const Banking = ({
                 opacity: isLocked ? 0.4 : 1,
                 cursor: isLocked ? 'not-allowed' : 'pointer',
                 height: '44px',
-                backgroundColor: '#1c1c1f',
-                border: '1px solid #232326',
-                borderRadius: '16px',
-                color: '#ffffff',
+                backgroundColor: 'var(--surface-hover)',
+                border: '1px solid var(--border-color)',
+                color: 'var(--text-primary)',
                 fontWeight: '700',
                 fontSize: '13px'
               }}
@@ -497,7 +575,7 @@ const styles = {
     fontSize: '32px',
     fontWeight: '800',
     fontFamily: 'var(--font-display)',
-    color: '#ffffff',
+    color: 'var(--text-primary)',
   },
   interestSub: {
     fontSize: '10px',
@@ -506,10 +584,10 @@ const styles = {
     marginTop: '4px',
   },
   checkBalanceBtn: {
-    backgroundColor: '#1c1c1f',
-    border: '1px solid #232326',
+    backgroundColor: 'var(--surface-hover)',
+    border: '1px solid var(--border-color)',
     borderRadius: '12px',
-    color: '#ffffff',
+    color: 'var(--text-primary)',
     padding: '6px 12px',
     fontSize: '11px',
     fontWeight: '600',
@@ -680,7 +758,7 @@ const styles = {
   fdTitle: {
     fontSize: '14px',
     fontWeight: '600',
-    color: '#ffffff',
+    color: 'var(--text-primary)',
   },
   fdSub: {
     fontSize: '11px',
@@ -697,7 +775,7 @@ const styles = {
   fdAmount: {
     fontSize: '15px',
     fontWeight: '700',
-    color: '#ffffff',
+    color: 'var(--text-primary)',
     fontFamily: 'var(--font-display)',
   },
   moniesCard: {
@@ -729,7 +807,7 @@ const styles = {
   moniesTitle: {
     fontSize: '14px',
     fontWeight: '600',
-    color: '#ffffff',
+    color: 'var(--text-primary)',
   },
   moniesSub: {
     fontSize: '11px',
@@ -742,7 +820,7 @@ const styles = {
   moniesAmount: {
     fontSize: '15px',
     fontWeight: '700',
-    color: '#ffffff',
+    color: 'var(--text-primary)',
     fontFamily: 'var(--font-display)',
   },
   mascotWidget: {
@@ -763,7 +841,7 @@ const styles = {
   widgetTitle: {
     fontSize: '13px',
     fontWeight: '700',
-    color: '#ffffff',
+    color: 'var(--text-primary)',
   },
   widgetSub: {
     fontSize: '11px',
@@ -803,6 +881,206 @@ const styles = {
     height: '3px',
     borderBottom: '1.5px solid #ffffff',
     borderRadius: '0 0 4px 4px',
+  }
+};
+
+const lightStyles = {
+  container: {
+    padding: '16px',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '16px',
+    paddingBottom: '40px',
+  },
+  card: {
+    backgroundColor: '#ffffff',
+    borderRadius: '24px',
+    padding: '20px',
+    boxShadow: '0 8px 24px rgba(0, 0, 0, 0.04)',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '12px',
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  cardHeaderRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  cardLabel: {
+    fontSize: '13px',
+    color: '#8e8e93',
+    fontWeight: '600',
+  },
+  cardTitle: {
+    fontSize: '18px',
+    fontWeight: '700',
+    color: '#111111',
+  },
+  cardDesc: {
+    fontSize: '13px',
+    color: '#8e8e93',
+    lineHeight: '1.4',
+  },
+  badgeGreen: {
+    backgroundColor: '#e8f7ee',
+    color: '#1ba351',
+    padding: '4px 10px',
+    borderRadius: '20px',
+    fontSize: '11px',
+    fontWeight: '700',
+    display: 'flex',
+    alignItems: 'center',
+  },
+  badgeBlue: {
+    backgroundColor: '#e3f2fd',
+    color: '#0088ff',
+    padding: '4px 10px',
+    borderRadius: '20px',
+    fontSize: '11px',
+    fontWeight: '700',
+    display: 'flex',
+    alignItems: 'center',
+  },
+  balanceRow: {
+    marginTop: '4px',
+  },
+  balanceValue: {
+    fontSize: '36px',
+    fontWeight: '800',
+    color: '#111111',
+    fontFamily: 'var(--font-display)',
+  },
+  interestRow: {
+    marginTop: '-4px',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '4px',
+  },
+  interestText: {
+    fontSize: '13px',
+    color: '#1ba351',
+    fontWeight: '600',
+  },
+  inviteCard: {
+    backgroundColor: '#f6f5fa',
+    borderRadius: '16px',
+    padding: '12px 16px',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px',
+    marginTop: '12px',
+    cursor: 'pointer',
+  },
+  inviteIconBox: {
+    width: '36px',
+    height: '36px',
+    borderRadius: '10px',
+    backgroundColor: 'rgba(255, 170, 0, 0.1)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  inviteTexts: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '2px',
+  },
+  inviteTitle: {
+    fontSize: '13px',
+    fontWeight: '700',
+    color: '#111111',
+  },
+  inviteDesc: {
+    fontSize: '11px',
+    color: '#8e8e93',
+  },
+  letsGoBtn: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#aa33ff',
+    color: '#ffffff',
+    border: 'none',
+    borderRadius: '999px',
+    padding: '8px 20px',
+    fontSize: '13px',
+    fontWeight: '700',
+    cursor: 'pointer',
+    marginTop: '8px',
+    transition: 'transform 0.1s ease',
+  },
+  mascotContainer: {
+    position: 'relative',
+    width: '100px',
+    height: '80px',
+    display: 'flex',
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+  },
+  mascot: {
+    position: 'absolute',
+    bottom: '0',
+    right: '0',
+    width: '50px',
+    height: '60px',
+    background: 'linear-gradient(180deg, #aa33ff 0%, #eb3b88 100%)',
+    borderRadius: '20px 20px 8px 8px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 2,
+  },
+  mascotBody: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '4px',
+  },
+  mascotEyes: {
+    display: 'flex',
+    gap: '6px',
+  },
+  mascotEye: {
+    width: '4px',
+    height: '4px',
+    backgroundColor: '#ffffff',
+    borderRadius: '50%',
+  },
+  mascotSmile: {
+    width: '10px',
+    height: '4px',
+    borderBottom: '2px solid #ffffff',
+    borderRadius: '0 0 6px 6px',
+  },
+  jar: {
+    position: 'absolute',
+    bottom: '0',
+    left: '10px',
+    width: '36px',
+    height: '40px',
+    background: 'linear-gradient(135deg, #1ba351 0%, #22e67b 100%)',
+    borderRadius: '10px',
+    zIndex: 1,
+    boxShadow: '0 4px 8px rgba(0,0,0,0.1)',
+  },
+  jarCoinSlot: {
+    position: 'absolute',
+    top: '6px',
+    left: '10px',
+    width: '16px',
+    height: '4px',
+    backgroundColor: '#050506',
+    borderRadius: '2px',
+  },
+  jarHighlight: {
+    position: 'absolute',
+    bottom: '6px',
+    left: '6px',
+    width: '24px',
+    height: '10px',
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    borderRadius: '5px',
   }
 };
 

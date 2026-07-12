@@ -400,7 +400,7 @@ const SliceShield = ({
             <div style={styles.drawerHeader}>
               <h3 style={styles.drawerTitle}>Approval Delay Window</h3>
               <button onClick={() => setActiveDrawer(null)} style={styles.drawerCloseBtn} aria-label="Close configuration">
-                <X size={16} color="#ffffff" />
+                <X size={16} color="var(--text-primary)" />
               </button>
             </div>
 
@@ -458,7 +458,7 @@ const SliceShield = ({
             <div style={styles.drawerHeader}>
               <h3 style={styles.drawerTitle}>High-Value Protection</h3>
               <button onClick={() => setActiveDrawer(null)} style={styles.drawerCloseBtn} aria-label="Close configuration">
-                <X size={16} color="#ffffff" />
+                <X size={16} color="var(--text-primary)" />
               </button>
             </div>
 
@@ -516,7 +516,7 @@ const SliceShield = ({
             <div style={styles.drawerHeader}>
               <h3 style={styles.drawerTitle}>Trusted Guardian Approval</h3>
               <button onClick={() => setActiveDrawer(null)} style={styles.drawerCloseBtn} aria-label="Close configuration">
-                <X size={16} color="#ffffff" />
+                <X size={16} color="var(--text-primary)" />
               </button>
             </div>
 
@@ -658,7 +658,7 @@ const SliceShield = ({
                   
                   <div style={styles.simTogglesRow}>
                     <div style={styles.simToggleCell}>
-                      <span style={{ fontSize: '11px', color: '#ffffff' }}>Device Footprint</span>
+                      <span style={{ fontSize: '11px', color: 'var(--text-primary)' }}>Device Footprint</span>
                       <div style={styles.pillGroup}>
                         <button 
                           onClick={() => setDeviceStatus('registered')}
@@ -676,7 +676,7 @@ const SliceShield = ({
                     </div>
 
                     <div style={styles.simToggleCell}>
-                      <span style={{ fontSize: '11px', color: '#ffffff' }}>Merchant Location</span>
+                      <span style={{ fontSize: '11px', color: 'var(--text-primary)' }}>Merchant Location</span>
                       <div style={styles.pillGroup}>
                         <button 
                           onClick={() => setLocationStatus('normal')}
@@ -694,7 +694,7 @@ const SliceShield = ({
                     </div>
 
                     <div style={styles.simToggleCell}>
-                      <span style={{ fontSize: '11px', color: '#ffffff' }}>Device Security (RASP)</span>
+                      <span style={{ fontSize: '11px', color: 'var(--text-primary)' }}>Device Security (RASP)</span>
                       <div style={styles.pillGroup}>
                         <button 
                           onClick={() => setIsDeviceRooted(false)}
@@ -712,7 +712,7 @@ const SliceShield = ({
                     </div>
 
                     <div style={styles.simToggleCell}>
-                      <span style={{ fontSize: '11px', color: '#ffffff' }}>App Security (RASP)</span>
+                      <span style={{ fontSize: '11px', color: 'var(--text-primary)' }}>App Security (RASP)</span>
                       <div style={styles.pillGroup}>
                         <button 
                           onClick={() => setIsActiveScreenShare(false)}
@@ -749,7 +749,7 @@ const SliceShield = ({
             <div style={styles.drawerHeader}>
               <h3 style={styles.drawerTitle}>Security Activity Feed</h3>
               <button onClick={() => setActiveDrawer(null)} style={styles.drawerCloseBtn} aria-label="Close configuration">
-                <X size={16} color="#ffffff" />
+                <X size={16} color="var(--text-primary)" />
               </button>
             </div>
 
@@ -769,7 +769,7 @@ const SliceShield = ({
                       style={{ marginRight: 10, marginTop: 2 }} 
                     />
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', flex: 1 }}>
-                      <span style={{ fontSize: '12px', color: '#ffffff', fontWeight: '500' }}>{log.message}</span>
+                      <span style={{ fontSize: '12px', color: 'var(--text-primary)', fontWeight: '500' }}>{log.message}</span>
                       <span style={{ fontSize: '9px', color: 'var(--text-secondary)' }}>{log.time}</span>
                     </div>
                   </div>
@@ -790,7 +790,7 @@ const SliceShield = ({
 const styles = {
   container: {
     padding: '16px',
-    backgroundColor: '#050506',
+    backgroundColor: 'var(--bg-color)',
     height: '100%',
     overflowY: 'auto',
     display: 'flex',
@@ -800,8 +800,8 @@ const styles = {
     position: 'relative'
   },
   shieldHeaderCard: {
-    backgroundColor: 'rgba(255, 255, 255, 0.03)',
-    border: '1px solid rgba(255, 255, 255, 0.06)',
+    backgroundColor: 'var(--surface-color)',
+    border: '1px solid var(--border-color)',
     borderRadius: '20px',
     padding: '16px',
     display: 'flex',
@@ -836,7 +836,7 @@ const styles = {
   shieldTitle: {
     fontSize: '18px',
     fontWeight: '700',
-    color: '#ffffff',
+    color: 'var(--text-primary)',
     margin: 0,
     fontFamily: 'var(--font-display)',
   },
@@ -873,7 +873,7 @@ const styles = {
   sectionTitle: {
     fontSize: '11px',
     fontWeight: '700',
-    color: '#ffffff',
+    color: 'var(--text-primary)',
     textTransform: 'uppercase',
     letterSpacing: '0.5px',
   },
@@ -900,7 +900,7 @@ const styles = {
     width: '36px',
     height: '36px',
     borderRadius: '12px',
-    backgroundColor: 'rgba(255,255,255,0.04)',
+    backgroundColor: 'var(--surface-hover)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -913,7 +913,7 @@ const styles = {
   bentoTitle: {
     fontSize: '13px',
     fontWeight: '700',
-    color: '#ffffff',
+    color: 'var(--text-primary)',
   },
   bentoStatus: {
     fontSize: '9px',
@@ -924,8 +924,8 @@ const styles = {
   controlsList: {
     display: 'flex',
     flexDirection: 'column',
-    backgroundColor: 'rgba(255, 255, 255, 0.02)',
-    border: '1px solid rgba(255, 255, 255, 0.04)',
+    backgroundColor: 'var(--surface-color)',
+    border: '1px solid var(--border-color)',
     borderRadius: '20px',
     padding: '0 14px',
   },
@@ -934,7 +934,7 @@ const styles = {
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: '14px 0',
-    borderBottom: '1px solid rgba(255, 255, 255, 0.04)',
+    borderBottom: '1px solid var(--border-color)',
     background: 'none',
     borderLeft: 'none',
     borderRight: 'none',
@@ -965,7 +965,7 @@ const styles = {
   menuTitle: {
     fontSize: '13px',
     fontWeight: '600',
-    color: '#ffffff'
+    color: 'var(--text-primary)'
   },
   menuDesc: {
     fontSize: '10px',
@@ -982,8 +982,8 @@ const styles = {
     gap: '8px',
   },
   pendingTxCard: {
-    backgroundColor: 'rgba(255, 255, 255, 0.02)',
-    border: '1px solid rgba(255, 255, 255, 0.05)',
+    backgroundColor: 'var(--surface-color)',
+    border: '1px solid var(--border-color)',
     borderRadius: '16px',
     padding: '10px 12px',
     display: 'flex',
@@ -998,12 +998,12 @@ const styles = {
   pendingTxRecipient: {
     fontSize: '12px',
     fontWeight: '600',
-    color: '#ffffff',
+    color: 'var(--text-primary)',
   },
   pendingTxAmount: {
     fontSize: '13px',
     fontWeight: '700',
-    color: '#ffffff',
+    color: 'var(--text-primary)',
     fontFamily: 'var(--font-display)',
   },
   pendingTxTime: {
@@ -1027,8 +1027,8 @@ const styles = {
     gap: '10px',
   },
   scanCard: {
-    backgroundColor: 'rgba(255, 255, 255, 0.02)',
-    border: '1px solid rgba(255, 255, 255, 0.04)',
+    backgroundColor: 'var(--surface-color)',
+    border: '1px solid var(--border-color)',
     borderRadius: '16px',
     padding: '12px 14px',
     display: 'flex',
@@ -1071,7 +1071,7 @@ const styles = {
   scanMerchant: {
     fontSize: '13px',
     fontWeight: '600',
-    color: '#ffffff',
+    color: 'var(--text-primary)',
   },
   scanTagSafe: {
     fontSize: '9px',
@@ -1095,7 +1095,7 @@ const styles = {
   },
   scanAlertText: {
     fontSize: '11px',
-    color: 'rgba(255, 255, 255, 0.5)',
+    color: 'var(--text-secondary)',
     margin: '4px 0 0 0',
     lineHeight: '1.4',
   },
@@ -1114,8 +1114,8 @@ const styles = {
     marginBottom: '16px',
   },
   metricCard: {
-    backgroundColor: 'rgba(255, 255, 255, 0.02)',
-    border: '1px solid rgba(255, 255, 255, 0.04)',
+    backgroundColor: 'var(--surface-color)',
+    border: '1px solid var(--border-color)',
     borderRadius: '12px',
     padding: '10px 6px',
     display: 'flex',
@@ -1127,7 +1127,7 @@ const styles = {
   metricVal: {
     fontSize: '18px',
     fontWeight: '800',
-    color: '#ffffff',
+    color: 'var(--text-primary)',
     fontFamily: 'var(--font-display)',
   },
   metricLbl: {
@@ -1139,8 +1139,8 @@ const styles = {
     letterSpacing: '0.2px',
   },
   quizCard: {
-    backgroundColor: '#111114',
-    border: '1px solid rgba(255,255,255,0.06)',
+    backgroundColor: 'var(--surface-color)',
+    border: '1px solid var(--border-color)',
     borderRadius: '20px',
     padding: '16px',
     display: 'flex',
@@ -1155,7 +1155,7 @@ const styles = {
   quizLabel: {
     fontSize: '10px',
     fontWeight: '700',
-    color: 'rgba(255, 255, 255, 0.4)',
+    color: 'var(--text-muted)',
     textTransform: 'uppercase',
   },
   quizScoreBadge: {
@@ -1167,10 +1167,10 @@ const styles = {
     borderRadius: '10px',
   },
   smsFrame: {
-    backgroundColor: '#1c1c1f',
+    backgroundColor: 'var(--surface-hover)',
     borderRadius: '16px',
     padding: '12px 14px',
-    borderLeft: '4px solid #3a3a3c',
+    borderLeft: '4px solid var(--border-color)',
   },
   smsHeader: {
     display: 'flex',
@@ -1181,7 +1181,7 @@ const styles = {
   smsSender: {
     fontSize: '11px',
     fontWeight: '700',
-    color: '#ffffff',
+    color: 'var(--text-primary)',
   },
   smsTime: {
     fontSize: '10px',
@@ -1189,7 +1189,7 @@ const styles = {
   },
   smsBody: {
     fontSize: '12px',
-    color: '#ffffff',
+    color: 'var(--text-primary)',
     margin: 0,
     lineHeight: '1.4',
   },
@@ -1211,10 +1211,10 @@ const styles = {
   },
   quizBtnSafe: {
     flex: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.04)',
-    border: '1px solid rgba(255, 255, 255, 0.08)',
+    backgroundColor: 'var(--surface-hover)',
+    border: '1px solid var(--border-color)',
     borderRadius: '12px',
-    color: '#ffffff',
+    color: 'var(--text-primary)',
     padding: '10px',
     fontSize: '12px',
     fontWeight: '700',
@@ -1222,7 +1222,7 @@ const styles = {
     transition: 'all 0.2s',
   },
   feedbackWrapper: {
-    backgroundColor: 'rgba(255, 255, 255, 0.02)',
+    backgroundColor: 'var(--surface-color)',
     padding: '10px',
     borderRadius: '12px',
     display: 'flex',
@@ -1268,10 +1268,10 @@ const styles = {
     alignItems: 'flex-end'
   },
   drawerContent: {
-    backgroundColor: '#0a0a0c',
+    backgroundColor: 'var(--surface-color)',
     borderTopLeftRadius: '28px',
     borderTopRightRadius: '28px',
-    borderTop: '1px solid rgba(255,255,255,0.08)',
+    borderTop: '1px solid var(--border-color)',
     padding: '20px',
     width: '100%',
     maxHeight: '90%',
@@ -1283,7 +1283,7 @@ const styles = {
   drawerDragHandle: {
     width: '40px',
     height: '4px',
-    backgroundColor: 'rgba(255,255,255,0.15)',
+    backgroundColor: 'var(--border-color)',
     borderRadius: '2px',
     margin: '0 auto'
   },
@@ -1296,13 +1296,13 @@ const styles = {
   drawerTitle: {
     fontSize: '16px',
     fontWeight: '700',
-    color: '#ffffff',
+    color: 'var(--text-primary)',
     fontFamily: 'var(--font-display)'
   },
   drawerSubTitle: {
     fontSize: '11px',
     fontWeight: '700',
-    color: 'rgba(255,255,255,0.4)',
+    color: 'var(--text-secondary)',
     textTransform: 'uppercase',
     letterSpacing: '0.5px',
     display: 'block',
@@ -1314,7 +1314,7 @@ const styles = {
     width: '26px',
     height: '26px',
     borderRadius: '50%',
-    backgroundColor: 'rgba(255,255,255,0.05)',
+    backgroundColor: 'var(--surface-hover)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1330,22 +1330,22 @@ const styles = {
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.01)',
-    border: '1px solid rgba(255,255,255,0.03)',
+    backgroundColor: 'var(--surface-color)',
+    border: '1px solid var(--border-color)',
     borderRadius: '16px',
     padding: '12px 14px'
   },
   drawerLabel: {
     fontSize: '13px',
     fontWeight: '600',
-    color: '#ffffff'
+    color: 'var(--text-primary)'
   },
   drawerSliderBlock: {
     display: 'flex',
     flexDirection: 'column',
     gap: '10px',
-    backgroundColor: 'rgba(255,255,255,0.01)',
-    border: '1px solid rgba(255,255,255,0.03)',
+    backgroundColor: 'var(--surface-color)',
+    border: '1px solid var(--border-color)',
     borderRadius: '16px',
     padding: '14px'
   },
@@ -1372,8 +1372,8 @@ const styles = {
     color: 'var(--text-muted)'
   },
   drawerSaveBtn: {
-    backgroundColor: '#ffffff',
-    color: '#000000',
+    backgroundColor: 'var(--text-primary)',
+    color: 'var(--bg-color)',
     border: 'none',
     borderRadius: '24px',
     height: '46px',
@@ -1401,9 +1401,9 @@ const styles = {
     marginBottom: '8px'
   },
   addGuardianBtn: {
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    border: '1px solid rgba(255,255,255,0.1)',
-    color: '#ffffff',
+    backgroundColor: 'var(--surface-hover)',
+    border: '1px solid var(--border-color)',
+    color: 'var(--text-primary)',
     borderRadius: '6px',
     padding: '4px 8px',
     fontSize: '10px',
@@ -1413,8 +1413,8 @@ const styles = {
     cursor: 'pointer'
   },
   addGuardianForm: {
-    backgroundColor: 'rgba(255,255,255,0.02)',
-    border: '1px solid rgba(255,255,255,0.06)',
+    backgroundColor: 'var(--surface-color)',
+    border: '1px solid var(--border-color)',
     borderRadius: '12px',
     padding: '12px',
     display: 'flex',
@@ -1423,10 +1423,10 @@ const styles = {
     marginBottom: '12px'
   },
   formInput: {
-    backgroundColor: '#050506',
-    border: '1px solid rgba(255,255,255,0.08)',
+    backgroundColor: 'var(--bg-color)',
+    border: '1px solid var(--border-color)',
     borderRadius: '8px',
-    color: '#ffffff',
+    color: 'var(--text-primary)',
     padding: '8px 10px',
     fontSize: '12px',
     outline: 'none'
@@ -1465,8 +1465,8 @@ const styles = {
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.01)',
-    border: '1px solid rgba(255,255,255,0.04)',
+    backgroundColor: 'var(--surface-color)',
+    border: '1px solid var(--border-color)',
     borderRadius: '12px',
     padding: '8px 10px'
   },
@@ -1496,7 +1496,7 @@ const styles = {
   gName: {
     fontSize: '12px',
     fontWeight: '600',
-    color: '#ffffff'
+    color: 'var(--text-primary)'
   },
   gDetails: {
     fontSize: '9px',
@@ -1516,7 +1516,7 @@ const styles = {
   },
   demoSimulatorBlock: {
     marginTop: '12px',
-    borderTop: '1.5px dashed rgba(255, 255, 255, 0.06)',
+    borderTop: '1.5px dashed var(--border-color)',
     paddingTop: '12px',
     display: 'flex',
     flexDirection: 'column',
@@ -1540,9 +1540,9 @@ const styles = {
   },
   pillGroup: {
     display: 'flex',
-    backgroundColor: '#050506',
+    backgroundColor: 'var(--bg-color)',
     borderRadius: '8px',
-    border: '1px solid rgba(255,255,255,0.06)',
+    border: '1px solid var(--border-color)',
     padding: '2px'
   },
   pillInactive: {
@@ -1583,8 +1583,8 @@ const styles = {
     overflowY: 'auto'
   },
   logItem: {
-    backgroundColor: 'rgba(255, 255, 255, 0.01)',
-    border: '1px solid rgba(255,255,255,0.03)',
+    backgroundColor: 'var(--surface-color)',
+    border: '1px solid var(--border-color)',
     borderRadius: '12px',
     padding: '10px 12px',
     display: 'flex',
@@ -1604,7 +1604,7 @@ const styles = {
     width: '42px',
     height: '22px',
     borderRadius: '11px',
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    backgroundColor: 'var(--surface-hover)',
     border: 'none',
     position: 'relative',
     cursor: 'pointer',

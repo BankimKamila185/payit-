@@ -78,8 +78,8 @@ export default function ReferPage({ onBack }) {
                 style={{
                   ...styles.inviteSmallBtn,
                   backgroundColor: invitedIdx.includes(i) ? 'rgba(34,230,123,0.12)' : 'transparent',
-                  color: invitedIdx.includes(i) ? '#22e67b' : '#d000d0',
-                  borderColor: invitedIdx.includes(i) ? '#22e67b' : '#d000d0',
+                  color: invitedIdx.includes(i) ? 'var(--accent-neon)' : 'var(--accent-pink)',
+                  borderColor: invitedIdx.includes(i) ? 'var(--accent-neon)' : 'var(--accent-pink)',
                 }}
                 onClick={() => handleInvite(i)}
               >
@@ -96,7 +96,7 @@ export default function ReferPage({ onBack }) {
 const styles = {
   container: {
     flex: 1,
-    backgroundColor: '#060608',
+    backgroundColor: 'var(--bg-color)',
     display: 'flex',
     flexDirection: 'column',
     height: '100%',
@@ -108,7 +108,7 @@ const styles = {
     flexDirection: 'column',
     alignItems: 'center',
     padding: '24px 24px 20px',
-    borderBottom: '1px solid #151518',
+    borderBottom: '1px solid var(--border-color)',
   },
   emojiRow: {
     display: 'flex',
@@ -130,7 +130,7 @@ const styles = {
   emoji2: { fontSize: '20px' },
   emojiRight: { marginTop: '14px' },
   heroTitle: {
-    color: '#ffffff',
+    color: 'var(--text-primary)',
     fontSize: '22px',
     fontWeight: '800',
     margin: '0 0 8px',
@@ -138,7 +138,7 @@ const styles = {
     textAlign: 'center',
   },
   heroDesc: {
-    color: '#8c8c8e',
+    color: 'var(--text-secondary)',
     fontSize: '13px',
     fontWeight: '500',
     textAlign: 'center',
@@ -151,15 +151,15 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     gap: '10px',
-    backgroundColor: '#0f0f12',
-    border: '1.2px solid #1c1c20',
+    backgroundColor: 'var(--surface-color)',
+    border: '1.2px solid var(--border-color)',
     borderRadius: '10px',
     padding: '10px 16px',
     marginBottom: '18px',
     cursor: 'pointer',
   },
   codeText: {
-    color: '#ffffff',
+    color: 'var(--text-primary)',
     fontSize: '13px',
     fontWeight: '700',
     fontFamily: 'monospace',
@@ -178,7 +178,7 @@ const styles = {
     alignItems: 'center',
     justifyContent: 'center',
     gap: '8px',
-    backgroundColor: '#d000d0',
+    backgroundColor: 'var(--accent-pink)',
     color: '#ffffff',
     border: 'none',
     borderRadius: '24px',
@@ -199,7 +199,7 @@ const styles = {
     padding: '20px 16px',
   },
   recommendedLabel: {
-    color: '#8c8c8e',
+    color: 'var(--text-secondary)',
     fontSize: '10px',
     fontWeight: '700',
     letterSpacing: '1px',
@@ -216,7 +216,7 @@ const styles = {
     alignItems: 'center',
     gap: '14px',
     padding: '10px 0',
-    borderBottom: '1px solid #101012',
+    borderBottom: '1px solid var(--border-color)',
   },
   contactAvatar: {
     width: '40px',
@@ -238,13 +238,13 @@ const styles = {
     gap: '2px',
   },
   contactName: {
-    color: '#ffffff',
+    color: 'var(--text-primary)',
     fontSize: '14px',
     fontWeight: '600',
     fontFamily: 'var(--font-display)',
   },
   contactSub: {
-    color: '#8c8c8e',
+    color: 'var(--text-secondary)',
     fontSize: '12px',
     fontWeight: '500',
     fontFamily: 'var(--font-display)',

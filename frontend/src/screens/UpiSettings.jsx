@@ -214,25 +214,25 @@ const ChangePinModal = ({ vpa, onClose, onSuccess }) => {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <Lock size={18} color="var(--accent-neon)" />
-            <span style={{ color: '#fff', fontWeight: 700, fontSize: 16 }}>Change UPI PIN</span>
+            <span style={{ color: 'var(--text-primary)', fontWeight: 700, fontSize: 16 }}>Change UPI PIN</span>
           </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer' }}>
-            <X size={18} color="rgba(255,255,255,0.5)" />
+            <X size={18} color="var(--text-secondary)" />
           </button>
         </div>
 
         {done ? (
           <div style={{ textAlign: 'center', padding: '24px 0' }}>
             <Check size={40} color="var(--accent-neon)" style={{ marginBottom: 8 }} />
-            <p style={{ color: '#fff', fontWeight: 700 }}>UPI PIN updated!</p>
+            <p style={{ color: 'var(--text-primary)', fontWeight: 700 }}>UPI PIN updated!</p>
           </div>
         ) : (
           <>
-            <p style={{ color: 'rgba(255,255,255,0.55)', fontSize: 12, marginBottom: 20, textAlign: 'center' }}>{prompt}</p>
+            <p style={{ color: 'var(--text-secondary)', fontSize: 12, marginBottom: 20, textAlign: 'center' }}>{prompt}</p>
             {/* Dots */}
             <div style={{ display: 'flex', justifyContent: 'center', gap: 12, marginBottom: 20 }}>
               {[0,1,2,3].map(i => (
-                <div key={i} style={{ width: 14, height: 14, borderRadius: '50%', background: i < current.length ? 'var(--accent-neon)' : '#333' }} />
+                <div key={i} style={{ width: 14, height: 14, borderRadius: '50%', background: i < current.length ? 'var(--accent-neon)' : 'var(--border-color)' }} />
               ))}
             </div>
             {/* Keypad */}
@@ -241,7 +241,7 @@ const ChangePinModal = ({ vpa, onClose, onSuccess }) => {
                 <button key={idx} disabled={k === '' || busy}
                   onClick={() => k !== '' && handleKey(k)}
                   style={{ padding: '13px 0', fontSize: 20, borderRadius: 12,
-                    background: k === '' ? 'transparent' : '#222', color: '#fff',
+                    background: k === '' ? 'transparent' : 'var(--surface-hover)', color: 'var(--text-primary)',
                     border: 'none', cursor: k === '' ? 'default' : 'pointer' }}>
                   {k}
                 </button>
@@ -261,8 +261,8 @@ const modalOvl = {
   display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999,
 };
 const modalCard = {
-  background: '#141414', borderRadius: 24, padding: 24, width: 300,
-  border: '1px solid rgba(255,255,255,0.08)', boxShadow: '0 20px 40px rgba(0,0,0,0.8)',
+  background: 'var(--surface-color)', borderRadius: 24, padding: 24, width: 300,
+  border: '1px solid var(--border-color)', boxShadow: '0 20px 40px rgba(0,0,0,0.8)',
 };
 
 // ─── Main UpiSettings screen ──────────────────────────────────────────────────
@@ -446,19 +446,19 @@ const S = {
   },
   qrCanvasWrap: {
     position: 'relative', borderRadius: 16, overflow: 'hidden',
-    border: '1px solid rgba(255,255,255,0.08)', background: '#ffffff',
+    border: '1px solid var(--border-color)', background: '#ffffff',
     padding: 10, boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
   },
   canvas: { display: 'block', borderRadius: 8 },
   upiInfo: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 },
   upiLabel: { fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' },
   upiIdRow: { display: 'flex', alignItems: 'center', gap: 8 },
-  upiValue: { fontSize: 15, fontWeight: 700, color: '#fff' },
+  upiValue: { fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' },
   iconActionBtn: { background: 'none', border: 'none', cursor: 'pointer', padding: 4, display: 'flex', alignItems: 'center', justifyContent: 'center' },
   copiedHint: { fontSize: 11, color: 'var(--accent-neon)', fontWeight: 600 },
-  actionRow: { display: 'flex', width: '100%', alignItems: 'center', justifyContent: 'space-around', background: '#1c1c1f', borderRadius: 14, padding: '4px 0', border: '1px solid rgba(255,255,255,0.04)' },
+  actionRow: { display: 'flex', width: '100%', alignItems: 'center', justifyContent: 'space-around', background: 'var(--surface-hover)', borderRadius: 14, padding: '4px 0', border: '1px solid var(--border-color)' },
   actionBtn: { flex: 1, background: 'none', border: 'none', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, padding: '10px 0', color: 'var(--accent-neon)', fontSize: 11, fontWeight: 600 },
-  actionDivider: { width: 1, height: 32, background: 'rgba(255,255,255,0.06)' },
+  actionDivider: { width: 1, height: 32, background: 'var(--border-color)' },
 };
 
 const styles = {
@@ -468,21 +468,21 @@ const styles = {
   accountsList: { display: 'flex', flexDirection: 'column', gap: 10 },
   accountRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: 16, backgroundColor: 'var(--surface-color)', borderRadius: 16, border: '1px solid var(--border-color)' },
   accLeft: { display: 'flex', alignItems: 'center', gap: 12 },
-  accIconBox: { width: 36, height: 36, borderRadius: 10, backgroundColor: '#1c1c1f', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 },
+  accIconBox: { width: 36, height: 36, borderRadius: 10, backgroundColor: 'var(--surface-hover)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 },
   accDetails: { display: 'flex', flexDirection: 'column', gap: 2 },
   accTitleRow: { display: 'flex', alignItems: 'center', gap: 8 },
-  accName: { fontSize: 14, fontWeight: 600, color: '#fff' },
+  accName: { fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' },
   primaryBadge: { fontSize: 9, fontWeight: 700, color: 'var(--accent-neon)', backgroundColor: 'rgba(34,230,123,0.08)', border: '1px solid rgba(34,230,123,0.2)', padding: '2px 6px', borderRadius: 4 },
   accNumber: { fontSize: 12, color: 'var(--text-secondary)' },
-  manageBtn: { backgroundColor: '#1c1c1f', border: 'none', borderRadius: 12, color: 'var(--text-secondary)', padding: '6px 12px', fontSize: 11, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center' },
+  manageBtn: { backgroundColor: 'var(--surface-hover)', border: 'none', borderRadius: 12, color: 'var(--text-secondary)', padding: '6px 12px', fontSize: 11, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center' },
   addAccountBtn: { width: '100%', height: 48, backgroundColor: 'transparent', border: '1px dashed var(--border-color)', borderRadius: 16, color: 'var(--text-secondary)', fontSize: 14, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' },
   optionsList: { backgroundColor: 'var(--surface-color)', borderRadius: 16, border: '1px solid var(--border-color)', overflow: 'hidden' },
-  optionRow: { width: '100%', background: 'none', border: 'none', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: 16, cursor: 'pointer', color: '#fff', fontSize: 14, textAlign: 'left' },
+  optionRow: { width: '100%', background: 'none', border: 'none', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: 16, cursor: 'pointer', color: 'var(--text-primary)', fontSize: 14, textAlign: 'left' },
   optionLeft: { display: 'flex', alignItems: 'center' },
   optionArrow: { color: 'var(--text-muted)', fontSize: 14, fontWeight: 'bold' },
   profileCard: { display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', backgroundColor: 'var(--surface-color)', borderRadius: 16, border: '1px solid var(--border-color)' },
   profileAvatar: { width: 40, height: 40, borderRadius: '50%', background: 'linear-gradient(135deg,#eb3b88,#aa33ff)', display: 'flex', alignItems: 'center', justifyContent: 'center' },
-  profileName: { fontSize: 15, fontWeight: 700, color: '#fff' },
+  profileName: { fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' },
   profileVpa: { fontSize: 12, color: 'var(--text-secondary)' },
   logoutBtn: { width: '100%', height: 48, marginTop: 4, backgroundColor: 'rgba(255,51,51,0.06)', border: '1px solid rgba(255,51,51,0.2)', borderRadius: 16, color: '#ff5470', fontSize: 14, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' },
 };

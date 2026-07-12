@@ -35,7 +35,7 @@ const CATEGORY_META = {
   'Miscellaneous':   { color: '#8c8c8e', emoji: '📦' },
 };
 
-const Analytics = ({ onCategoryClick, liveTxns = [], me = '' }) => {
+const Analytics = ({ onCategoryClick, liveTxns = [], me = '', theme = 'dark' }) => {
   // ── Derive all spend stats from real transactions ──────────────────────────
   const { totalSpend, categories, dateRange, monthlyTotals, chartChange } = useMemo(() => {
     // Only count debit transactions (me is sender)
@@ -122,10 +122,54 @@ const Analytics = ({ onCategoryClick, liveTxns = [], me = '' }) => {
     });
   }, []);
 
-  const changeLabel = chartChange !== null
-    ? (chartChange > 0 ? `+${chartChange}% vs last month` : chartChange < 0 ? `${chartChange}% vs last month` : 'Same as last month')
-    : '';
-  const changeColor = chartChange !== null && chartChange > 0 ? '#eb3b88' : 'var(--accent-neon)';
+  const changeColor = chartChange !== null && chartChange > 0 
+    ? 'var(--accent-pink)' 
+    : theme === 'light' 
+    ? 'var(--accent-green-contrast)' 
+    : 'var(--accent-neon)';
+
+  const isLight = theme === 'light';
+
+  const chartCardStyle = isLight ? {
+    backgroundColor: '#ffffff',
+    borderRadius: '24px',
+    padding: '20px',
+    boxShadow: '0 8px 24px rgba(0, 0, 0, 0.04)',
+    border: 'none',
+  } : styles.chartCard;
+
+  const categoryRowStyle = isLight ? {
+    display: 'flex',
+    alignItems: 'center',
+    padding: '14px 4px',
+    backgroundColor: 'transparent',
+    borderBottom: '1px solid rgba(0, 0, 0, 0.04)',
+    borderRadius: '0',
+    cursor: 'pointer',
+    transition: 'background-color 0.2s',
+  } : styles.categoryRow;
+
+  const activeLabelStyle = isLight ? {
+    backgroundColor: '#aa33ff',
+    color: '#ffffff',
+    padding: '4px 10px',
+    borderRadius: '20px',
+    fontWeight: '700',
+    fontSize: '11px',
+    lineHeight: '1',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  } : styles.activeLabel;
+
+  const progressTrackStyle = isLight ? {
+    flex: 1,
+    height: '6px',
+    backgroundColor: '#e8e8ec',
+    borderRadius: '3px',
+    overflow: 'hidden',
+    position: 'relative',
+  } : styles.progressTrack;
 
   return (
     <div style={styles.container} className="animate-slide-up">
@@ -141,7 +185,7 @@ const Analytics = ({ onCategoryClick, liveTxns = [], me = '' }) => {
       </div>
 
       {/* SVG Line Chart (Spent Trend — real) */}
-      <div style={styles.chartCard}>
+      <div style={chartCardStyle}>
         <div style={styles.chartHeader}>
           <span style={styles.chartTitle}>Spending Trend</span>
           {changeLabel && (
@@ -156,8 +200,8 @@ const Analytics = ({ onCategoryClick, liveTxns = [], me = '' }) => {
                 <stop offset="100%" stopColor="#aa33ff" stopOpacity="0.0"/>
               </linearGradient>
             </defs>
-            <line x1="0" y1="80" x2="300" y2="80" stroke="rgba(255,255,255,0.05)" strokeDasharray="3,3" />
-            <line x1="0" y1="45" x2="300" y2="45" stroke="rgba(255,255,255,0.05)" strokeDasharray="3,3" />
+            <line x1="0" y1="80" stroke="var(--border-color)" strokeDasharray="3,3" />
+            <line x1="0" y1="45" stroke="var(--border-color)" strokeDasharray="3,3" />
             <path d={chartPath.area} fill="url(#chartGradient)" />
             <path d={chartPath.line} fill="none" stroke="#aa33ff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
             {/* Highlight current month */}
@@ -174,7 +218,7 @@ const Analytics = ({ onCategoryClick, liveTxns = [], me = '' }) => {
         </div>
         <div style={styles.chartLabels}>
           {monthLabels.map((m, i) => (
-            <span key={i} style={i === 5 ? styles.activeLabel : {}}>{m}</span>
+            <span key={i} style={i === 5 ? activeLabelStyle : {}}>{m}</span>
           ))}
         </div>
       </div>
@@ -196,7 +240,7 @@ const Analytics = ({ onCategoryClick, liveTxns = [], me = '' }) => {
             <div
               key={idx}
               onClick={() => onCategoryClick && onCategoryClick(cat.name)}
-              style={styles.categoryRow}
+              style={categoryRowStyle}
             >
               <div style={styles.categoryIconBox}>
                 <span style={{ fontSize: '18px' }}>{cat.emoji}</span>
@@ -207,13 +251,13 @@ const Analytics = ({ onCategoryClick, liveTxns = [], me = '' }) => {
                   <span style={styles.catAmount}>₹{cat.amount.toLocaleString('en-IN')}</span>
                 </div>
                 <div style={styles.progressBarWrapper}>
-                  <div style={styles.progressTrack}>
+                  <div style={progressTrackStyle}>
                     <div style={{ ...styles.progressFill, backgroundColor: cat.color, width: `${cat.percent}%` }} />
                   </div>
                   <span style={styles.catPercent}>{cat.percent}%</span>
                 </div>
               </div>
-              <ArrowRight size={14} color="#575759" style={styles.chevronRight} />
+              <ArrowRight size={14} color="var(--text-muted)" style={styles.chevronRight} />
             </div>
           ))}
         </div>
@@ -226,11 +270,11 @@ const styles = {
   container: { padding: '16px', display: 'flex', flexDirection: 'column', gap: '16px', paddingBottom: '40px' },
   topSelector: { display: 'flex', flexDirection: 'column', alignItems: 'center', margin: '10px 0' },
   accountSelectorBtn: {
-    backgroundColor: '#1c1c1f', border: '1px solid #232326', borderRadius: '16px',
-    color: '#ffffff', padding: '6px 12px', fontSize: '13px', fontWeight: '600',
+    backgroundColor: 'var(--surface-hover)', border: '1px solid var(--border-color)', borderRadius: '16px',
+    color: 'var(--text-primary)', padding: '6px 12px', fontSize: '13px', fontWeight: '600',
     display: 'flex', alignItems: 'center', cursor: 'pointer', marginBottom: '8px',
   },
-  totalSpendText: { fontSize: '36px', fontWeight: '800', fontFamily: 'var(--font-display)', color: '#ffffff' },
+  totalSpendText: { fontSize: '36px', fontWeight: '800', fontFamily: 'var(--font-display)', color: 'var(--text-primary)' },
   spendPeriodText: { fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' },
   chartCard: { backgroundColor: 'var(--surface-color)', borderRadius: '20px', padding: '16px', border: '1px solid var(--border-color)' },
   chartHeader: { display: 'flex', justifyContent: 'space-between', marginBottom: '16px' },
@@ -238,9 +282,9 @@ const styles = {
   chartChangeText: { fontSize: '12px', fontWeight: '600' },
   chartWrapper: { margin: '8px 0' },
   chartLabels: { display: 'flex', justifyContent: 'space-between', padding: '0 8px', fontSize: '11px', color: 'var(--text-muted)', fontWeight: '500' },
-  activeLabel: { color: '#ffffff', fontWeight: '700' },
+  activeLabel: { color: 'var(--text-primary)', fontWeight: '700' },
   sectionHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' },
-  sectionTitle: { fontSize: '16px', fontWeight: '700', fontFamily: 'var(--font-display)', color: '#ffffff' },
+  sectionTitle: { fontSize: '16px', fontWeight: '700', fontFamily: 'var(--font-display)', color: 'var(--text-primary)' },
   viewSpendsBtn: { background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '600', cursor: 'pointer' },
   categoryList: { display: 'flex', flexDirection: 'column', gap: '4px' },
   categoryRow: {
@@ -248,13 +292,13 @@ const styles = {
     backgroundColor: 'var(--surface-color)', borderRadius: '16px',
     border: '1px solid var(--border-color)', cursor: 'pointer', transition: 'background-color 0.2s',
   },
-  categoryIconBox: { width: '36px', height: '36px', borderRadius: '10px', backgroundColor: '#1c1c1f', display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: '12px' },
+  categoryIconBox: { width: '36px', height: '36px', borderRadius: '10px', backgroundColor: 'var(--surface-hover)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: '12px' },
   categoryDetails: { flex: 1, display: 'flex', flexDirection: 'column', gap: '6px' },
   catNameRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
-  catName: { fontSize: '14px', fontWeight: '600', color: '#ffffff' },
-  catAmount: { fontSize: '14px', fontWeight: '700', color: '#ffffff', fontFamily: 'var(--font-display)' },
+  catName: { fontSize: '14px', fontWeight: '600', color: 'var(--text-primary)' },
+  catAmount: { fontSize: '14px', fontWeight: '700', color: 'var(--text-primary)', fontFamily: 'var(--font-display)' },
   progressBarWrapper: { display: 'flex', alignItems: 'center', gap: '8px' },
-  progressTrack: { flex: 1, height: '4px', backgroundColor: '#1c1c1f', borderRadius: '2px', overflow: 'hidden' },
+  progressTrack: { flex: 1, height: '4px', backgroundColor: 'var(--surface-hover)', borderRadius: '2px', overflow: 'hidden' },
   progressFill: { height: '100%', borderRadius: '2px' },
   catPercent: { fontSize: '10px', color: 'var(--text-secondary)', width: '24px', textAlign: 'right' },
   chevronRight: { marginLeft: '8px' },

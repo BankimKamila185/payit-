@@ -31,33 +31,33 @@ const RechargeBills = ({ onItemClick }) => {
     {
       title: "Popular",
       items: [
-        { name: "Mobile recharge", icon: <Smartphone size={20} color="#aa33ff" /> },
-        { name: "FASTag", icon: <Car size={20} color="#0088ff" /> },
+        { name: "Mobile recharge", icon: <Smartphone size={20} color="var(--accent-purple)" /> },
+        { name: "FASTag", icon: <Car size={20} color="var(--accent-blue)" /> },
         { name: "Electricity", icon: <Zap size={20} color="#ffaa00" /> },
-        { name: "Credit card", icon: <CreditCard size={20} color="#22e67b" /> },
+        { name: "Credit card", icon: <CreditCard size={20} color="var(--accent-neon)" /> },
         { name: "Broadband", icon: <Wifi size={20} color="#00cccc" /> },
-        { name: "Mobile postpaid", icon: <Smartphone size={20} color="#eb3b88" /> }
+        { name: "Mobile postpaid", icon: <Smartphone size={20} color="var(--accent-pink)" /> }
       ]
     },
     {
       title: "Finances",
       items: [
-        { name: "Insurance", icon: <ShieldCheck size={20} color="#22e67b" /> },
-        { name: "Loans", icon: <CircleDollarSign size={20} color="#0088ff" /> },
-        { name: "NPS", icon: <TrendingUp size={20} color="#aa33ff" /> }
+        { name: "Insurance", icon: <ShieldCheck size={20} color="var(--accent-neon)" /> },
+        { name: "Loans", icon: <CircleDollarSign size={20} color="var(--accent-blue)" /> },
+        { name: "NPS", icon: <TrendingUp size={20} color="var(--accent-purple)" /> }
       ]
     },
     {
       title: "Utilities",
       items: [
-        { name: "Water", icon: <Droplet size={20} color="#0088ff" /> },
+        { name: "Water", icon: <Droplet size={20} color="var(--accent-blue)" /> },
         { name: "Piped gas", icon: <Flame size={20} color="#ff5500" /> },
         { name: "Cylinder", icon: <Container size={20} color="#ff3333" /> },
         { name: "Prepaid Meter", icon: <Gauge size={20} color="#ffaa00" /> },
         { name: "DTH", icon: <Tv size={20} color="#00cccc" /> },
-        { name: "Cable TV", icon: <Tv2 size={20} color="#eb3b88" /> },
-        { name: "Landline postpaid", icon: <Phone size={20} color="#aa33ff" /> },
-        { name: "Housing societies", icon: <Home size={20} color="#22e67b" /> }
+        { name: "Cable TV", icon: <Tv2 size={20} color="var(--accent-pink)" /> },
+        { name: "Landline postpaid", icon: <Phone size={20} color="var(--accent-purple)" /> },
+        { name: "Housing societies", icon: <Home size={20} color="var(--accent-neon)" /> }
       ]
     },
     {
@@ -65,11 +65,11 @@ const RechargeBills = ({ onItemClick }) => {
       items: [
         { name: "Clubs and associations", icon: <Users size={20} color="#00cccc" /> },
         { name: "Donation", icon: <HeartHandshake size={20} color="#ff3333" /> },
-        { name: "Education fees", icon: <GraduationCap size={20} color="#0088ff" /> },
-        { name: "Subscription", icon: <Tv size={20} color="#eb3b88" /> },
+        { name: "Education fees", icon: <GraduationCap size={20} color="var(--accent-blue)" /> },
+        { name: "Subscription", icon: <Tv size={20} color="var(--accent-pink)" /> },
         { name: "Rental", icon: <Key size={20} color="#ffaa00" /> },
-        { name: "NCMC recharge", icon: <Bus size={20} color="#22e67b" /> },
-        { name: "Municipal taxes", icon: <Building2 size={20} color="#aa33ff" /> }
+        { name: "NCMC recharge", icon: <Bus size={20} color="var(--accent-neon)" /> },
+        { name: "Municipal taxes", icon: <Building2 size={20} color="var(--accent-purple)" /> }
       ]
     }
   ];
@@ -98,7 +98,7 @@ const RechargeBills = ({ onItemClick }) => {
           </div>
         </div>
         <div style={styles.dotIndicator}>
-          <div style={{ ...styles.indicatorDot, backgroundColor: '#ffffff' }}></div>
+          <div style={{ ...styles.indicatorDot, backgroundColor: 'var(--text-primary)' }}></div>
           <div style={styles.indicatorDot}></div>
           <div style={styles.indicatorDot}></div>
         </div>
@@ -149,14 +149,14 @@ const styles = {
     background: 'none',
     border: 'none',
     outline: 'none',
-    color: '#ffffff',
+    color: 'var(--text-primary)',
     fontSize: '14px',
   },
   promoCard: {
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: '#1b1216', // Subtle pinkish dark background
+    backgroundColor: 'var(--surface-color)',
     borderRadius: '16px',
     padding: '14px 16px',
     border: '1px solid rgba(235, 59, 136, 0.15)',
@@ -183,7 +183,7 @@ const styles = {
   promoTitle: {
     fontSize: '13px',
     fontWeight: '700',
-    color: '#ffffff',
+    color: 'var(--text-primary)',
   },
   promoSub: {
     fontSize: '11px',

@@ -89,12 +89,12 @@ export default function PayeeSelector({ amount, balance = 5000.00, onBack, onPay
         <div style={styles.header}>
           <div style={styles.headerLeft}>
             <button onClick={onBack} style={styles.backBtn} aria-label="Go back">
-              <ChevronLeft size={24} color="#ffffff" />
+              <ChevronLeft size={24} color="var(--text-primary)" />
             </button>
             <span style={styles.headerTitle}>Transfer ₹{amount}</span>
           </div>
           <button style={styles.notesBtn} aria-label="Add Note">
-            <FileText size={20} color="#8c8c8e" />
+            <FileText size={20} color="var(--text-secondary)" />
           </button>
         </div>
 
@@ -105,14 +105,14 @@ export default function PayeeSelector({ amount, balance = 5000.00, onBack, onPay
             <span style={styles.fromValue}>Savings • ₹{balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
           </div>
           <svg width="10" height="6" viewBox="0 0 10 6" fill="none" style={styles.dropdownIcon}>
-            <path d="M1 1 L5 5 L9 1" stroke="#8c8c8e" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            <path d="M1 1 L5 5 L9 1" stroke="var(--text-secondary)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
         </div>
 
         {/* Search Input Bar */}
         <form onSubmit={handleSearchSubmit} style={styles.searchForm}>
           <div style={styles.searchWrapper}>
-            <Search size={18} color="#8c8c8e" style={styles.searchIcon} />
+            <Search size={18} color="var(--text-secondary)" style={styles.searchIcon} />
             <input
               type="text"
               placeholder="To: Name, phone number or UPI ID"
@@ -126,7 +126,7 @@ export default function PayeeSelector({ amount, balance = 5000.00, onBack, onPay
             />
             {searchQuery && (
               <button type="button" onClick={handleClear} style={styles.clearBtn} aria-label="Clear">
-                <X size={16} color="#ffffff" />
+                <X size={16} color="var(--text-primary)" />
               </button>
             )}
           </div>
@@ -224,11 +224,11 @@ export default function PayeeSelector({ amount, balance = 5000.00, onBack, onPay
             <span style={styles.poweredByText}>POWERED BY</span>
             <div style={styles.upiBadge}>
               <svg width="28" height="10" viewBox="0 0 40 15" fill="none">
-                <path d="M2 2 H6 L8 9 L10 2 H14" stroke="#8c8c8e" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-                <path d="M17 2 H21 V5 H17 Z M17 5 H21 V12 H17 Z" fill="#8c8c8e" />
-                <path d="M25 2 H29 C31 2 32 3 32 5 C32 7 31 8 29 8 H25 V12 H25 Z" fill="#8c8c8e" />
-                <path d="M36 2 H40" stroke="#8c8c8e" strokeWidth="1.8" strokeLinecap="round" />
-                <path d="M38 2 V12" stroke="#8c8c8e" strokeWidth="1.8" strokeLinecap="round" />
+                <path d="M2 2 H6 L8 9 L10 2 H14" stroke="var(--text-secondary)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="M17 2 H21 V5 H17 Z M17 5 H21 V12 H17 Z" fill="var(--text-secondary)" />
+                <path d="M25 2 H29 C31 2 32 3 32 5 C32 7 31 8 29 8 H25 V12 H25 Z" fill="var(--text-secondary)" />
+                <path d="M36 2 H40" stroke="var(--text-secondary)" strokeWidth="1.8" strokeLinecap="round" />
+                <path d="M38 2 V12" stroke="var(--text-secondary)" strokeWidth="1.8" strokeLinecap="round" />
               </svg>
             </div>
           </div>
@@ -241,7 +241,7 @@ export default function PayeeSelector({ amount, balance = 5000.00, onBack, onPay
 const styles = {
   container: {
     flex: 1,
-    backgroundColor: '#050506',
+    backgroundColor: 'var(--bg-color)',
     display: 'flex',
     flexDirection: 'column',
     height: '100%',
@@ -276,7 +276,7 @@ const styles = {
     justifyContent: 'center',
   },
   headerTitle: {
-    color: '#ffffff',
+    color: 'var(--text-primary)',
     fontSize: '20px',
     fontWeight: '700',
     fontFamily: 'var(--font-display)',
@@ -291,8 +291,8 @@ const styles = {
     justifyContent: 'center',
   },
   fromContainer: {
-    backgroundColor: '#0e0e11',
-    border: '1.2px solid #1c1c20',
+    backgroundColor: 'var(--surface-color)',
+    border: '1.2px solid var(--border-color)',
     borderRadius: '16px',
     padding: '14px 16px',
     display: 'flex',
@@ -308,11 +308,11 @@ const styles = {
     fontFamily: 'var(--font-display)',
   },
   fromLabel: {
-    color: '#8c8c8e',
+    color: 'var(--text-secondary)',
     fontWeight: '500',
   },
   fromValue: {
-    color: '#ffffff',
+    color: 'var(--text-primary)',
     fontWeight: '600',
   },
   dropdownIcon: {
@@ -335,7 +335,7 @@ const styles = {
   clearBtn: {
     position: 'absolute',
     right: '12px',
-    background: 'rgba(255, 255, 255, 0.12)',
+    background: 'var(--surface-hover)',
     border: 'none',
     borderRadius: '50%',
     width: '22px',
@@ -348,12 +348,12 @@ const styles = {
   searchInput: {
     width: '100%',
     height: '48px',
-    backgroundColor: '#0d0d10',
-    border: '1px solid #1a1a1f',
+    backgroundColor: 'var(--surface-color)',
+    border: '1px solid var(--border-color)',
     borderRadius: '14px',
     paddingLeft: '44px',
     paddingRight: '44px',
-    color: '#ffffff',
+    color: 'var(--text-primary)',
     fontSize: '14px',
     fontWeight: '500',
     outline: 'none',
@@ -363,7 +363,7 @@ const styles = {
     marginTop: '28px',
   },
   sectionTitle: {
-    color: '#8c8c8e',
+    color: 'var(--text-secondary)',
     fontSize: '11px',
     fontWeight: '700',
     letterSpacing: '0.8px',
@@ -393,7 +393,7 @@ const styles = {
     justifyContent: 'center',
   },
   quickLabel: {
-    color: '#ffffff',
+    color: 'var(--text-primary)',
     fontSize: '12px',
     fontWeight: '500',
     textAlign: 'center',
@@ -425,7 +425,7 @@ const styles = {
     fontFamily: 'var(--font-display)',
   },
   favName: {
-    color: '#ffffff',
+    color: 'var(--text-primary)',
     fontSize: '11px',
     fontWeight: '500',
     textAlign: 'center',
@@ -460,13 +460,13 @@ const styles = {
     fontFamily: 'var(--font-display)',
   },
   payeeName: {
-    color: '#ffffff',
+    color: 'var(--text-primary)',
     fontSize: '15px',
     fontWeight: '600',
     letterSpacing: '0.2px',
   },
   payeeVpa: {
-    color: '#8c8c8e',
+    color: 'var(--text-secondary)',
     fontSize: '13px',
     fontWeight: '500',
   },
@@ -482,7 +482,7 @@ const styles = {
     fontWeight: '700',
   },
   historyText: {
-    color: '#8c8c8e',
+    color: 'var(--text-secondary)',
     fontSize: '12px',
     fontWeight: '500',
   },
@@ -519,7 +519,7 @@ const styles = {
     gap: '6px',
   },
   poweredByText: {
-    color: '#555558',
+    color: 'var(--text-muted)',
     fontSize: '8px',
     fontWeight: '700',
     letterSpacing: '0.8px',

@@ -212,16 +212,16 @@ export default function QrScanner({ onClose, onScanSuccess }) {
       {phase === 'denied' && (
         <div style={S.center}>
           <CameraOff size={52} color="#eb3b88" style={{ marginBottom: 20 }} />
-          <p style={{ ...S.centerText, color: '#fff', fontWeight: 700, fontSize: 15, marginBottom: 10 }}>
+          <p style={{ ...S.centerText, color: 'var(--text-primary)', fontWeight: 700, fontSize: 15, marginBottom: 10 }}>
             Camera unavailable
           </p>
-          <p style={{ ...S.centerText, fontSize: 12, color: '#888', lineHeight: 1.7, maxWidth: 260 }}>
+          <p style={{ ...S.centerText, fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.7, maxWidth: 260 }}>
             {errMsg}
           </p>
           <button style={S.retryBtn} onClick={startCamera}>Try again</button>
           {/* Circular close button for error state */}
           <button style={S.closeCircleBtn} onClick={handleClose} aria-label="Close">
-            <X size={24} color="#fff" />
+            <X size={24} color="var(--text-primary)" />
           </button>
         </div>
       )}
@@ -232,7 +232,7 @@ export default function QrScanner({ onClose, onScanSuccess }) {
           {/* Top Right Flash button */}
           {torchOk && (
             <button style={S.flashBtn} onClick={toggleTorch} aria-label="Flashlight">
-              {torch ? <ZapOff size={22} color="#ffdd57" /> : <Zap size={22} color="#fff" />}
+              {torch ? <ZapOff size={22} color="#ffdd57" /> : <Zap size={22} color="var(--text-primary)" />}
             </button>
           )}
 
@@ -253,9 +253,9 @@ export default function QrScanner({ onClose, onScanSuccess }) {
                 <span>Scan any </span>
                 {/* UPI logo */}
                 <svg width="28" height="10" viewBox="0 0 40 15" fill="none" style={{ margin: '0 4px', verticalAlign: 'middle' }}>
-                  <path d="M2 2 H6 L8 9 L10 2 H14" stroke="#ffffff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
-                  <path d="M17 2 H21 V5 H17 Z M17 5 H21 V12 H17 Z" fill="#ffffff" />
-                  <path d="M25 2 H29 C31 2 32 3 32 5 C32 7 31 8 29 8 H25 V12 H25 Z" fill="#ffffff" />
+                  <path d="M2 2 H6 L8 9 L10 2 H14" stroke="var(--text-primary)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+                  <path d="M17 2 H21 V5 H17 Z M17 5 H21 V12 H17 Z" fill="var(--text-primary)" />
+                  <path d="M25 2 H29 C31 2 32 3 32 5 C32 7 31 8 29 8 H25 V12 H25 Z" fill="var(--text-primary)" />
                   <path d="M36 2 H40" stroke="#ff8c00" strokeWidth="2.2" strokeLinecap="round" />
                   <path d="M38 2 V12" stroke="#22e67b" strokeWidth="2.2" strokeLinecap="round" />
                 </svg>
@@ -282,7 +282,7 @@ export default function QrScanner({ onClose, onScanSuccess }) {
             <div style={S.actionRow}>
               {/* Gallery upload placeholder */}
               <button style={S.actionCircleBtn} aria-label="Upload from gallery">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--text-primary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
                   <circle cx="8.5" cy="8.5" r="1.5"/>
                   <polyline points="21 15 16 10 5 21"/>
@@ -291,7 +291,7 @@ export default function QrScanner({ onClose, onScanSuccess }) {
 
               {/* Close button */}
               <button style={S.actionCircleBtn} onClick={handleClose} aria-label="Close">
-                <X size={24} color="#fff" />
+                <X size={24} color="var(--text-primary)" />
               </button>
             </div>
           </div>
@@ -334,7 +334,7 @@ const S = {
     position: 'relative',
     height: '100%',
     width: '100%',
-    background: '#000',
+    background: 'var(--bg-color)',
     overflow: 'hidden',
     userSelect: 'none',
   },
@@ -350,7 +350,7 @@ const S = {
     position: 'absolute',
     inset: 0,
     zIndex: 10,
-    background: '#000',
+    background: 'var(--bg-color)',
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
@@ -358,10 +358,10 @@ const S = {
     padding: 32,
     textAlign: 'center',
   },
-  centerText: { color: '#aaa', fontSize: 13, margin: 0 },
+  centerText: { color: 'var(--text-secondary)', fontSize: 13, margin: 0 },
   spinner: {
     width: 44, height: 44, borderRadius: '50%',
-    border: '3px solid #1a1a1a', borderTopColor: NEON,
+    border: '3px solid var(--border-color)', borderTopColor: NEON,
     animation: 'qs-spin 0.8s linear infinite', marginBottom: 18,
   },
   retryBtn: {
@@ -374,7 +374,7 @@ const S = {
     width: 56,
     height: 56,
     borderRadius: '50%',
-    background: 'rgba(255, 255, 255, 0.15)',
+    background: 'var(--surface-hover)',
     backdropFilter: 'blur(10px)',
     border: 'none',
     display: 'flex',
@@ -390,9 +390,9 @@ const S = {
     width: 44,
     height: 44,
     borderRadius: '50%',
-    background: 'rgba(0, 0, 0, 0.35)',
+    background: 'var(--surface-hover)',
     backdropFilter: 'blur(8px)',
-    border: '1px solid rgba(255, 255, 255, 0.1)',
+    border: '1px solid var(--border-color)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -412,7 +412,7 @@ const S = {
     width: 32,
     height: 32,
     borderStyle: 'solid',
-    borderColor: '#ffffff',
+    borderColor: 'var(--text-primary)',
     borderWidth: 0,
     borderRadius: 8,
   },
@@ -421,8 +421,8 @@ const S = {
     left: 6,
     right: 6,
     height: 2,
-    background: 'linear-gradient(90deg, transparent, #ffffff, transparent)',
-    boxShadow: '0 0 10px #ffffff',
+    background: 'linear-gradient(90deg, transparent, var(--text-primary), transparent)',
+    boxShadow: '0 0 10px var(--text-primary)',
     animation: 'qs-sweep 2s ease-in-out infinite',
     borderRadius: 1,
   },
@@ -436,7 +436,7 @@ const S = {
     flexDirection: 'column',
     alignItems: 'center',
     padding: '24px 24px 40px',
-    background: 'linear-gradient(0deg, rgba(0, 0, 0, 0.8) 0%, rgba(0, 0, 0, 0.4) 60%, transparent 100%)',
+    background: 'linear-gradient(0deg, var(--bg-color) 0%, transparent 100%)',
   },
   hintContainer: {
     display: 'flex',
@@ -446,7 +446,7 @@ const S = {
     marginBottom: '32px',
   },
   hintTextRow: {
-    color: '#ffffff',
+    color: 'var(--text-primary)',
     fontSize: '13px',
     fontWeight: '600',
     letterSpacing: '0.2px',
@@ -459,7 +459,7 @@ const S = {
     gap: '16px',
   },
   sliceLogo: {
-    color: '#ffffff',
+    color: 'var(--text-primary)',
     fontSize: '14px',
     fontWeight: '800',
     fontStyle: 'italic',
@@ -486,14 +486,14 @@ const S = {
     width: 14,
     height: 14,
     borderRadius: '50%',
-    backgroundColor: '#ffffff',
+    backgroundColor: 'var(--text-primary)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     gap: '1px',
   },
   brandName: {
-    color: '#ffffff',
+    color: 'var(--text-primary)',
     fontSize: '11px',
     fontWeight: '600',
     opacity: 0.85,
@@ -514,7 +514,7 @@ const S = {
     width: 56,
     height: 56,
     borderRadius: '50%',
-    background: 'rgba(255, 255, 255, 0.15)',
+    background: 'var(--surface-hover)',
     backdropFilter: 'blur(10px)',
     border: 'none',
     display: 'flex',
@@ -527,7 +527,7 @@ const S = {
     position: 'absolute',
     inset: 0,
     zIndex: 15,
-    background: 'rgba(0,0,0,0.93)',
+    background: 'var(--bg-color)',
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
@@ -546,8 +546,8 @@ const S = {
     boxShadow: '0 0 40px rgba(34, 230, 123, 0.35)',
   },
   foundBadge: { color: '#22e67b', fontSize: 11, fontWeight: 800, letterSpacing: 1.2, margin: '0 0 8px' },
-  foundName:  { color: '#fff', fontSize: 22, fontWeight: 800, margin: '0 0 4px' },
-  foundVpa:   { color: '#555', fontSize: 13, margin: '0 0 28px' },
+  foundName:  { color: 'var(--text-primary)', fontSize: 22, fontWeight: 800, margin: '0 0 4px' },
+  foundVpa:   { color: 'var(--text-secondary)', fontSize: 13, margin: '0 0 28px' },
   payBtn: {
     background: '#22e67b',
     color: '#000',
@@ -565,7 +565,7 @@ const S = {
   rescanBtn: {
     background: 'none',
     border: 'none',
-    color: '#555',
+    color: 'var(--text-secondary)',
     fontSize: 13,
     fontWeight: 600,
     cursor: 'pointer',

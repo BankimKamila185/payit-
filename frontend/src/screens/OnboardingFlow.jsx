@@ -380,7 +380,7 @@ export default function OnboardingFlow({ onLogin, deviceId }) {
               {demoUsers.map(du => (
                 <button 
                   key={du.phone} 
-                  style={{ ...S.demoChip, border: phone === du.phone ? '1px solid #eb3b88' : '1px solid #222' }}
+                  style={{ ...S.demoChip, border: phone === du.phone ? '1px solid #eb3b88' : '1px solid var(--border-color)' }}
                   onClick={() => selectDemoUser(du)}
                 >
                   <span style={S.demoChipName}>{du.name}</span>
@@ -422,9 +422,9 @@ export default function OnboardingFlow({ onLogin, deviceId }) {
                 maxLength="1"
                 style={{
                   ...S.otpBox,
-                  border: idx === activeOtpIdx ? '2px solid #aa33ff' : '1px solid #333',
-                  background: digit ? '#fff' : '#161616',
-                  color: digit ? '#000' : '#fff'
+                  border: idx === activeOtpIdx ? '2px solid #aa33ff' : '1px solid var(--border-color)',
+                  background: digit ? 'var(--text-primary)' : 'var(--surface-color)',
+                  color: digit ? 'var(--bg-color)' : 'var(--text-primary)'
                 }}
                 value={digit}
                 onChange={(e) => {
@@ -462,7 +462,7 @@ export default function OnboardingFlow({ onLogin, deviceId }) {
             {onboardingOtpDemo ? (
               <p style={{ color: '#22e67b', fontSize: 11, fontWeight: 700, margin: '3px 0 0 0' }}>Demo OTP: {onboardingOtpDemo} (real app: SMS only)</p>
             ) : (
-              <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: 10, margin: '3px 0 0 0' }}>Check Render / server logs to retrieve code.</p>
+              <p style={{ color: 'var(--text-muted)', fontSize: 10, margin: '3px 0 0 0' }}>Check Render / server logs to retrieve code.</p>
             )}
           </div>
 
@@ -617,8 +617,8 @@ export default function OnboardingFlow({ onLogin, deviceId }) {
                 key={bank.id} 
                 style={{ 
                   ...S.bankCard, 
-                  border: selectedBank?.id === bank.id ? '2px solid #eb3b88' : '1px solid #222',
-                  background: selectedBank?.id === bank.id ? '#16121a' : '#111'
+                  border: selectedBank?.id === bank.id ? '2px solid #eb3b88' : '1px solid var(--border-color)',
+                  background: selectedBank?.id === bank.id ? 'rgba(235, 59, 136, 0.08)' : 'var(--surface-color)'
                 }}
                 onClick={() => handleBankSelect(bank)}
               >
@@ -669,8 +669,8 @@ export default function OnboardingFlow({ onLogin, deviceId }) {
                   key={idx} 
                   style={{
                     ...S.pinDot,
-                    background: idx < enteredLen ? '#fff' : 'transparent',
-                    border: '2px solid #555'
+                    background: idx < enteredLen ? 'var(--text-primary)' : 'transparent',
+                    border: '2px solid var(--text-muted)'
                   }}
                 ></div>
               );
@@ -734,9 +734,9 @@ export default function OnboardingFlow({ onLogin, deviceId }) {
               </button>
 
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '12px 0 6px', padding: '0 24px' }}>
-                <div style={{ flex: 1, height: 1, background: '#222' }} />
-                <span style={{ color: '#444', fontSize: 11, fontWeight: 600 }}>or enter PIN</span>
-                <div style={{ flex: 1, height: 1, background: '#222' }} />
+                <div style={{ flex: 1, height: 1, background: 'var(--border-color)' }} />
+                <span style={{ color: 'var(--text-muted)', fontSize: 11, fontWeight: 600 }}>or enter PIN</span>
+                <div style={{ flex: 1, height: 1, background: 'var(--border-color)' }} />
               </div>
             </div>
           )}
@@ -748,8 +748,8 @@ export default function OnboardingFlow({ onLogin, deviceId }) {
                 key={idx}
                 style={{
                   ...S.pinDot,
-                  background: idx < pin.length ? '#fff' : 'transparent',
-                  border: '2px solid #555'
+                  background: idx < pin.length ? 'var(--text-primary)' : 'transparent',
+                  border: '2px solid var(--text-muted)'
                 }}
               ></div>
             ))}
@@ -782,7 +782,7 @@ export default function OnboardingFlow({ onLogin, deviceId }) {
           {biometricAvailable && !hasPasskey(userProfile?.vpa) && (
             <div style={{ textAlign: 'center', marginTop: 6 }}>
               <button
-                style={{ background: 'none', border: 'none', color: '#555', fontSize: 11, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}
+                style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 11, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}
                 onClick={async () => {
                   if (!userProfile?.vpa) return;
                   setBiometricBusy(true); setErr('');
@@ -793,7 +793,7 @@ export default function OnboardingFlow({ onLogin, deviceId }) {
                 }}
                 disabled={biometricBusy}
               >
-                <Fingerprint size={12} color="#555" />
+                <Fingerprint size={12} color="var(--text-secondary)" />
                 {biometricBusy ? 'Registering fingerprint…' : 'Enable Fingerprint Login'}
               </button>
             </div>
@@ -813,8 +813,8 @@ const S = {
     display: 'flex', 
     flexDirection: 'column', 
     height: '100%', 
-    background: '#0a0a0a', 
-    color: '#fff',
+    background: 'var(--bg-color)', 
+    color: 'var(--text-primary)',
     fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
     position: 'relative',
     overflow: 'hidden'
@@ -943,23 +943,23 @@ const S = {
   },
   screenSub: {
     fontSize: 13,
-    color: '#888',
+    color: 'var(--text-secondary)',
     margin: 0,
     lineHeight: '1.4'
   },
   inputGroup: {
     display: 'flex',
     alignItems: 'center',
-    background: '#161616',
+    background: 'var(--surface-color)',
     borderRadius: '14px',
-    border: '1px solid #282828',
+    border: '1px solid var(--border-color)',
     padding: '4px 16px',
     marginBottom: 20
   },
   phonePrefix: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#888',
+    color: 'var(--text-secondary)',
     marginRight: 10
   },
   phoneInput: {
@@ -967,7 +967,7 @@ const S = {
     padding: '12px 0',
     background: 'transparent',
     border: 'none',
-    color: '#fff',
+    color: 'var(--text-primary)',
     fontSize: 16,
     fontWeight: '600',
     outline: 'none'
@@ -978,7 +978,7 @@ const S = {
   },
   demoUsersTitle: {
     fontSize: 12,
-    color: '#666',
+    color: 'var(--text-muted)',
     marginBottom: 10
   },
   demoChips: {
@@ -991,19 +991,19 @@ const S = {
     justifyContent: 'space-between',
     padding: '12px 14px',
     borderRadius: '10px',
-    background: '#121212',
-    color: '#aaa',
+    background: 'var(--surface-color)',
+    color: 'var(--text-secondary)',
     cursor: 'pointer',
     textAlign: 'left'
   },
   demoChipName: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#fff'
+    color: 'var(--text-primary)'
   },
   demoChipPhone: {
     fontSize: 12,
-    color: '#888'
+    color: 'var(--text-secondary)'
   },
   actionRowRight: {
     display: 'flex',
@@ -1024,7 +1024,7 @@ const S = {
     boxShadow: '0 8px 16px rgba(160, 78, 246, 0.3)'
   },
   errText: {
-    color: '#ff5470',
+    color: 'var(--danger-color)',
     fontSize: 12,
     marginTop: 10,
     fontWeight: '500'
@@ -1038,7 +1038,7 @@ const S = {
   },
   otpSubText: {
     fontSize: 14,
-    color: '#aaa'
+    color: 'var(--text-secondary)'
   },
   changeLink: {
     background: 'none',
@@ -1069,9 +1069,9 @@ const S = {
   quickFillOtpBtn: {
     padding: '8px 12px',
     borderRadius: '8px',
-    background: '#161616',
-    border: '1px solid #333',
-    color: '#888',
+    background: 'var(--surface-color)',
+    border: '1px solid var(--border-color)',
+    color: 'var(--text-secondary)',
     fontSize: 12,
     cursor: 'pointer',
     alignSelf: 'center',
@@ -1084,7 +1084,7 @@ const S = {
   },
   timerText: {
     fontSize: 13,
-    color: '#666'
+    color: 'var(--text-muted)'
   },
   resendBtn: {
     background: 'none',
@@ -1102,7 +1102,7 @@ const S = {
   denyBtn: {
     background: 'none',
     border: 'none',
-    color: '#888',
+    color: 'var(--text-secondary)',
     fontSize: 14,
     cursor: 'pointer'
   },
@@ -1121,7 +1121,7 @@ const S = {
     width: 44,
     height: 44,
     borderRadius: '12px',
-    background: '#161616',
+    background: 'var(--surface-color)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1137,7 +1137,7 @@ const S = {
   },
   permItemText: {
     fontSize: 12,
-    color: '#777',
+    color: 'var(--text-secondary)',
     margin: 0,
     lineHeight: '1.4'
   },
@@ -1150,13 +1150,13 @@ const S = {
   label: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#888'
+    color: 'var(--text-secondary)'
   },
   inputFieldWrapper: {
     display: 'flex',
     alignItems: 'center',
-    background: '#161616',
-    border: '1px solid #282828',
+    background: 'var(--surface-color)',
+    border: '1px solid var(--border-color)',
     borderRadius: '12px',
     padding: '0 14px'
   },
@@ -1168,13 +1168,13 @@ const S = {
     padding: '14px 0',
     background: 'transparent',
     border: 'none',
-    color: '#fff',
+    color: 'var(--text-primary)',
     fontSize: 14,
     outline: 'none'
   },
   inputHint: {
     fontSize: 11,
-    color: '#555',
+    color: 'var(--text-muted)',
     marginTop: 2
   },
   bankGrid: {
@@ -1209,7 +1209,7 @@ const S = {
     fontSize: 12,
     fontWeight: '600',
     textAlign: 'center',
-    color: '#fff'
+    color: 'var(--text-primary)'
   },
   selectedBadge: {
     position: 'absolute',
@@ -1252,7 +1252,7 @@ const S = {
     borderRadius: '50%',
     background: 'none',
     border: 'none',
-    color: '#fff',
+    color: 'var(--text-primary)',
     fontSize: 24,
     fontWeight: '600',
     cursor: 'pointer',
@@ -1265,7 +1265,7 @@ const S = {
     height: 60,
     background: 'none',
     border: 'none',
-    color: '#888',
+    color: 'var(--text-secondary)',
     fontSize: 18,
     cursor: 'pointer',
     display: 'flex',
@@ -1281,14 +1281,14 @@ const S = {
   },
   loginPhoneSub: {
     fontSize: 14,
-    color: '#777',
+    color: 'var(--text-secondary)',
     textAlign: 'center',
     margin: 0
   },
   forgotLink: {
     background: 'none',
     border: 'none',
-    color: '#888',
+    color: 'var(--text-secondary)',
     fontSize: 14,
     fontWeight: '600',
     cursor: 'pointer',

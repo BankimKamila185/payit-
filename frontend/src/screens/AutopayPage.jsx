@@ -82,7 +82,7 @@ function AutopayDetail({ item, onBack }) {
         {/* Header */}
         <div style={detailStyles.header}>
           <button onClick={onBack} style={detailStyles.backBtn}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--text-primary)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
           </button>
           <span style={detailStyles.headerTitle}>{item.name}</span>
           <LogoAvatar name={item.name} size={36} />
@@ -106,7 +106,7 @@ function AutopayDetail({ item, onBack }) {
               />
               <div style={{
                 ...detailStyles.toggleTrack,
-                backgroundColor: enabled ? '#22e67b' : '#2a2a30',
+                backgroundColor: enabled ? '#22e67b' : 'var(--border-color)',
               }}>
                 <div style={{
                   ...detailStyles.toggleThumb,
@@ -216,7 +216,7 @@ export default function AutopayPage({ onBack }) {
       {/* Header */}
       <div style={listStyles.header}>
         <button onClick={onBack} style={listStyles.backBtn} aria-label="Go back">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--text-primary)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
             <polyline points="15 18 9 12 15 6"/>
           </svg>
         </button>
@@ -255,7 +255,7 @@ export default function AutopayPage({ onBack }) {
 const listStyles = {
   container: {
     flex: 1,
-    backgroundColor: '#060608',
+    backgroundColor: 'var(--bg-color)',
     display: 'flex',
     flexDirection: 'column',
     height: '100%',
@@ -267,7 +267,7 @@ const listStyles = {
     alignItems: 'center',
     gap: '12px',
     padding: '16px 16px 12px',
-    borderBottom: '1px solid #111114',
+    borderBottom: '1px solid var(--border-color)',
   },
   backBtn: {
     background: 'none',
@@ -279,7 +279,7 @@ const listStyles = {
     justifyContent: 'center',
   },
   headerTitle: {
-    color: '#ffffff',
+    color: 'var(--text-primary)',
     fontSize: '20px',
     fontWeight: '700',
     fontFamily: 'var(--font-display)',
@@ -295,7 +295,7 @@ const listStyles = {
     alignItems: 'center',
     padding: '16px',
     cursor: 'pointer',
-    borderBottom: '1px solid #0f0f12',
+    borderBottom: '1px solid var(--border-color)',
     transition: 'background 0.15s',
   },
   cardLeft: {
@@ -310,7 +310,7 @@ const listStyles = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    color: '#ffffff',
+    color: 'var(--text-primary)',
     fontSize: '16px',
     fontWeight: '700',
     fontFamily: 'var(--font-display)',
@@ -322,13 +322,13 @@ const listStyles = {
     gap: '3px',
   },
   cardName: {
-    color: '#ffffff',
+    color: 'var(--text-primary)',
     fontSize: '14px',
     fontWeight: '600',
     fontFamily: 'var(--font-display)',
   },
   cardDesc: {
-    color: '#8c8c8e',
+    color: 'var(--text-secondary)',
     fontSize: '12px',
     fontWeight: '500',
     fontFamily: 'var(--font-display)',
@@ -340,13 +340,13 @@ const listStyles = {
     gap: '4px',
   },
   cardAmount: {
-    color: '#ffffff',
+    color: 'var(--text-primary)',
     fontSize: '14px',
     fontWeight: '600',
     fontFamily: 'var(--font-display)',
   },
   pausedBadge: {
-    color: '#e91e8c',
+    color: 'var(--accent-pink)',
     fontSize: '11px',
     fontWeight: '700',
     fontFamily: 'var(--font-display)',
@@ -360,7 +360,7 @@ const listStyles = {
 const detailStyles = {
   container: {
     flex: 1,
-    backgroundColor: '#060608',
+    backgroundColor: 'var(--bg-color)',
     display: 'flex',
     flexDirection: 'column',
     height: '100%',
@@ -377,7 +377,7 @@ const detailStyles = {
     alignItems: 'center',
     justifyContent: 'space-between',
     padding: '16px 16px 16px',
-    borderBottom: '1px solid #111114',
+    borderBottom: '1px solid var(--border-color)',
   },
   backBtn: {
     background: 'none',
@@ -389,7 +389,7 @@ const detailStyles = {
     justifyContent: 'center',
   },
   headerTitle: {
-    color: '#ffffff',
+    color: 'var(--text-primary)',
     fontSize: '18px',
     fontWeight: '700',
     fontFamily: 'var(--font-display)',
@@ -403,7 +403,7 @@ const detailStyles = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    color: '#ffffff',
+    color: 'var(--text-primary)',
     fontSize: '15px',
     fontWeight: '700',
     fontFamily: 'var(--font-display)',
@@ -411,8 +411,8 @@ const detailStyles = {
   },
   card: {
     margin: '8px 16px 0',
-    backgroundColor: '#0d0d10',
-    border: '1px solid #151518',
+    backgroundColor: 'var(--surface-color)',
+    border: '1px solid var(--border-color)',
     borderRadius: '12px',
     padding: '14px 16px',
   },
@@ -422,7 +422,7 @@ const detailStyles = {
     alignItems: 'center',
   },
   cardLabel: {
-    color: '#8c8c8e',
+    color: 'var(--text-secondary)',
     fontSize: '11px',
     fontWeight: '600',
     letterSpacing: '0.4px',
@@ -431,13 +431,13 @@ const detailStyles = {
     fontFamily: 'var(--font-display)',
   },
   cardValue: {
-    color: '#ffffff',
+    color: 'var(--text-primary)',
     fontSize: '14px',
     fontWeight: '500',
     fontFamily: 'var(--font-display)',
   },
   cardValuePaused: {
-    color: '#e91e8c',
+    color: 'var(--accent-pink)',
     fontSize: '14px',
     fontWeight: '600',
     fontFamily: 'var(--font-display)',
@@ -464,7 +464,7 @@ const detailStyles = {
     boxShadow: '0 1px 4px rgba(0,0,0,0.3)',
   },
   txSectionLabel: {
-    color: '#8c8c8e',
+    color: 'var(--text-secondary)',
     fontSize: '11px',
     fontWeight: '600',
     letterSpacing: '0.4px',
@@ -477,25 +477,25 @@ const detailStyles = {
     alignItems: 'center',
   },
   txLabel: {
-    color: '#ffffff',
+    color: 'var(--text-primary)',
     fontSize: '14px',
     fontWeight: '500',
     fontFamily: 'var(--font-display)',
   },
   txAmount: {
-    color: '#ffffff',
+    color: 'var(--text-primary)',
     fontSize: '14px',
     fontWeight: '600',
     fontFamily: 'var(--font-display)',
   },
   txDate: {
-    color: '#8c8c8e',
+    color: 'var(--text-secondary)',
     fontSize: '11px',
     marginTop: '3px',
     fontFamily: 'var(--font-display)',
   },
   moreLabel: {
-    color: '#8c8c8e',
+    color: 'var(--text-secondary)',
     fontSize: '11px',
     fontWeight: '600',
     letterSpacing: '0.3px',
@@ -504,7 +504,7 @@ const detailStyles = {
     fontFamily: 'var(--font-display)',
   },
   moreValue: {
-    color: '#d0d0d4',
+    color: 'var(--text-secondary)',
     fontSize: '13px',
     fontWeight: '400',
     display: 'block',
@@ -514,10 +514,10 @@ const detailStyles = {
   cancelBtn: {
     width: '100%',
     padding: '14px',
-    border: '1.5px solid #d000d0',
+    border: '1.5px solid var(--accent-pink)',
     borderRadius: '12px',
     backgroundColor: 'transparent',
-    color: '#d000d0',
+    color: 'var(--accent-pink)',
     fontSize: '14px',
     fontWeight: '700',
     cursor: 'pointer',
@@ -526,7 +526,7 @@ const detailStyles = {
   },
   upiLabel: {
     textAlign: 'center',
-    color: '#555558',
+    color: 'var(--text-muted)',
     fontSize: '9px',
     fontWeight: '700',
     letterSpacing: '1.5px',

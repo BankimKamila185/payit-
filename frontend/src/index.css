@@ -21,13 +21,19 @@
 }
 
 .light-theme {
-  --bg-color: #f2f2f7;
+  --bg-color: #f4f5f8;
   --surface-color: #ffffff;
-  --surface-hover: #e5e5ea;
-  --border-color: #d1d1d6;
-  --text-primary: #1c1c1e;
-  --text-secondary: #8e8e93;
+  --surface-hover: #e8e8ec;
+  --surface-flat: #f5f5f7;
+  --border-color: #e8e8ec;
+  --text-primary: #111111;
+  --text-secondary: #6e6e73;
   --text-muted: #aeaeb2;
+  --accent-green-contrast: #1ba351;
+  --accent-blue-contrast: #0088ff;
+  --shadow-card: 0 8px 24px rgba(0, 0, 0, 0.04);
+  --radius-card: 24px;
+  --radius-pill: 999px;
 }
 
 * {

@@ -35,7 +35,7 @@ const PaidSuccess = ({
       {/* Top Margin Spacer */}
       <div style={styles.topBar}>
         <span style={{ 
-          color: status === 'cooling_off' ? '#ff8c00' : status === 'recalled' ? 'var(--accent-pink)' : '#ffffff', 
+          color: status === 'cooling_off' ? '#ff8c00' : status === 'recalled' ? 'var(--accent-pink)' : 'var(--text-primary)', 
           fontWeight: '700',
           textTransform: 'uppercase',
           fontSize: '11px',
@@ -44,7 +44,7 @@ const PaidSuccess = ({
           {status === 'cooling_off' ? 'Pending Settlement' : status === 'recalled' ? 'Transaction Recalled' : 'Success'}
         </span>
         <button style={styles.iconButton} aria-label="Share">
-          <Share2 size={18} color="#ffffff" />
+          <Share2 size={18} color="var(--text-primary)" />
         </button>
       </div>
 
@@ -93,7 +93,7 @@ const PaidSuccess = ({
           {/* Dispute Raised with Bank/NPCI Widget */}
           <div style={{
             marginTop: '20px',
-            backgroundColor: '#0c0c0e',
+            backgroundColor: 'var(--surface-color)',
             border: '1px solid rgba(235, 59, 136, 0.2)',
             borderRadius: '16px',
             padding: '16px',
@@ -106,7 +106,7 @@ const PaidSuccess = ({
                 Dispute raised → Bank/NPCI
               </span>
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '12px', color: 'rgba(255, 255, 255, 0.75)', fontFamily: 'monospace', lineHeight: '1.4' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '12px', color: 'var(--text-secondary)', fontFamily: 'monospace', lineHeight: '1.4' }}>
               <div>• <strong>Transaction ID:</strong> {transactionDetails.id || `TX-${transId}`}</div>
               <div>• <strong>Amount:</strong> ₹{amount}, <strong>Receiver:</strong> {transactionDetails.recipientVpa || 'quickcash777@okpnb'}</div>
               <div>• <strong>Fraud score:</strong> {transactionDetails.score || 78}/100</div>
@@ -118,7 +118,7 @@ const PaidSuccess = ({
                 "
               </div>
             </div>
-            <div style={{ marginTop: '12px', paddingTop: '8px', borderTop: '1px solid rgba(255, 255, 255, 0.05)', fontSize: '10px', color: '#22e67b', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <div style={{ marginTop: '12px', paddingTop: '8px', borderTop: '1px solid var(--border-color)', fontSize: '10px', color: '#22e67b', display: 'flex', alignItems: 'center', gap: '6px' }}>
               <span>🔄</span>
               <span>Demo reversal auto-enabled (Production: bank clawback reverses funds in 3h)</span>
             </div>
@@ -366,7 +366,7 @@ const styles = {
     cursor: 'pointer',
     padding: '6px',
     borderRadius: '50%',
-    backgroundColor: '#1c1c1f',
+    backgroundColor: 'var(--surface-hover)',
   },
   successWrapper: {
     display: 'flex',
@@ -434,17 +434,17 @@ const styles = {
     fontSize: '32px',
     fontWeight: '800',
     fontFamily: 'var(--font-display)',
-    color: '#ffffff',
+    color: 'var(--text-primary)',
     marginBottom: '4px',
   },
   recipientSub: {
     fontSize: '15px',
-    color: '#ffffff',
+    color: 'var(--text-primary)',
     fontWeight: '500',
   },
   dateSub: {
     fontSize: '12px',
-    color: '#8c8c8e',
+    color: 'var(--text-secondary)',
     marginTop: '2px',
   },
   pendingBannerText: {
@@ -465,8 +465,8 @@ const styles = {
   },
   payAgainBtn: {
     marginTop: '16px',
-    backgroundColor: '#1c1c1f',
-    border: '1px solid #232326',
+    backgroundColor: 'var(--surface-hover)',
+    border: '1px solid var(--border-color)',
     color: 'var(--accent-neon)',
     padding: '8px 20px',
     borderRadius: '20px',
@@ -510,7 +510,7 @@ const styles = {
     fontWeight: '500',
   },
   noteValue: {
-    color: '#ffffff',
+    color: 'var(--text-primary)',
     fontWeight: '600',
   },
   moniesRow: {
@@ -542,7 +542,7 @@ const styles = {
   categoryTitle: {
     fontSize: '14px',
     fontWeight: '600',
-    color: '#ffffff',
+    color: 'var(--text-primary)',
   },
   categorySub: {
     fontSize: '11px',
@@ -582,14 +582,14 @@ const styles = {
   detailsTitle: {
     fontSize: '14px',
     fontWeight: '600',
-    color: '#ffffff',
+    color: 'var(--text-primary)',
   },
   detailsContent: {
     marginTop: '12px',
     display: 'flex',
     flexDirection: 'column',
     gap: '10px',
-    borderTop: '1px solid rgba(255, 255, 255, 0.05)',
+    borderTop: '1px solid var(--border-color)',
     paddingTop: '12px',
   },
   detailItem: {
@@ -601,17 +601,17 @@ const styles = {
     color: 'var(--text-secondary)',
   },
   detailValue: {
-    color: '#ffffff',
+    color: 'var(--text-primary)',
     fontWeight: '500',
   },
   copyableValue: {
     display: 'flex',
     alignItems: 'center',
-    color: '#ffffff',
+    color: 'var(--text-primary)',
     fontWeight: '500',
   },
   mapCard: {
-    backgroundColor: '#161619',
+    backgroundColor: 'var(--surface-color)',
     borderRadius: '16px',
     height: '100px',
     position: 'relative',
@@ -635,14 +635,14 @@ const styles = {
   },
   mapText: {
     fontSize: '11px',
-    color: '#ffffff',
+    color: 'var(--text-primary)',
     fontWeight: '500',
   },
   mapBtn: {
-    backgroundColor: '#000000',
-    border: '1px solid #232326',
+    backgroundColor: 'var(--bg-color)',
+    border: '1px solid var(--border-color)',
     borderRadius: '12px',
-    color: '#ffffff',
+    color: 'var(--text-primary)',
     padding: '4px 10px',
     fontSize: '10px',
     fontWeight: '600',
@@ -656,7 +656,7 @@ const styles = {
     left: 0,
     width: '100%',
     height: '100%',
-    background: 'radial-gradient(circle at 70% 30%, #1e1e24 0%, #111113 70%)',
+    background: 'radial-gradient(circle at 70% 30%, var(--surface-hover) 0%, var(--surface-color) 70%)',
     zIndex: 1,
   },
   mapLine: {
@@ -698,7 +698,7 @@ const styles = {
     background: 'none',
     border: 'none',
     outline: 'none',
-    color: '#ffffff',
+    color: 'var(--text-primary)',
     fontSize: '13px',
   },
   footer: {
@@ -726,15 +726,15 @@ const styles = {
   },
   upiBadgeText: {
     fontSize: '10px',
-    color: '#ffffff',
+    color: 'var(--text-primary)',
     fontWeight: '600',
-    border: '1px solid #ffffff',
+    border: '1px solid var(--text-primary)',
     padding: '2px 6px',
     borderRadius: '4px',
   },
   npciText: {
     fontSize: '10px',
-    color: '#ffffff',
+    color: 'var(--text-primary)',
     fontWeight: '600',
   },
   blockedWrapper: {
@@ -761,14 +761,14 @@ const styles = {
   },
   blockedBannerText: {
     fontSize: '11px',
-    color: 'rgba(255,255,255,0.6)',
+    color: 'var(--text-secondary)',
     lineHeight: '1.4',
     margin: '8px 16px 0 16px',
   },
   muleGraphBox: {
     marginTop: '16px',
-    backgroundColor: '#0c0c0e',
-    border: '1px solid rgba(255,255,255,0.06)',
+    backgroundColor: 'var(--surface-color)',
+    border: '1px solid var(--border-color)',
     borderRadius: '16px',
     padding: '14px',
     width: '100%',
@@ -798,15 +798,15 @@ const styles = {
     alignItems: 'center',
     justifyContent: 'center',
     padding: '8px 4px',
-    border: '1px solid rgba(255,255,255,0.08)',
+    border: '1px solid var(--border-color)',
     borderRadius: '12px',
-    backgroundColor: 'rgba(255,255,255,0.01)',
+    backgroundColor: 'var(--surface-hover)',
   },
   nodeIconBox: {
     width: '28px',
     height: '28px',
     borderRadius: '50%',
-    backgroundColor: 'rgba(255,255,255,0.05)',
+    backgroundColor: 'var(--surface-hover)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -816,7 +816,7 @@ const styles = {
   nodeLabel: {
     fontSize: '9px',
     fontWeight: '700',
-    color: '#ffffff',
+    color: 'var(--text-primary)',
     textAlign: 'center',
   },
   nodeSub: {
@@ -847,7 +847,7 @@ const styles = {
   muleLineDashed: {
     width: '100%',
     height: '0px',
-    borderBottom: '2px dashed rgba(255,255,255,0.2)',
+    borderBottom: '2px dashed var(--border-color)',
     margin: '4px 0',
   },
   graphDesc: {

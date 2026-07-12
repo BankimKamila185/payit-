@@ -62,17 +62,15 @@ const FraudReportForm = ({ transaction = {}, onBack, onSubmitSuccess }) => {
       {/* Header */}
       <div style={styles.header}>
         <button onClick={onBack} style={styles.backBtn} aria-label="Go back">
-          <ArrowLeft size={20} color="#ffffff" />
+          <ArrowLeft size={20} color="var(--text-primary)" />
         </button>
         <span style={styles.headerTitle}>Report Fraud</span>
       </div>
 
       {isSubmitting ? (
         <div style={styles.submittingContainer}>
-          <div style={styles.spinnerWrapper}>
-            <div style={styles.radarPulse}></div>
-            <ShieldAlert size={36} color="var(--accent-pink)" />
-          </div>
+          <div style={styles.radarPulse}></div>
+          <ShieldAlert size={36} color="var(--accent-pink)" />
           
           <h3 style={styles.submittingTitle}>Submitting Fraud Report</h3>
           <p style={styles.submittingSubtitle}>Report ID: FRD-PENDING</p>
@@ -82,12 +80,12 @@ const FraudReportForm = ({ transaction = {}, onBack, onSubmitSuccess }) => {
               <div key={idx} style={styles.stepRow}>
                 <div style={{
                   ...styles.stepDot,
-                  backgroundColor: submitStep > idx ? 'var(--accent-neon)' : submitStep === idx ? 'var(--accent-pink)' : 'rgba(255,255,255,0.1)',
+                  backgroundColor: submitStep > idx ? 'var(--accent-neon)' : submitStep === idx ? 'var(--accent-pink)' : 'var(--border-color)',
                   boxShadow: submitStep === idx ? '0 0 8px var(--accent-pink)' : 'none'
                 }}></div>
                 <span style={{
                   ...styles.stepText,
-                  color: submitStep > idx ? '#ffffff' : submitStep === idx ? 'var(--accent-pink)' : 'rgba(255,255,255,0.4)',
+                  color: submitStep > idx ? 'var(--text-primary)' : submitStep === idx ? 'var(--accent-pink)' : 'var(--text-secondary)',
                   fontWeight: submitStep === idx ? '600' : '400'
                 }}>{step}</span>
               </div>
@@ -137,13 +135,13 @@ const FraudReportForm = ({ transaction = {}, onBack, onSubmitSuccess }) => {
                   onClick={() => setCategory(cat.id)}
                   style={{
                     ...styles.categoryCard,
-                    borderColor: category === cat.id ? 'var(--accent-pink)' : 'rgba(255,255,255,0.06)',
-                    backgroundColor: category === cat.id ? 'rgba(235, 59, 136, 0.06)' : 'rgba(255, 255, 255, 0.02)'
+                    borderColor: category === cat.id ? 'var(--accent-pink)' : 'var(--border-color)',
+                    backgroundColor: category === cat.id ? 'rgba(235, 59, 136, 0.06)' : 'var(--surface-color)'
                   }}
                 >
                   <span style={{
                     ...styles.categoryLabel,
-                    color: category === cat.id ? 'var(--accent-pink)' : '#ffffff'
+                    color: category === cat.id ? 'var(--accent-pink)' : 'var(--text-primary)'
                   }}>{cat.label}</span>
                   <span style={styles.categoryDesc}>{cat.desc}</span>
                 </button>
@@ -221,7 +219,7 @@ const FraudReportForm = ({ transaction = {}, onBack, onSubmitSuccess }) => {
 const styles = {
   container: {
     padding: '16px',
-    backgroundColor: '#050506',
+    backgroundColor: 'var(--bg-color)',
     height: '100%',
     display: 'flex',
     flexDirection: 'column',
@@ -245,7 +243,7 @@ const styles = {
   headerTitle: {
     fontSize: '18px',
     fontWeight: '700',
-    color: '#ffffff',
+    color: 'var(--text-primary)',
     fontFamily: 'var(--font-display)',
   },
   form: {
@@ -256,8 +254,8 @@ const styles = {
     paddingBottom: '24px',
   },
   txCard: {
-    backgroundColor: 'rgba(255, 255, 255, 0.02)',
-    border: '1px solid rgba(255,255,255,0.06)',
+    backgroundColor: 'var(--surface-color)',
+    border: '1px solid var(--border-color)',
     borderRadius: '16px',
     padding: '14px',
     display: 'flex',
@@ -273,7 +271,7 @@ const styles = {
     color: 'var(--text-secondary)',
   },
   cardValue: {
-    color: '#ffffff',
+    color: 'var(--text-primary)',
     fontWeight: '500',
   },
   inputGroup: {
@@ -314,11 +312,11 @@ const styles = {
     color: 'var(--text-secondary)',
   },
   textarea: {
-    backgroundColor: 'rgba(255, 255, 255, 0.02)',
-    border: '1px solid rgba(255,255,255,0.06)',
+    backgroundColor: 'var(--surface-color)',
+    border: '1px solid var(--border-color)',
     borderRadius: '12px',
     padding: '12px',
-    color: '#ffffff',
+    color: 'var(--text-primary)',
     fontSize: '13px',
     fontFamily: 'var(--font-body)',
     minHeight: '80px',
@@ -329,8 +327,8 @@ const styles = {
     }
   },
   uploaderBox: {
-    backgroundColor: 'rgba(255, 255, 255, 0.01)',
-    border: '1px dashed rgba(255, 255, 255, 0.1)',
+    backgroundColor: 'var(--surface-color)',
+    border: '1px dashed var(--border-color)',
     borderRadius: '12px',
     padding: '16px',
     display: 'flex',
@@ -346,7 +344,7 @@ const styles = {
   },
   uploadMain: {
     fontSize: '12px',
-    color: '#ffffff',
+    color: 'var(--text-primary)',
     fontWeight: '600',
   },
   uploadSub: {
@@ -363,10 +361,10 @@ const styles = {
     cursor: 'pointer',
   },
   mockUploadBtn: {
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    backgroundColor: 'var(--surface-hover)',
     border: 'none',
     borderRadius: '8px',
-    color: '#ffffff',
+    color: 'var(--text-primary)',
     padding: '6px 10px',
     fontSize: '10px',
     fontWeight: '600',
@@ -382,13 +380,13 @@ const styles = {
   fileItem: {
     display: 'flex',
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    backgroundColor: 'var(--surface-color)',
     borderRadius: '6px',
     padding: '6px 10px',
   },
   fileName: {
     fontSize: '11px',
-    color: '#ffffff',
+    color: 'var(--text-primary)',
   },
   submitBtn: {
     marginTop: '8px',
@@ -432,7 +430,7 @@ const styles = {
   submittingTitle: {
     fontSize: '16px',
     fontWeight: '700',
-    color: '#ffffff',
+    color: 'var(--text-primary)',
     marginBottom: '4px',
   },
   submittingSubtitle: {

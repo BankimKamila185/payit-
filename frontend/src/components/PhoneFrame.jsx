@@ -93,7 +93,7 @@ const PhoneFrame = ({
             // Sub-screen header with Back button
             <div style={styles.headerLeft}>
               <button onClick={onBackClick} style={styles.backButton} aria-label="Go back">
-                <ChevronLeft size={24} color={theme === 'light' ? '#1c1c1e' : '#ffffff'} />
+                <ChevronLeft size={24} color="var(--text-primary)" />
               </button>
               <span style={styles.headerTitleLeftSub} className="phone-header-title-sub">{title}</span>
             </div>
@@ -106,7 +106,7 @@ const PhoneFrame = ({
                 style={styles.headerIconButton}
                 aria-label="Toggle balance visibility"
               >
-                {isEyeClosed ? <EyeOff size={18} color="#8c8c8e" /> : <Eye size={18} color="#8c8c8e" />}
+                {isEyeClosed ? <EyeOff size={18} color="var(--text-secondary)" /> : <Eye size={18} color="var(--text-secondary)" />}
               </button>
             </div>
           ) : (
@@ -123,7 +123,7 @@ const PhoneFrame = ({
                 style={styles.headerIconButton}
                 aria-label="Help & Chat"
               >
-                <MessageSquare size={18} color="#8c8c8e" />
+                <MessageSquare size={18} color="var(--text-secondary)" />
               </button>
             </div>
           )}
@@ -284,14 +284,13 @@ const PhoneFrame = ({
 };
 
 const styles = {
-
   header: {
     height: '56px',
     padding: '0 18px',
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: '#000000',
+    backgroundColor: 'var(--bg-color)',
     zIndex: 99,
   },
   headerLeft: {
@@ -313,13 +312,13 @@ const styles = {
     justifyContent: 'center',
   },
   headerTitleLeft: {
-    color: '#ffffff',
+    color: 'var(--text-primary)',
     fontSize: '22px',
     fontWeight: '800',
     fontFamily: 'var(--font-display)',
   },
   headerTitleLeftSub: {
-    color: '#ffffff',
+    color: 'var(--text-primary)',
     fontSize: '17px',
     fontWeight: '600',
     fontFamily: 'var(--font-display)',
@@ -334,9 +333,9 @@ const styles = {
     justifyContent: 'center',
   },
   checkBalancePill: {
-    backgroundColor: '#000000',
-    color: '#ffffff',
-    border: '1.2px solid #232326',
+    backgroundColor: 'var(--bg-color)',
+    color: 'var(--text-primary)',
+    border: '1.2px solid var(--border-color)',
     borderRadius: '20px',
     padding: '6px 14px',
     fontSize: '13px',
@@ -359,13 +358,13 @@ const styles = {
     height: '32px',
     borderRadius: '50%',
     objectFit: 'cover',
-    border: '1.5px solid #232326',
+    border: '1.5px solid var(--border-color)',
   },
   screenContent: {
     flex: 1,
     overflowY: 'auto',
     overflowX: 'hidden',
-    backgroundColor: '#0b0b0c',
+    backgroundColor: 'var(--bg-color)',
     position: 'relative',
     display: 'flex',
     flexDirection: 'column',
@@ -374,8 +373,8 @@ const styles = {
   },
   navBar: {
     height: '62px',
-    backgroundColor: '#0d0d0e',
-    borderTop: '1px solid #1a1a1c',
+    backgroundColor: 'var(--bg-color)',
+    borderTop: '1px solid var(--border-color)',
     display: 'flex',
     justifyContent: 'space-around',
     alignItems: 'center',
@@ -389,7 +388,7 @@ const styles = {
     flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
-    color: '#8c8c8e',
+    color: 'var(--text-secondary)',
     cursor: 'pointer',
     width: '60px',
     gap: '2px',
@@ -401,7 +400,7 @@ const styles = {
     flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
-    color: '#22e67b',
+    color: 'var(--accent-neon)',
     cursor: 'pointer',
     width: '60px',
     gap: '2px',
@@ -418,7 +417,7 @@ const styles = {
     width: '42px',
     height: '42px',
     borderRadius: '50%',
-    backgroundColor: '#ffffff',
+    backgroundColor: 'var(--surface-color)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -431,7 +430,7 @@ const styles = {
     width: '42px',
     height: '42px',
     borderRadius: '50%',
-    backgroundColor: '#22e67b',
+    backgroundColor: 'var(--accent-neon)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',

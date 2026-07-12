@@ -118,7 +118,7 @@ const CheckBalance = ({ onBack, upiId = "you@payit", realBalance = 0 }) => {
             <button style={styles.emptyBtn} disabled></button>
             <button onClick={() => handleKeyPress("0")} style={styles.keyBtn}>0</button>
             <button onClick={handleDelete} style={styles.keyBtn} aria-label="Backspace">
-              <Delete size={20} color="#ffffff" />
+              <Delete size={20} color="var(--text-primary)" />
             </button>
           </div>
 
@@ -128,7 +128,7 @@ const CheckBalance = ({ onBack, upiId = "you@payit", realBalance = 0 }) => {
             disabled={pin.length < 4}
             style={{
               ...styles.checkBalanceBtn,
-              backgroundColor: pin.length === 4 ? 'var(--accent-neon)' : '#1c1c1f',
+              backgroundColor: pin.length === 4 ? 'var(--accent-neon)' : 'var(--surface-hover)',
               color: pin.length === 4 ? '#000000' : 'var(--text-muted)',
               cursor: pin.length === 4 ? 'pointer' : 'not-allowed'
             }}
@@ -171,7 +171,7 @@ const styles = {
     fontSize: '13px',
     color: 'var(--text-secondary)',
     fontWeight: '600',
-    backgroundColor: '#1c1c1f',
+    backgroundColor: 'var(--surface-hover)',
     padding: '6px 12px',
     borderRadius: '12px',
   },
@@ -189,7 +189,7 @@ const styles = {
   },
   pinPromptText: {
     fontSize: '15px',
-    color: '#ffffff',
+    color: 'var(--text-primary)',
     fontWeight: '500',
   },
   dotsRow: {
@@ -231,12 +231,12 @@ const styles = {
     fontSize: '36px',
     fontWeight: '800',
     fontFamily: 'var(--font-display)',
-    color: '#ffffff',
+    color: 'var(--text-primary)',
   },
   resetBtn: {
     marginTop: '16px',
-    backgroundColor: '#1c1c1f',
-    border: '1px solid #232326',
+    backgroundColor: 'var(--surface-hover)',
+    border: '1px solid var(--border-color)',
     color: 'var(--accent-neon)',
     padding: '8px 20px',
     borderRadius: '20px',
@@ -257,12 +257,12 @@ const styles = {
   keyBtn: {
     flex: 1,
     height: '56px',
-    backgroundColor: '#121214',
+    backgroundColor: 'var(--surface-color)',
     border: 'none',
     borderRadius: '16px',
     fontSize: '22px',
     fontWeight: '600',
-    color: '#ffffff',
+    color: 'var(--text-primary)',
     cursor: 'pointer',
     display: 'flex',
     alignItems: 'center',
@@ -271,7 +271,7 @@ const styles = {
     boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
     transition: 'background-color 0.1s',
     '&:active': {
-      backgroundColor: '#1c1c1f',
+      backgroundColor: 'var(--surface-hover)',
     }
   },
   emptyBtn: {

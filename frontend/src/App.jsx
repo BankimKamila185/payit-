@@ -557,7 +557,7 @@ function App() {
       triggerNotification("Identity verified. Payment systems restored.", "info");
     } else if (pinPurpose === "unlock") {
       setIsAccountLocked(false);
-      triggerNotification("Identity verified. Account unlocked.", "info");
+triggerNotification("Identity verified. Account unlocked.", "info");
     }
   };
 
@@ -571,6 +571,7 @@ function App() {
             me={currentUser}
             balance={balance}
             userName={currentUserName}
+            theme={theme}
             onAddMoney={(name, amount) => {
               setRecipient(name && typeof name === 'string' ? name : "Add money");
               setPayAmount(amount || "");
@@ -594,6 +595,8 @@ function App() {
       case 'explore':
         return (
           <Explore 
+            theme={theme}
+            liveTxns={realTxns}
             onRechargeClick={(name) => {
               if (name && typeof name === 'string') {
                 setRecipient(name);
@@ -680,6 +683,7 @@ function App() {
           <Activity
             liveTxns={realTxns}
             me={currentUser}
+            theme={theme}
             onTransactionSelect={(tx) => {
               setLastTx(tx);
               pushScreen('paid-success');
@@ -704,6 +708,7 @@ function App() {
           <Analytics
             liveTxns={realTxns}
             me={currentUser}
+            theme={theme}
             onCategoryClick={(name) => {
               setRecipient(name);
               pushScreen('transfer');
@@ -834,7 +839,7 @@ function App() {
       <div className="mobile-app-wrapper">
         <PhoneFrame currentScreen="login" title="" showBackButton={false} hideNav>
           <div style={{ display: 'flex', height: '100%', alignItems: 'center',
-                        justifyContent: 'center', background: '#0a0a0a', color: '#666' }}>
+                        justifyContent: 'center', background: 'var(--bg-color)', color: 'var(--text-secondary)' }}>
             Loading…
           </div>
         </PhoneFrame>
@@ -908,18 +913,18 @@ function App() {
         {/* --- UPI PIN ENTRY MODAL (2nd factor) --- */}
         {pinModal && (
           <div style={styles.modalOverlay} className="animate-fade-in">
-            <div style={{ background: '#141414', borderRadius: 20, padding: 24, width: 300,
-                          textAlign: 'center', border: '1px solid #333' }} className="animate-scale-in">
-              <Lock size={28} color="#22e67b" style={{ marginBottom: 8 }} />
-              <h3 style={{ color: '#fff', margin: '4px 0' }}>Enter UPI PIN</h3>
-              <p style={{ color: '#888', fontSize: 13, marginBottom: 2 }}>
+            <div style={{ background: 'var(--surface-color)', borderRadius: 20, padding: 24, width: 300,
+                          textAlign: 'center', border: '1px solid var(--border-color)' }} className="animate-scale-in">
+              <Lock size={28} color="var(--accent-neon)" style={{ marginBottom: 8 }} />
+              <h3 style={{ color: 'var(--text-primary)', margin: '4px 0' }}>Enter UPI PIN</h3>
+              <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 2 }}>
                 Paying ₹{pinModal.amount} to {recipient}
               </p>
-              <p style={{ color: '#555', fontSize: 11, marginBottom: 16 }}>(demo PIN: 1234)</p>
+              <p style={{ color: 'var(--text-muted)', fontSize: 11, marginBottom: 16 }}>(demo PIN: 1234)</p>
               <div style={{ display: 'flex', justifyContent: 'center', gap: 12, marginBottom: 20 }}>
                 {[0,1,2,3].map(i => (
                   <div key={i} style={{ width: 14, height: 14, borderRadius: '50%',
-                    background: i < pinInput.length ? '#22e67b' : '#333' }} />
+                    background: i < pinInput.length ? 'var(--accent-neon)' : 'var(--border-color)' }} />
                 ))}
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
@@ -936,14 +941,14 @@ function App() {
                       }
                     }}
                     style={{ padding: '14px 0', fontSize: 20, borderRadius: 12,
-                      background: k === '' ? 'transparent' : '#222', color: '#fff',
+                      background: k === '' ? 'transparent' : 'var(--surface-hover)', color: 'var(--text-primary)',
                       border: 'none', cursor: k === '' ? 'default' : 'pointer' }}>
                     {k}
                   </button>
                 ))}
               </div>
               <button onClick={() => { setPinModal(null); setPinInput(""); }}
-                style={{ marginTop: 16, background: 'none', border: 'none', color: '#888', cursor: 'pointer' }}>
+                style={{ marginTop: 16, background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}>
                 Cancel
               </button>
             </div>
@@ -960,7 +965,7 @@ function App() {
                   style={styles.circleCloseBtn}
                   aria-label="Close biometrics"
                 >
-                  <X size={16} color="#ffffff" />
+                  <X size={16} color="var(--text-primary)" />
                 </button>
               </div>
               
@@ -1065,17 +1070,17 @@ function App() {
         {otpModalOpen && otpModalTx && (
           <div style={styles.modalOverlay} className="animate-fade-in">
             <div style={{
-              background: '#141414',
+              background: 'var(--surface-color)',
               borderRadius: 24,
               padding: 24,
               width: 320,
               textAlign: 'center',
-              border: '1px solid rgba(255,255,255,0.06)',
-              boxShadow: '0 20px 40px rgba(0,0,0,0.8)'
+              border: '1px solid var(--border-color)',
+              boxShadow: '0 20px 40px rgba(0,0,0,0.15)'
             }} className="animate-scale-in">
               <ShieldAlert size={36} color="#ff8c00" style={{ marginBottom: 12 }} />
-              <h3 style={{ color: '#fff', margin: '4px 0', fontSize: '18px', fontWeight: '700' }}>Extra Verification Needed</h3>
-              <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12, marginBottom: 16 }}>
+              <h3 style={{ color: 'var(--text-primary)', margin: '4px 0', fontSize: '18px', fontWeight: '700' }}>Extra Verification Needed</h3>
+              <p style={{ color: 'var(--text-secondary)', fontSize: 12, marginBottom: 16 }}>
                 We detected anomalous behavior. To complete your payment of <strong>₹{otpModalTx.amount}</strong> to <strong>{otpModalTx.recipient}</strong>, enter the 6-digit OTP sent to your registered mobile.
               </p>
 
@@ -1085,7 +1090,7 @@ function App() {
                 {otpModalTx.otpDemo ? (
                   <p style={{ color: '#22e67b', fontSize: 12, margin: '4px 0 0 0' }}>Demo OTP: <b>{otpModalTx.otpDemo}</b> (real app: SMS only)</p>
                 ) : (
-                  <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 10, margin: '4px 0 0 0' }}>Check server logs if testing locally.</p>
+                  <p style={{ color: 'var(--text-muted)', fontSize: 10, margin: '4px 0 0 0' }}>Check server logs if testing locally.</p>
                 )}
               </div>
 
@@ -1100,13 +1105,13 @@ function App() {
                 placeholder="------"
                 style={{
                   width: '100%',
-                  backgroundColor: '#0c0c0e',
-                  border: '1px solid rgba(255,255,255,0.1)',
+                  backgroundColor: 'var(--bg-color)',
+                  border: '1px solid var(--border-color)',
                   borderRadius: 12,
                   padding: '12px',
                   fontSize: '20px',
                   textAlign: 'center',
-                  color: '#fff',
+                  color: 'var(--text-primary)',
                   letterSpacing: '6px',
                   fontWeight: '700',
                   marginBottom: 12,
@@ -1139,7 +1144,7 @@ function App() {
                   }}
                   style={{
                     background: 'none', border: 'none', cursor: 'pointer',
-                    color: otpResendStatus === 'sent' ? 'var(--accent-neon)' : 'rgba(255,255,255,0.4)',
+                    color: otpResendStatus === 'sent' ? 'var(--accent-neon)' : 'var(--text-muted)',
                     fontSize: 11, fontWeight: 600
                   }}
                 >
@@ -1158,8 +1163,8 @@ function App() {
                     flex: 1,
                     padding: '12px 0',
                     borderRadius: 12,
-                    background: 'rgba(255,255,255,0.04)',
-                    color: 'rgba(255,255,255,0.6)',
+                    background: 'var(--surface-hover)',
+                    color: 'var(--text-secondary)',
                     border: 'none',
                     fontSize: '12px',
                     fontWeight: '600',
@@ -1175,8 +1180,8 @@ function App() {
                     flex: 2,
                     padding: '12px 0',
                     borderRadius: 12,
-                    background: otpModalCode.length < 6 ? '#222' : 'linear-gradient(135deg, #ff8c00, #e65c00)',
-                    color: otpModalCode.length < 6 ? '#555' : '#fff',
+                    background: otpModalCode.length < 6 ? 'var(--border-color)' : 'linear-gradient(135deg, #ff8c00, #e65c00)',
+                    color: otpModalCode.length < 6 ? 'var(--text-muted)' : '#fff',
                     border: 'none',
                     fontSize: '12px',
                     fontWeight: '700',
@@ -1329,13 +1334,13 @@ function App() {
                       <p style={appGateStyles.subtitle}>{isConfirm ? 'Confirm your new UPI PIN' : 'Enter your new 4-digit UPI PIN'}</p>
                       <div style={{ display: 'flex', justifyContent: 'center', gap: 12, margin: '16px 0' }}>
                         {[0,1,2,3].map(i => (
-                          <div key={i} style={{ width: 14, height: 14, borderRadius: '50%', background: i < currentForgotPin.length ? 'var(--accent-neon)' : '#333' }} />
+                          <div key={i} style={{ width: 14, height: 14, borderRadius: '50%', background: i < currentForgotPin.length ? 'var(--accent-neon)' : 'var(--border-color)' }} />
                         ))}
                       </div>
                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8, marginBottom: 8 }}>
                         {['1','2','3','4','5','6','7','8','9','','0','⌫'].map((k, idx) => (
                           <button key={idx} disabled={k === '' || forgotBusy}
-                            style={{ padding: '12px 0', fontSize: 20, borderRadius: 10, background: k === '' ? 'transparent' : '#222', color: '#fff', border: 'none', cursor: k === '' ? 'default' : 'pointer' }}
+                            style={{ padding: '12px 0', fontSize: 20, borderRadius: 10, background: k === '' ? 'transparent' : 'var(--surface-hover)', color: 'var(--text-primary)', border: 'none', cursor: k === '' ? 'default' : 'pointer' }}
                             onClick={() => {
                               if (k === '⌫') { forgotSetter(p => p.slice(0,-1)); return; }
                               if (!k) return;
@@ -1410,7 +1415,7 @@ function App() {
                 {/* PIN dots */}
                 <div style={{ display: 'flex', justifyContent: 'center', gap: 12, margin: '16px 0 8px' }}>
                   {[0,1,2,3].map(i => (
-                    <div key={i} style={{ width: 14, height: 14, borderRadius: '50%', background: i < appPinInput.length ? 'var(--accent-neon)' : '#333', transition: 'background 0.15s' }} />
+                    <div key={i} style={{ width: 14, height: 14, borderRadius: '50%', background: i < appPinInput.length ? 'var(--accent-neon)' : 'var(--border-color)', transition: 'background 0.15s' }} />
                   ))}
                 </div>
 
@@ -1418,7 +1423,7 @@ function App() {
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8, marginBottom: 8 }}>
                   {['1','2','3','4','5','6','7','8','9','','0','⌫'].map((k, idx) => (
                     <button key={idx} disabled={k === '' || appPinBusy}
-                      style={{ padding: '13px 0', fontSize: 20, borderRadius: 10, background: k === '' ? 'transparent' : '#1a1a1d', color: '#fff', border: 'none', cursor: k === '' ? 'default' : 'pointer', transition: 'background 0.1s' }}
+                      style={{ padding: '13px 0', fontSize: 20, borderRadius: 10, background: k === '' ? 'transparent' : 'var(--surface-hover)', color: 'var(--text-primary)', border: 'none', cursor: k === '' ? 'default' : 'pointer', transition: 'background 0.1s' }}
                       onClick={() => {
                         if (k === '⌫') { setAppPinInput(p => p.slice(0,-1)); return; }
                         if (!k) return;
@@ -1470,19 +1475,19 @@ function App() {
 const appGateStyles = {
   overlay: {
     position: 'fixed', inset: 0,
-    background: 'rgba(0,0,0,0.92)',
+    background: 'var(--bg-color)',
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     zIndex: 999999,
     backdropFilter: 'blur(12px)',
   },
   card: {
-    background: '#0f0f12',
-    border: '1px solid rgba(255,255,255,0.08)',
+    background: 'var(--surface-color)',
+    border: '1px solid var(--border-color)',
     borderRadius: 28,
     padding: '28px 24px',
     width: 300,
     maxWidth: '90vw',
-    boxShadow: '0 24px 64px rgba(0,0,0,0.9)',
+    boxShadow: '0 24px 64px rgba(0,0,0,0.15)',
   },
   logoRow: {
     display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -1493,9 +1498,9 @@ const appGateStyles = {
     background: 'linear-gradient(135deg,#eb3b88,#aa33ff)',
     display: 'flex', alignItems: 'center', justifyContent: 'center',
   },
-  logoText: { fontSize: 22, fontWeight: 800, color: '#fff', letterSpacing: '-0.5px' },
-  title: { color: '#fff', fontSize: 20, fontWeight: 700, textAlign: 'center', margin: '0 0 4px' },
-  subtitle: { color: 'rgba(255,255,255,0.5)', fontSize: 13, textAlign: 'center', margin: '0 0 8px' },
+  logoText: { fontSize: 22, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.5px' },
+  title: { color: 'var(--text-primary)', fontSize: 20, fontWeight: 700, textAlign: 'center', margin: '0 0 4px' },
+  subtitle: { color: 'var(--text-secondary)', fontSize: 13, textAlign: 'center', margin: '0 0 8px' },
   vpaText: { color: 'var(--accent-neon)', fontSize: 13, fontWeight: 600, textAlign: 'center', margin: '0 0 12px' },
   fingerprintBtn: {
     width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -1504,11 +1509,11 @@ const appGateStyles = {
     color: 'var(--accent-neon)', fontSize: 14, fontWeight: 600, cursor: 'pointer',
     marginBottom: 8,
   },
-  errText: { color: '#ff5470', fontSize: 11, fontWeight: 600, textAlign: 'center', margin: '4px 0' },
+  errText: { color: 'var(--danger-color)', fontSize: 11, fontWeight: 600, textAlign: 'center', margin: '4px 0' },
   successText: { color: 'var(--accent-neon)', fontSize: 11, fontWeight: 600, textAlign: 'center', margin: '4px 0' },
   forgotBtn: {
     width: '100%', background: 'none', border: 'none',
-    color: 'rgba(255,255,255,0.35)', fontSize: 12, fontWeight: 600,
+    color: 'var(--text-muted)', fontSize: 12, fontWeight: 600,
     cursor: 'pointer', padding: '8px 0', textAlign: 'center',
   },
   primaryBtn: {
@@ -1519,14 +1524,14 @@ const appGateStyles = {
   },
   cancelBtn: {
     width: '100%', padding: '10px 0', background: 'none', border: 'none',
-    color: 'rgba(255,255,255,0.35)', fontSize: 12, fontWeight: 600,
+    color: 'var(--text-muted)', fontSize: 12, fontWeight: 600,
     cursor: 'pointer', marginTop: 6,
   },
   otpInput: {
-    width: '100%', backgroundColor: '#0c0c0e',
-    border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12,
+    width: '100%', backgroundColor: 'var(--bg-color)',
+    border: '1px solid var(--border-color)', borderRadius: 12,
     padding: '12px', fontSize: '20px', textAlign: 'center',
-    color: '#fff', letterSpacing: '6px', fontWeight: '700',
+    color: 'var(--text-primary)', letterSpacing: '6px', fontWeight: '700',
     marginBottom: 8, outline: 'none', boxSizing: 'border-box',
   },
 };
@@ -1537,13 +1542,14 @@ const styles = {
     position: 'absolute',
     left: '12px',
     right: '12px',
-    backgroundColor: '#ffffff',
+    backgroundColor: 'var(--surface-color)',
+    border: '1px solid var(--border-color)',
     borderRadius: '14px',
     padding: '10px 14px',
     display: 'flex',
     alignItems: 'center',
     gap: '12px',
-    boxShadow: '0 10px 25px rgba(0,0,0,0.5)',
+    boxShadow: '0 10px 25px rgba(0,0,0,0.1)',
     zIndex: 99999,
     transition: 'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)'
   },
@@ -1565,11 +1571,11 @@ const styles = {
   pushTitle: {
     fontSize: '11px',
     fontWeight: '700',
-    color: '#000000'
+    color: 'var(--text-primary)'
   },
   pushMessage: {
     fontSize: '11px',
-    color: '#3a3a3c',
+    color: 'var(--text-secondary)',
     fontWeight: '500'
   },
   aiOverlay: {
@@ -1578,7 +1584,7 @@ const styles = {
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: 'rgba(5, 5, 6, 0.9)',
+    backgroundColor: 'var(--bg-color)',
     backdropFilter: 'blur(10px)',
     display: 'flex',
     alignItems: 'center',
@@ -1586,7 +1592,7 @@ const styles = {
     zIndex: 10002
   },
   aiCard: {
-    backgroundColor: '#121214',
+    backgroundColor: 'var(--surface-color)',
     border: '1px solid rgba(34, 230, 123, 0.15)',
     borderRadius: '24px',
     padding: '24px',
@@ -1621,7 +1627,7 @@ const styles = {
   aiTitle: {
     fontSize: '15px',
     fontWeight: '700',
-    color: '#ffffff',
+    color: 'var(--text-primary)',
     marginBottom: '4px'
   },
   aiDetails: {
@@ -1646,7 +1652,7 @@ const styles = {
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.82)',
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
     backdropFilter: 'blur(8px)',
     display: 'flex',
     alignItems: 'center',
@@ -1654,8 +1660,8 @@ const styles = {
     zIndex: 10001
   },
   biometricCard: {
-    backgroundColor: '#111113',
-    border: '1.5px solid rgba(255,255,255,0.06)',
+    backgroundColor: 'var(--surface-color)',
+    border: '1.5px solid var(--border-color)',
     borderRadius: '28px',
     padding: '20px',
     width: '300px',
@@ -1674,7 +1680,7 @@ const styles = {
     width: '26px',
     height: '26px',
     borderRadius: '50%',
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: 'var(--surface-hover)',
     border: 'none',
     display: 'flex',
     alignItems: 'center',
@@ -1709,7 +1715,7 @@ const styles = {
   biometricTitle: {
     fontSize: '16px',
     fontWeight: '700',
-    color: '#ffffff',
+    color: 'var(--text-primary)',
     marginBottom: '6px'
   },
   biometricDesc: {
@@ -1732,7 +1738,7 @@ const styles = {
     boxShadow: '0 4px 12px rgba(34, 230, 123, 0.2)'
   },
   guardianSimCard: {
-    backgroundColor: '#0c0c0e',
+    backgroundColor: 'var(--surface-color)',
     border: '2px dashed var(--accent-blue)',
     borderRadius: '32px',
     padding: '18px',
@@ -1763,14 +1769,15 @@ const styles = {
     lineHeight: '1.3'
   },
   guardianMobileNotification: {
-    backgroundColor: '#ffffff',
-    color: '#000000',
+    backgroundColor: 'var(--surface-color)',
+    color: 'var(--text-primary)',
     borderRadius: '20px',
     padding: '14px',
     width: '100%',
     textAlign: 'left',
-    boxShadow: '0 8px 24px rgba(0,0,0,0.3)',
-    marginBottom: '12px'
+    boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
+    marginBottom: '12px',
+    border: '1px solid var(--border-color)'
   },
   gNotifHeader: {
     display: 'flex',
@@ -1781,27 +1788,27 @@ const styles = {
     marginBottom: '6px'
   },
   gNotifLogo: {
-    color: '#3a3a3c',
+    color: 'var(--text-secondary)',
     textTransform: 'uppercase',
     letterSpacing: '0.5px'
   },
   gNotifTime: {
-    color: '#8c8c8e'
+    color: 'var(--text-muted)'
   },
   gNotifTitle: {
     fontSize: '13px',
     fontWeight: '700',
-    color: '#000000',
+    color: 'var(--text-primary)',
     marginBottom: '2px'
   },
   gNotifBody: {
     fontSize: '11px',
-    color: '#1c1c1f',
+    color: 'var(--text-primary)',
     lineHeight: '1.4',
     marginBottom: '8px'
   },
   gNotifRiskBlock: {
-    backgroundColor: '#f5f5f7',
+    backgroundColor: 'var(--surface-hover)',
     borderRadius: '12px',
     padding: '8px 10px',
     marginBottom: '10px',
@@ -1816,7 +1823,7 @@ const styles = {
     fontSize: '10px'
   },
   riskLabel: {
-    color: '#575759',
+    color: 'var(--text-secondary)',
     fontWeight: '600'
   },
   riskBadge: {
@@ -1829,7 +1836,7 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     fontSize: '9px',
-    color: '#575759'
+    color: 'var(--text-secondary)'
   },
   timerRow: {
     display: 'flex',
@@ -1874,9 +1881,9 @@ const styles = {
   },
   gCallBtn: {
     flex: 0.8,
-    backgroundColor: '#e5e5ea',
+    backgroundColor: 'var(--surface-hover)',
     border: 'none',
-    color: '#1c1c1f',
+    color: 'var(--text-primary)',
     height: '32px',
     borderRadius: '8px',
     fontSize: '11px',
@@ -1901,7 +1908,7 @@ const styles = {
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: 'rgba(5, 5, 6, 0.95)',
+    backgroundColor: 'var(--bg-color)',
     backdropFilter: 'blur(16px)',
     zIndex: 10000,
     display: 'flex',
@@ -1918,7 +1925,7 @@ const styles = {
     right: 0,
     bottom: 0,
     backgroundColor: 'rgba(235, 59, 136, 0.05)',
-    background: 'radial-gradient(circle at center, #1b0c15 0%, #050506 80%)',
+    background: 'radial-gradient(circle at center, rgba(235, 59, 136, 0.1) 0%, var(--bg-color) 80%)',
     backdropFilter: 'blur(16px)',
     zIndex: 10000,
     display: 'flex',
@@ -1932,7 +1939,7 @@ const styles = {
   freezeTitle: {
     fontSize: '18px',
     fontWeight: '800',
-    color: '#ffffff',
+    color: 'var(--text-primary)',
     marginTop: '18px',
     marginBottom: '8px',
     fontFamily: 'var(--font-display)'

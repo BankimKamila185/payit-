@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Search, ArrowDownLeft, ArrowUpRight, AlertCircle, ShieldAlert } from 'lucide-react';
 import LogoAvatar from '../components/LogoAvatar';
 
-const Activity = ({ onTransactionSelect, onReportFraud, liveTxns, me }) => {
+const Activity = ({ onTransactionSelect, onReportFraud, liveTxns, me, theme = 'dark' }) => {
   const [searchQuery, setSearchQuery] = useState("");
 
   // REAL transactions from backend -> map to this screen's shape.
@@ -60,17 +60,50 @@ const Activity = ({ onTransactionSelect, onReportFraud, liveTxns, me }) => {
     return <span style={styles.initialsText}>{getInitials(item.recipient)}</span>;
   };
 
+  const isLight = theme === 'light';
+
+  const searchBarStyle = isLight ? {
+    display: 'flex',
+    alignItems: 'center',
+    backgroundColor: '#ffffff',
+    borderRadius: '24px',
+    padding: '12px 18px',
+    boxShadow: '0 8px 24px rgba(0, 0, 0, 0.04)',
+    border: 'none',
+  } : styles.searchBar;
+
+  const searchInputStyle = isLight ? {
+    flex: 1,
+    background: 'none',
+    border: 'none',
+    outline: 'none',
+    color: '#111111',
+    fontSize: '14px',
+  } : styles.searchInput;
+
+  const txRowStyle = isLight ? {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: '14px 4px',
+    backgroundColor: 'transparent',
+    borderBottom: '1px solid rgba(0, 0, 0, 0.04)',
+    cursor: 'pointer',
+  } : styles.txRow;
+
+  const depositColor = isLight ? 'var(--accent-green-contrast)' : 'var(--accent-neon)';
+
   return (
     <div style={styles.container} className="animate-slide-up">
       {/* Search Input Bar */}
-      <div style={styles.searchBar}>
+      <div style={searchBarStyle}>
         <Search size={16} color="var(--text-secondary)" style={{ marginRight: 10 }} />
         <input 
           type="text" 
           placeholder="Search transactions" 
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          style={styles.searchInput} 
+          style={searchInputStyle} 
         />
       </div>
 
@@ -86,15 +119,23 @@ const Activity = ({ onTransactionSelect, onReportFraud, liveTxns, me }) => {
             <div 
               key={tx.id} 
               onClick={() => onTransactionSelect && onTransactionSelect(tx)}
-              style={styles.txRow}
+              style={txRowStyle}
             >
               <div style={styles.txLeft}>
                 {tx.recipient === 'Money added' ? (
-                  <div style={{ ...styles.avatarBox, backgroundColor: 'rgba(34, 230, 123, 0.08)' }}>
-                    <ArrowDownLeft size={16} color="var(--accent-neon)" />
+                  <div style={{ 
+                    ...styles.avatarBox, 
+                    backgroundColor: isLight ? '#e8f7ee' : 'rgba(34, 230, 123, 0.08)',
+                    border: isLight ? 'none' : '1px solid var(--border-color)'
+                  }}>
+                    <ArrowDownLeft size={16} color={depositColor} />
                   </div>
                 ) : tx.recipient === 'Repayment' ? (
-                  <div style={{ ...styles.avatarBox, backgroundColor: 'rgba(235, 59, 136, 0.08)' }}>
+                  <div style={{ 
+                    ...styles.avatarBox, 
+                    backgroundColor: isLight ? '#fcebf3' : 'rgba(235, 59, 136, 0.08)',
+                    border: isLight ? 'none' : '1px solid var(--border-color)'
+                  }}>
                     <ArrowUpRight size={16} color="var(--accent-pink)" />
                   </div>
                 ) : (
@@ -114,8 +155,8 @@ const Activity = ({ onTransactionSelect, onReportFraud, liveTxns, me }) => {
                       color: tx.status === 'failed' 
                         ? 'var(--text-muted)' 
                         : tx.type === 'deposit' 
-                        ? 'var(--accent-neon)' 
-                        : '#ffffff'
+                        ? depositColor 
+                        : 'var(--text-primary)'
                     }}
                   >
                     {tx.type === 'deposit' ? '+' : ''}₹{tx.amount}
@@ -171,7 +212,7 @@ const styles = {
     background: 'none',
     border: 'none',
     outline: 'none',
-    color: '#ffffff',
+    color: 'var(--text-primary)',
     fontSize: '14px',
   },
   listWrapper: {
@@ -205,12 +246,12 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    border: '1px solid rgba(255,255,255,0.03)',
+    border: '1px solid var(--border-color)',
   },
   initialsText: {
     fontSize: '13px',
     fontWeight: '700',
-    color: '#ffffff',
+    color: 'var(--text-primary)',
     fontFamily: 'var(--font-display)',
     letterSpacing: '-0.3px',
   },
@@ -222,7 +263,7 @@ const styles = {
   txRecipient: {
     fontSize: '14px',
     fontWeight: '600',
-    color: '#ffffff',
+    color: 'var(--text-primary)',
   },
   txDate: {
     fontSize: '11px',

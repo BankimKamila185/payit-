@@ -65,7 +65,7 @@ const TransferKeypad = ({
         
         <div style={styles.headerRight}>
           <button style={styles.chatBtn} aria-label="Chat">
-            <MessageCircle size={18} color="#ffffff" />
+            <MessageCircle size={18} color="var(--text-primary)" />
           </button>
           <div style={styles.profileBox}>
             <div style={styles.profileInitial}>{userInitial}</div>
@@ -81,7 +81,7 @@ const TransferKeypad = ({
               <div style={{
                 ...styles.recipientAvatar,
                 background: isFlaggedScam() ? 'rgba(235, 59, 136, 0.12)' : 'linear-gradient(135deg, #aa33ff 0%, #0088ff 100%)',
-                borderColor: isFlaggedScam() ? 'var(--accent-pink)' : 'rgba(255,255,255,0.06)'
+                borderColor: isFlaggedScam() ? 'var(--accent-pink)' : 'var(--border-color)'
               }}>
                 {getInitials(recipientName)}
               </div>
@@ -203,7 +203,7 @@ const styles = {
     padding: '16px',
     paddingBottom: '32px',
     height: '100%',
-    backgroundColor: '#050506',
+    backgroundColor: 'var(--bg-color)',
   },
   topHeader: {
     display: 'flex',
@@ -213,9 +213,9 @@ const styles = {
   },
   checkBalanceBtn: {
     backgroundColor: 'transparent',
-    border: '1px solid rgba(255, 255, 255, 0.18)',
+    border: '1px solid var(--border-color)',
     borderRadius: '16px',
-    color: '#ffffff',
+    color: 'var(--text-primary)',
     padding: '6px 14px',
     fontSize: '12px',
     fontWeight: '600',
@@ -232,26 +232,26 @@ const styles = {
     height: '34px',
     borderRadius: '50%',
     backgroundColor: 'transparent',
-    border: '1px solid rgba(255, 255, 255, 0.18)',
+    border: '1px solid var(--border-color)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    color: '#ffffff',
+    color: 'var(--text-primary)',
     cursor: 'pointer',
   },
   profileBox: {
     width: '34px',
     height: '34px',
     borderRadius: '50%',
-    backgroundColor: '#3a3a3c',
-    border: '1px solid rgba(255, 255, 255, 0.18)',
+    backgroundColor: 'var(--surface-hover)',
+    border: '1px solid var(--border-color)',
     overflow: 'hidden',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
   },
   profileInitial: {
-    color: '#ffffff',
+    color: 'var(--text-primary)',
     fontWeight: '700',
     fontSize: '13px',
   },
@@ -259,8 +259,8 @@ const styles = {
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.02)',
-    border: '1px solid rgba(255,255,255,0.05)',
+    backgroundColor: 'var(--surface-color)',
+    border: '1px solid var(--border-color)',
     borderRadius: '16px',
     padding: '10px 12px',
     marginTop: '14px',
@@ -291,7 +291,7 @@ const styles = {
   recipientText: {
     fontSize: '12px',
     fontWeight: '600',
-    color: '#ffffff',
+    color: 'var(--text-primary)',
   },
   recipientUpiText: {
     fontSize: '9px',
@@ -338,7 +338,7 @@ const styles = {
   },
   scamWarningDesc: {
     fontSize: '10px',
-    color: 'rgba(255,255,255,0.7)',
+    color: 'var(--text-secondary)',
     lineHeight: '1.4',
   },
   displayArea: {
@@ -356,7 +356,7 @@ const styles = {
   amountText: {
     fontSize: '60px',
     fontWeight: '700',
-    color: '#ffffff',
+    color: 'var(--text-primary)',
     fontFamily: 'var(--font-display)',
     letterSpacing: '-1px',
   },
@@ -368,17 +368,17 @@ const styles = {
   earnBadge: {
     display: 'flex',
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    backgroundColor: 'var(--surface-hover)',
     padding: '6px 12px',
     borderRadius: '16px',
     fontSize: '11px',
     fontWeight: '600',
-    color: '#ffffff',
+    color: 'var(--text-primary)',
   },
   upiBadge: {
     display: 'flex',
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    backgroundColor: 'var(--surface-hover)',
     padding: '6px 14px',
     borderRadius: '16px',
   },
@@ -399,7 +399,7 @@ const styles = {
     border: 'none',
     fontSize: '22px',
     fontWeight: '600',
-    color: '#ffffff',
+    color: 'var(--text-primary)',
     cursor: 'pointer',
     display: 'flex',
     alignItems: 'center',

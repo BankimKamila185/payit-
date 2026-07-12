@@ -948,15 +948,15 @@
 }
 
 /* ==========================================================================
-   LIGHT THEME OVERRIDES (Vibrant & Clean Obsidian Light Mode)
+   LIGHT THEME OVERRIDES (Vibrant & Clean Premium Light Mode)
    ========================================================================== */
 
 .light-theme.phone-container,
 .light-theme .phone-container {
   background-color: var(--bg-color) !important;
   color: var(--text-primary) !important;
-  border-color: #d1d1d6 !important;
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(0, 0, 0, 0.04) !important;
+  border-color: #e8e8ec !important;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.06), 0 0 0 1px rgba(0, 0, 0, 0.02) !important;
 }
 
 .light-theme .phone-home-indicator {
@@ -965,7 +965,7 @@
 
 .light-theme .phone-header {
   background-color: var(--bg-color) !important;
-  border-bottom: 1px solid var(--border-color) !important;
+  border-bottom: none !important; /* Premium borderless header */
 }
 
 .light-theme .phone-screen-content {
@@ -978,45 +978,46 @@
   color: var(--text-primary) !important;
 }
 
+/* Bottom Navigation Bar Custom Styles */
 .light-theme .payit-navbar-container {
-  background-color: var(--surface-color) !important;
-  border-top: 1px solid var(--border-color) !important;
-  box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.02) !important;
+  background-color: var(--bg-color) !important;
+  border-top: none !important;
+  box-shadow: none !important;
 }
 
 .light-theme .nav-circle-btn {
-  background: var(--surface-hover) !important;
+  background: #e8e8ec !important;
   color: var(--text-secondary) !important;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.04) !important;
+  box-shadow: none !important;
+  border: none !important;
 }
 
 .light-theme .nav-circle-btn:hover {
-  background: var(--border-color) !important;
+  background: #e0e0e5 !important;
   color: var(--text-primary) !important;
 }
 
 .light-theme .nav-circle-btn.active {
-  background: var(--text-primary) !important;
-  color: var(--surface-color) !important;
-  box-shadow: 0 4px 10px rgba(0,0,0,0.12) !important;
+  background: #ffffff !important;
+  color: #111111 !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08) !important;
 }
 
+/* Clear middle tab special styles in light mode */
 .light-theme .nav-item-wrapper:nth-child(3) .nav-circle-btn {
-  background: var(--surface-hover) !important;
+  background: #e8e8ec !important;
   color: var(--text-secondary) !important;
+  box-shadow: none !important;
 }
 
 .light-theme .nav-item-wrapper:nth-child(3) .nav-circle-btn.active,
 .light-theme .nav-item-wrapper:nth-child(3) .nav-circle-btn:hover {
-  background: #1c1c1e !important;
-  color: #ffffff !important;
-  box-shadow:
-    0 0 0 3px var(--surface-color),
-    0 0 0 6px #1c1c1e,
-    0 6px 16px rgba(0,0,0,0.12) !important;
+  background: #ffffff !important;
+  color: #111111 !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08) !important;
 }
 
-/* Screen element overrides */
+/* Screen elements styling */
 .light-theme .bill-amount,
 .light-theme .quick-send-name,
 .light-theme .bill-name {
@@ -1024,44 +1025,11 @@
 }
 
 .light-theme .quick-send-avatar-add {
-  background-color: var(--surface-hover) !important;
-  border: 1.5px dashed var(--border-color) !important;
-  color: var(--text-primary) !important;
+  background-color: #e8e8ec !important;
+  border: 1.5px dashed #c7c7cc !important;
+  color: var(--text-secondary) !important;
 }
 
-/* Keypad overrides */
-.light-theme button[style*="background: 'none'"],
-.light-theme button[style*="background:none"],
-.light-theme button[style*="backgroundColor: 'transparent'"],
-.light-theme button[style*="background-color: transparent"] {
-  background-color: transparent !important;
-}
-
-.light-theme button[style*="color: '#ffffff'"],
-.light-theme button[style*="color: '#fff'"] {
-  color: var(--text-primary) !important;
-}
-
-.light-theme .phone-screen-content h3,
-.light-theme .phone-screen-content h2,
-.light-theme .phone-screen-content span,
-.light-theme .phone-screen-content p,
-.light-theme .phone-screen-content div {
-  /* Ensure text colors inside standard cards adapt */
-}
-
-/* Specifically style the transfer keypad and other screens */
-.light-theme .animate-slide-up button {
-  color: var(--text-primary);
-}
-
-.light-theme .animate-slide-up span {
-  color: var(--text-primary);
-}
-
-.light-theme .animate-slide-up div {
-  border-color: var(--border-color);
-}
 
 
 

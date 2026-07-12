@@ -9,7 +9,8 @@ const TransferKeypad = ({
   onOpenScanner,
   onCheckBalance,
   userInitial = "U",
-  recipientVpa = ""
+  recipientVpa = "",
+  onChangePayee
 }) => {
   const [amount, setAmount] = useState(prefilledAmount ? prefilledAmount.toString() : "");
 
@@ -92,14 +93,35 @@ const TransferKeypad = ({
                 </span>
               </div>
             </div>
-            <div style={styles.verifiedTag}>
-              {isFlaggedScam() ? (
-                <span style={styles.muleTag}>FLAGGED MULE</span>
-              ) : (
-                <span style={styles.safeTag}>VERIFIED SAFE</span>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
+              <div style={styles.verifiedTag}>
+                {isFlaggedScam() ? (
+                  <span style={styles.muleTag}>FLAGGED MULE</span>
+                ) : (
+                  <span style={styles.safeTag}>VERIFIED SAFE</span>
+                )}
+              </div>
+              {onChangePayee && (
+                <button 
+                  onClick={onChangePayee} 
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: 'var(--accent-neon)',
+                    fontSize: '11px',
+                    fontWeight: '700',
+                    cursor: 'pointer',
+                    padding: '4px 0',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.5px'
+                  }}
+                >
+                  Change
+                </button>
               )}
             </div>
           </div>
+
 
           {isFlaggedScam() && (
             <div style={styles.scamWarningCard}>

@@ -744,7 +744,13 @@ function App() {
             onInvestSuccess={(amt) => handlePaymentProcess(amt, true)}
             onOpenScanner={() => pushScreen('qr-scanner')}
             onCheckBalance={() => pushScreen('check-balance')}
+            onChangePayee={() => {
+              setRecipient('');
+              setSelectedPayee(null);
+              pushScreen('payee-selector');
+            }}
           />
+
         );
       }
       case 'payee-selector':

@@ -42,7 +42,7 @@ function App() {
   const activeScreen = history[history.length - 1] || 'banking';
 
   // Global State (shared between screens)
-  const [recipient, setRecipient] = useState('Gopichand Javanajad');
+  const [recipient, setRecipient] = useState('');
   const [balance, setBalance] = useState(14580);
   const [fixedDeposit, setFixedDeposit] = useState(0);
   const [monies, setMonies] = useState(3902);
@@ -190,6 +190,10 @@ function App() {
   };
 
   const resetToScreen = (screenName) => {
+    if (screenName === 'transfer') {
+      setRecipient('');
+      setSelectedPayee(null);
+    }
     setHistory([screenName]);
   };
 

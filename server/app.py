@@ -750,7 +750,7 @@ def pay(req: PayReq):
     con.execute("UPDATE accounts SET balance = balance - ?, txn_count = txn_count + 1 WHERE id=?", (req.amount, sid))
     con.execute("UPDATE accounts SET balance = balance + ?, txn_count = txn_count + 1 WHERE id=?", (req.amount, rid))
     # F3: post-payment second look -> flag a completed payment to a newish receiver for recall
-    post_review = feats["receiver_account_age_days"] < 90
+    post_review = feats["receiver_account_age_days"] < 90 and not req.receiver_vpa.endswith("@payit")
     post_msg = None
     if post_review:
         con.execute("UPDATE transactions SET status='flagged' WHERE id=?", (txid,))
@@ -808,8 +808,10 @@ def verify_otp(req: OtpReq):
     con.execute("UPDATE accounts SET balance = balance - ?, txn_count = txn_count + 1 WHERE id=?", (tx["amount"], tx["sender_account_id"]))
     con.execute("UPDATE accounts SET balance = balance + ?, txn_count = txn_count + 1 WHERE id=?", (tx["amount"], tx["receiver_account_id"]))
     # F3: post-payment second look (newish receiver -> flag for recall even after OTP)
-    rage = con.execute("SELECT account_age_days FROM accounts WHERE id=?", (tx["receiver_account_id"],)).fetchone()["account_age_days"]
-    post_review = rage < 90
+    r_row = con.execute("SELECT account_age_days, vpa FROM accounts WHERE id=?", (tx["receiver_account_id"],)).fetchone()
+    rage = r_row["account_age_days"]
+    r_vpa = r_row["vpa"]
+    post_review = rage < 90 and not r_vpa.endswith("@payit")
     post_msg = None
     if post_review:
         con.execute("UPDATE transactions SET status='flagged' WHERE id=?", (tx["id"],))

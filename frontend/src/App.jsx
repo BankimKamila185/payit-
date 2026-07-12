@@ -338,7 +338,7 @@ function App() {
       }
 
       const now = new Date().toLocaleString('en-IN', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit', hour12:true });
-      const baseTx = { id:`TX-${data.transaction_id}`, recipient, amount, date: now,
+      const baseTx = { id:`TX-${data.transaction_id}`, recipient, recipientVpa: receiver, amount, date: now,
                        upiRef: data.txn_ref || "-", transId: String(data.transaction_id),
                        reasons: data.reasons, score: data.score };
 

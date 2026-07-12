@@ -77,8 +77,8 @@ const PaidSuccess = ({
           </div>
           <h2 style={{ ...styles.amountText, color: '#ff8c00' }}>Paid ₹{amount}</h2>
           <p style={styles.recipientSub}>To {recipientName}</p>
-          <p style={styles.pendingBannerText}>
-            {transactionDetails.postMessage || 'Flagged after payment. If confirmed fraud, money will be returned.'}
+          <p style={{ ...styles.pendingBannerText, color: 'var(--accent-pink)', fontSize: '13px', fontWeight: 'bold', maxWidth: '300px', margin: '12px auto' }}>
+            ⚠️ Ye payment fraud lag raha. Confirm hone pe ₹{amount} aapke account mein 3 ghante mein wapas aa jayega.
           </p>
           <div style={styles.pendingActions}>
             <button
@@ -88,6 +88,40 @@ const PaidSuccess = ({
               <RotateCcw size={16} style={{ marginRight: 6 }} />
               Recall payment — get ₹{amount} back
             </button>
+          </div>
+
+          {/* Dispute Raised with Bank/NPCI Widget */}
+          <div style={{
+            marginTop: '20px',
+            backgroundColor: '#0c0c0e',
+            border: '1px solid rgba(235, 59, 136, 0.2)',
+            borderRadius: '16px',
+            padding: '16px',
+            width: '100%',
+            textAlign: 'left',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+              <ShieldAlert size={18} color="var(--accent-pink)" />
+              <span style={{ fontSize: '12px', fontWeight: '800', color: 'var(--accent-pink)', letterSpacing: '0.5px', textTransform: 'uppercase' }}>
+                Dispute raised → Bank/NPCI
+              </span>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '12px', color: 'rgba(255, 255, 255, 0.75)', fontFamily: 'monospace', lineHeight: '1.4' }}>
+              <div>• <strong>Transaction ID:</strong> {transactionDetails.id || `TX-${transId}`}</div>
+              <div>• <strong>Amount:</strong> ₹{amount}, <strong>Receiver:</strong> {transactionDetails.recipientVpa || 'quickcash777@okpnb'}</div>
+              <div>• <strong>Fraud score:</strong> {transactionDetails.score || 78}/100</div>
+              <div>
+                • <strong>WHY flagged:</strong> "
+                {transactionDetails.reasons && transactionDetails.reasons.length > 0 
+                  ? transactionDetails.reasons.join(' + ') 
+                  : "Receiver blacklisted mule + 4-day-old account + received from 12 senders (fan-in) + forwarded quickly"}
+                "
+              </div>
+            </div>
+            <div style={{ marginTop: '12px', paddingTop: '8px', borderTop: '1px solid rgba(255, 255, 255, 0.05)', fontSize: '10px', color: '#22e67b', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span>🔄</span>
+              <span>Demo reversal auto-enabled (Production: bank clawback reverses funds in 3h)</span>
+            </div>
           </div>
         </div>
       ) : status === 'recalled' ? (

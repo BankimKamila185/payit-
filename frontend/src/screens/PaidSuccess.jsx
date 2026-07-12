@@ -70,6 +70,26 @@ const PaidSuccess = ({
             </button>
           </div>
         </div>
+      ) : status === 'flagged' ? (
+        <div style={styles.pendingWrapper}>
+          <div style={styles.pendingPulse}>
+            <Clock size={64} color="#ff8c00" className="animate-pulse" />
+          </div>
+          <h2 style={{ ...styles.amountText, color: '#ff8c00' }}>Paid ₹{amount}</h2>
+          <p style={styles.recipientSub}>To {recipientName}</p>
+          <p style={styles.pendingBannerText}>
+            {transactionDetails.postMessage || 'Flagged after payment. If confirmed fraud, money will be returned.'}
+          </p>
+          <div style={styles.pendingActions}>
+            <button
+              onClick={() => onRecallTransaction && onRecallTransaction(transactionDetails.txId || transId)}
+              style={styles.recallBtnBig}
+            >
+              <RotateCcw size={16} style={{ marginRight: 6 }} />
+              Recall payment — get ₹{amount} back
+            </button>
+          </div>
+        </div>
       ) : status === 'recalled' ? (
         <div style={styles.recalledWrapper}>
           <div style={styles.recalledPulse}>

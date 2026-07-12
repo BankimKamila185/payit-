@@ -590,6 +590,52 @@ def balance(vpa: str):
     return {"vpa": vpa, "balance": acc["balance"]}
 
 
+class PrecheckReq(BaseModel):
+    sender_vpa: str
+    receiver_vpa: str
+
+
+PRECHECK_KW = ("refund", "support", "kyc", "prize", "cash", "lottery", "help",
+               "care", "update", "verify", "reward", "offer")
+
+
+@app.post("/precheck")
+def precheck(req: PrecheckReq):
+    """F2: pre-payment BENEFICIARY risk — runs the moment a payee is selected
+    (before amount/PIN), so the user gets an EARLY warning if the receiver looks risky."""
+    con = db()
+    r = con.execute("SELECT a.*, u.name FROM accounts a JOIN users u ON u.id=a.user_id WHERE a.vpa=?",
+                    (req.receiver_vpa,)).fetchone()
+    if not r:
+        con.close(); raise HTTPException(404, "receiver not found")
+    s = con.execute("SELECT id FROM accounts WHERE vpa=?", (req.sender_vpa,)).fetchone()
+    reasons, risk = [], 0
+
+    if r["blacklisted"]:
+        reasons.append("⚠️ This account is on the fraud blacklist — do NOT pay"); risk = 100
+    if r["account_age_days"] < 7:
+        reasons.append(f"Very new account — only {r['account_age_days']} days old"); risk = max(risk, 60)
+    if s and not r["is_merchant"]:
+        paid = con.execute("SELECT COUNT(*) c FROM transactions WHERE sender_account_id=? AND receiver_account_id=?",
+                           (s["id"], r["id"])).fetchone()["c"]
+        if paid == 0:
+            reasons.append("You've never paid this person before"); risk = max(risk, 35)
+    cutoff = (datetime.now() - timedelta(minutes=60)).isoformat()
+    fanin = con.execute("SELECT COUNT(DISTINCT sender_account_id) c FROM transactions WHERE receiver_account_id=? AND created_at > ?",
+                        (r["id"], cutoff)).fetchone()["c"]
+    if fanin >= 5 and not r["is_merchant"]:
+        reasons.append(f"Receiver got money from {fanin} different people recently (mule pattern)"); risk = max(risk, 55)
+    local = req.receiver_vpa.split("@")[0].lower()
+    if any(k in local for k in PRECHECK_KW) and not r["is_merchant"]:
+        reasons.append("VPA name contains a brand/scam-style keyword"); risk = max(risk, 50)
+    con.close()
+
+    level = "high" if risk >= 60 else "medium" if risk >= 35 else "low"
+    return {"receiver_name": r["name"], "receiver_age_days": r["account_age_days"],
+            "is_merchant": bool(r["is_merchant"]), "blacklisted": bool(r["blacklisted"]),
+            "risk_level": level, "warn": risk >= 35, "risk_score": risk, "reasons": reasons}
+
+
 # ------------------------------------------------------------------ pay (core)
 def _log_fraud(con, txid, out):
     con.execute("INSERT INTO fraud_scores (transaction_id, cumulative_score, label, created_at) VALUES (?,?,?,?)",
@@ -639,6 +685,17 @@ def pay(req: PayReq):
 
     feats = enrich_from_db(con, req.sender_vpa, req.receiver_vpa, req)
 
+    # F1: new / freshly-bound device -> ₹2000 cooling-off cap (blunts account-takeover drain)
+    if req.device_id:
+        drow = con.execute("""SELECT d.binding_age_days FROM devices d
+                              JOIN accounts a ON a.user_id = d.user_id
+                              WHERE a.vpa=? AND d.device_fingerprint=?""",
+                           (req.sender_vpa, req.device_id)).fetchone()
+        fresh_device = (drow is None) or (drow["binding_age_days"] is not None and drow["binding_age_days"] < 1)
+        if fresh_device and req.amount > 2000:
+            con.close()
+            raise HTTPException(403, "New device — ₹2,000 limit for 24h (security cooling-off). Use your usual device for higher amounts.")
+
     if feats["_sender_bal"] < req.amount:
         con.close()
         raise HTTPException(400, "insufficient balance")
@@ -678,16 +735,27 @@ def pay(req: PayReq):
         # For Render demo: OTP is visible ONLY in server logs, never returned to client.
         print(f"[OTP SMS] Transaction #{txid} → user_id={feats['_user_id']} → OTP: {otp_code}  (check Render logs)")
         return {"result": "REVIEW", "transaction_id": txid, **out,
-                "message": "Extra verification needed — enter the OTP sent to your registered mobile."}
+                "message": "Extra verification needed — enter the OTP sent to your registered mobile.",
+                "otp_demo": otp_code}   # demo only: lets the local demo show the code (real app: SMS only)
 
     # SAFE -> atomic transfer
     con.execute("UPDATE accounts SET balance = balance - ?, txn_count = txn_count + 1 WHERE id=?", (req.amount, sid))
     con.execute("UPDATE accounts SET balance = balance + ?, txn_count = txn_count + 1 WHERE id=?", (req.amount, rid))
+    # F3: post-payment second look -> flag a completed payment to a newish receiver for recall
+    post_review = feats["receiver_account_age_days"] < 90
+    post_msg = None
+    if post_review:
+        con.execute("UPDATE transactions SET status='flagged' WHERE id=?", (txid,))
+        con.execute("INSERT INTO alerts (transaction_id, status, severity, created_at) VALUES (?,?,?,?)",
+                    (txid, "post_review", "high", now_iso()))
+        post_msg = (f"Payment done, but our system flagged it right after. If confirmed fraud, "
+                    f"₹{req.amount:.0f} will be returned to you. You can also recall it now.")
     con.commit()
     new_bal = con.execute("SELECT balance FROM accounts WHERE id=?", (sid,)).fetchone()["balance"]
     con.close()
     return {"result": "SUCCESS", "transaction_id": txid, **out,
-            "message": "Payment successful.", "sender_balance": new_bal}
+            "message": "Payment successful.", "sender_balance": new_bal,
+            "post_review": post_review, "post_message": post_msg}
 
 
 @app.post("/pay/verify-otp")
@@ -731,11 +799,23 @@ def verify_otp(req: OtpReq):
     con.execute("UPDATE otp_verifications SET status='verified' WHERE id=?", (otp["id"],))
     con.execute("UPDATE accounts SET balance = balance - ?, txn_count = txn_count + 1 WHERE id=?", (tx["amount"], tx["sender_account_id"]))
     con.execute("UPDATE accounts SET balance = balance + ?, txn_count = txn_count + 1 WHERE id=?", (tx["amount"], tx["receiver_account_id"]))
-    con.execute("UPDATE transactions SET status='success' WHERE id=?", (tx["id"],))
+    # F3: post-payment second look (newish receiver -> flag for recall even after OTP)
+    rage = con.execute("SELECT account_age_days FROM accounts WHERE id=?", (tx["receiver_account_id"],)).fetchone()["account_age_days"]
+    post_review = rage < 90
+    post_msg = None
+    if post_review:
+        con.execute("UPDATE transactions SET status='flagged' WHERE id=?", (tx["id"],))
+        con.execute("INSERT INTO alerts (transaction_id, status, severity, created_at) VALUES (?,?,?,?)",
+                    (tx["id"], "post_review", "high", now_iso()))
+        post_msg = (f"Payment done, but our system flagged it right after. If confirmed fraud, "
+                    f"₹{tx['amount']:.0f} will be returned to you. You can also recall it now.")
+    else:
+        con.execute("UPDATE transactions SET status='success' WHERE id=?", (tx["id"],))
     con.commit()
     bal = con.execute("SELECT balance FROM accounts WHERE id=?", (tx["sender_account_id"],)).fetchone()["balance"]
     con.close()
-    return {"result": "SUCCESS", "transaction_id": tx["id"], "message": "Verified — payment completed.", "sender_balance": bal}
+    return {"result": "SUCCESS", "transaction_id": tx["id"], "message": "Verified — payment completed.",
+            "sender_balance": bal, "post_review": post_review, "post_message": post_msg}
 
 
 @app.post("/pay/resend-otp")
@@ -754,7 +834,25 @@ def resend_otp(req: ResendOtpReq):
                 (user_id, new_code, "pending", 0, (datetime.now()+timedelta(minutes=5)).isoformat(), now_iso()))
     con.commit(); con.close()
     print(f"[OTP RESEND] Transaction #{req.pending_txn_id} → user_id={user_id} → OTP: {new_code}  (check Render logs)")
-    return {"result": "sent", "message": "OTP resent to registered mobile."}
+    return {"result": "sent", "message": "OTP resent to registered mobile.", "otp_demo": new_code}
+
+
+@app.post("/pay/recall/{txid}")
+def pay_recall(txid: int):
+    """F3: reverse a completed/flagged payment — money returns to the sender."""
+    con = db()
+    tx = con.execute("SELECT * FROM transactions WHERE id=? AND status IN ('success','flagged')", (txid,)).fetchone()
+    if not tx:
+        con.close(); raise HTTPException(404, "transaction not found or not reversible")
+    con.execute("UPDATE accounts SET balance = balance + ? WHERE id=?", (tx["amount"], tx["sender_account_id"]))
+    con.execute("UPDATE accounts SET balance = balance - ? WHERE id=?", (tx["amount"], tx["receiver_account_id"]))
+    con.execute("UPDATE transactions SET status='recalled' WHERE id=?", (txid,))
+    con.commit()
+    bal = con.execute("SELECT balance FROM accounts WHERE id=?", (tx["sender_account_id"],)).fetchone()["balance"]
+    con.close()
+    return {"result": "RECALLED", "transaction_id": txid, "amount": tx["amount"],
+            "message": f"Payment recalled — ₹{tx['amount']:.0f} returned to your account.",
+            "sender_balance": bal}
 
 
 @app.post("/auth/send-otp")

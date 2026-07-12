@@ -345,15 +345,20 @@ function App() {
         setLastTx({ ...baseTx, status: 'blocked' });
         pushScreen('paid-success');
       } else if (data.label === "REVIEW") {
-        setOtpModalTx({ ...baseTx, transaction_id: data.transaction_id });
+        setOtpModalTx({ ...baseTx, transaction_id: data.transaction_id, otpDemo: data.otp_demo });
         setOtpModalCode('');
         setOtpModalError('');
         setOtpResendStatus('');
         setOtpModalOpen(true);
       } else {                                  // SAFE
         setBalance(data.sender_balance);
-        setLastTx({ ...baseTx, status: 'success' });
-        triggerNotification("Payment successful", "info");
+        if (data.post_review) {                 // F3: completed but flagged in hindsight
+          setLastTx({ ...baseTx, status: 'flagged', postMessage: data.post_message, txId: data.transaction_id });
+          triggerNotification("⚠️ Payment flagged after completion — recall available", "alert");
+        } else {
+          setLastTx({ ...baseTx, status: 'success' });
+          triggerNotification("Payment successful", "info");
+        }
         pushScreen('paid-success');
       }
       refreshTxns();                            // reload real history after any result
@@ -370,10 +375,16 @@ function App() {
       const v = await api.verifyOtp(otpModalTx.transaction_id, enteredOtp);
       if (v.ok) {
         setBalance(v.data.sender_balance);
-        setLastTx({ ...otpModalTx, status: 'success' });
-        triggerNotification("Verified — payment completed", "info");
         setOtpModalOpen(false);
         setOtpModalTx(null);
+        if (v.data.post_review) {               // F3: flagged after OTP-completed
+          setLastTx({ ...otpModalTx, status: 'flagged', postMessage: v.data.post_message,
+                      txId: otpModalTx.transaction_id });
+          triggerNotification("⚠️ Payment flagged after completion — recall available", "alert");
+        } else {
+          setLastTx({ ...otpModalTx, status: 'success' });
+          triggerNotification("Verified — payment completed", "info");
+        }
         pushScreen('paid-success');
         refreshTxns();
       } else {
@@ -482,16 +493,31 @@ function App() {
   };
 
   // --- RECALL / CANCEL TRANSACTION ---
-  const handleRecallTransaction = (txId) => {
+  const handleRecallTransaction = async (txId) => {
+    const realTxId = lastTx && lastTx.txId;   // F3: real backend txn -> actually reverse money
+    if (realTxId) {
+      const r = await api.recall(realTxId);
+      if (r.ok) {
+        setBalance(r.data.sender_balance);
+        setLastTx(prev => ({ ...prev, status: 'recalled', timeLeft: 0 }));
+        triggerNotification(`✅ ${r.data.message}`, "info");
+        refreshTxns && refreshTxns();
+      } else {
+        triggerNotification(r.data.detail || "Recall failed", "alert");
+      }
+      return;
+    }
     setPendingTransactions(prev => prev.filter(tx => tx.id !== txId));
     triggerNotification("Transaction Cancelled: Funds recalled safely", "info");
-    
-    // Update lastTx state to show recalled
-    setLastTx(prev => ({
-      ...prev,
-      status: 'recalled',
-      timeLeft: 0
-    }));
+    setLastTx(prev => ({ ...prev, status: 'recalled', timeLeft: 0 }));
+  };
+
+  // F2: pre-payment beneficiary check — warn EARLY when a risky payee is selected
+  const runPrecheck = (vpa) => {
+    if (!currentUser || !vpa) return;
+    api.precheck(currentUser, vpa).then((r) => {
+      if (r.ok && r.data.warn) triggerNotification(`⚠️ ${r.data.reasons?.[0] || 'Risky payee'}`, "alert");
+    }).catch(() => {});
   };
 
   // --- ONE-TAP FRAUD REPORT DRAWERS ---
@@ -545,6 +571,7 @@ function App() {
             onSendToContact={(displayName, vpa) => {   // real person from txn history
               setRecipient(displayName);
               setSelectedPayee({ name: displayName, vpa });   // exact target, wins over name-map
+              runPrecheck(vpa);                               // F2: early beneficiary warning
               setPayAmount("");
               pushScreen('transfer');
             }}
@@ -595,6 +622,7 @@ function App() {
               setRecipient(name);
               if (vpa && vpa.includes('@')) {
                 setSelectedPayee({ name, vpa });
+                runPrecheck(vpa);                             // F2: early beneficiary warning
               }
               popScreen();
               pushScreen('transfer');
@@ -726,6 +754,7 @@ function App() {
             onPayeeSelected={(name, vpa) => {
               setRecipient(name);
               setSelectedPayee({ name, vpa });
+              runPrecheck(vpa);                               // F2: early beneficiary warning
               handlePaymentProcess(parseFloat(payAmount), false);
             }}
           />
@@ -1031,10 +1060,14 @@ function App() {
                 We detected anomalous behavior. To complete your payment of <strong>₹{otpModalTx.amount}</strong> to <strong>{otpModalTx.recipient}</strong>, enter the 6-digit OTP sent to your registered mobile.
               </p>
 
-              {/* OTP is only in Render/server logs — no hint shown to user */}
+              {/* OTP hint — shows the demo code locally; real app = SMS only */}
               <div style={{ backgroundColor: 'rgba(255,140,0,0.06)', border: '1px solid rgba(255,140,0,0.2)', borderRadius: 12, padding: '10px 14px', marginBottom: 16, textAlign: 'left' }}>
                 <p style={{ color: '#ff8c00', fontSize: 11, fontWeight: 600, margin: 0 }}>📱 OTP sent to your registered mobile number</p>
-                <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 10, margin: '4px 0 0 0' }}>Check Render server logs if testing locally.</p>
+                {otpModalTx.otpDemo ? (
+                  <p style={{ color: '#22e67b', fontSize: 12, margin: '4px 0 0 0' }}>Demo OTP: <b>{otpModalTx.otpDemo}</b> (real app: SMS only)</p>
+                ) : (
+                  <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 10, margin: '4px 0 0 0' }}>Check server logs if testing locally.</p>
+                )}
               </div>
 
               <input
@@ -1076,7 +1109,9 @@ function App() {
                   onClick={async () => {
                     setOtpResendStatus('sending');
                     try {
-                      await api.resendOtp(otpModalTx.transaction_id);
+                      const rr = await api.resendOtp(otpModalTx.transaction_id);
+                      if (rr.ok && rr.data.otp_demo)   // update shown demo code
+                        setOtpModalTx(prev => ({ ...prev, otpDemo: rr.data.otp_demo }));
                       setOtpResendStatus('sent');
                       setTimeout(() => setOtpResendStatus(''), 30000);
                     } catch {

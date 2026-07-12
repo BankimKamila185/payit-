@@ -93,6 +93,10 @@ export const api = {
   verifyOtp:   (pending_txn_id, otp) => post("/pay/verify-otp", { pending_txn_id, otp }),
   resendOtp:   (pending_txn_id) => post("/pay/resend-otp", { pending_txn_id }),
 
+  // F2: pre-payment beneficiary risk (at payee-select) | F3: recall a completed payment
+  precheck:    (sender_vpa, receiver_vpa) => post("/precheck", { sender_vpa, receiver_vpa }),
+  recall:      (txid) => post(`/pay/recall/${txid}`, {}),
+
   // Reporting & Stats
   report:      (reported_vpa, reporter_vpa, reason) =>
     post("/report", { reported_vpa, reporter_vpa, reason }),

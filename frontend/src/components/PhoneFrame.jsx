@@ -83,7 +83,7 @@ const PhoneFrame = ({
   };
 
   return (
-    <div className={`phone-container ${theme}`}>
+    <div className={`phone-container ${theme}-theme`}>
 
 
       {/* Screen Header (Dynamic Layout matching screenshots) */}

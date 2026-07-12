@@ -9,7 +9,9 @@ import {
   ChevronLeft,
   Eye,
   EyeOff,
-  MessageSquare
+  MessageSquare,
+  Sun,
+  Moon
 } from 'lucide-react';
 import avatarImg from '../assets/avatar.png';
 
@@ -19,7 +21,9 @@ const PhoneFrame = ({
   onScreenChange, 
   title, 
   showBackButton = false, 
-  onBackClick 
+  onBackClick,
+  theme = 'dark',
+  onToggleTheme
 }) => {
   const [isEyeClosed, setIsEyeClosed] = React.useState(false);
   const lastScanClickRef = React.useRef(0);
@@ -79,24 +83,24 @@ const PhoneFrame = ({
   };
 
   return (
-    <div className="phone-container">
+    <div className={`phone-container ${theme}`}>
 
 
       {/* Screen Header (Dynamic Layout matching screenshots) */}
       {currentScreen !== 'login' && currentScreen !== 'qr-scanner' && (
-        <div style={styles.header}>
+        <div style={styles.header} className="phone-header">
           {showBackButton ? (
             // Sub-screen header with Back button
             <div style={styles.headerLeft}>
               <button onClick={onBackClick} style={styles.backButton} aria-label="Go back">
-                <ChevronLeft size={24} color="#ffffff" />
+                <ChevronLeft size={24} color={theme === 'light' ? '#1c1c1e' : '#ffffff'} />
               </button>
-              <span style={styles.headerTitleLeftSub}>{title}</span>
+              <span style={styles.headerTitleLeftSub} className="phone-header-title-sub">{title}</span>
             </div>
           ) : currentScreen === 'banking' ? (
             // Banking screen header matching Image 1
             <div style={styles.headerLeft}>
-              <span style={styles.headerTitleLeft}>Banking</span>
+              <span style={styles.headerTitleLeft} className="phone-header-title">Banking</span>
               <button 
                 onClick={() => setIsEyeClosed(!isEyeClosed)}
                 style={styles.headerIconButton}
@@ -124,8 +128,23 @@ const PhoneFrame = ({
             </div>
           )}
 
-          {/* Right side: Circular Profile Picture on all main screens */}
+          {/* Right side: Theme Toggle & Circular Profile Picture on all main screens */}
           <div style={styles.headerRight}>
+            {onToggleTheme && (
+              <button 
+                onClick={onToggleTheme} 
+                style={{
+                  ...styles.headerIconButton,
+                  marginRight: '4px',
+                  opacity: 0.8,
+                  transition: 'opacity 0.2s',
+                }}
+                title={`Switch to ${theme === 'light' ? 'dark' : 'light'} theme`}
+                aria-label="Toggle Theme"
+              >
+                {theme === 'light' ? <Moon size={18} color="var(--text-secondary)" /> : <Sun size={18} color="var(--text-secondary)" />}
+              </button>
+            )}
             <button 
               onClick={() => onScreenChange('upi-settings')} 
               style={styles.profileButton}
@@ -144,6 +163,7 @@ const PhoneFrame = ({
       {/* Viewport for Active Screen Content */}
       <div 
         style={styles.screenContent}
+        className="phone-screen-content"
         onTouchStart={handleTouchStart}
         onTouchEnd={handleTouchEnd}
       >

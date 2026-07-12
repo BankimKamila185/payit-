@@ -947,6 +947,123 @@
   transform: scale(0.94);
 }
 
+/* ==========================================================================
+   LIGHT THEME OVERRIDES (Vibrant & Clean Obsidian Light Mode)
+   ========================================================================== */
+
+.light-theme.phone-container,
+.light-theme .phone-container {
+  background-color: var(--bg-color) !important;
+  color: var(--text-primary) !important;
+  border-color: #d1d1d6 !important;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(0, 0, 0, 0.04) !important;
+}
+
+.light-theme .phone-home-indicator {
+  background-color: #000000 !important;
+}
+
+.light-theme .phone-header {
+  background-color: var(--bg-color) !important;
+  border-bottom: 1px solid var(--border-color) !important;
+}
+
+.light-theme .phone-screen-content {
+  background-color: var(--bg-color) !important;
+  color: var(--text-primary) !important;
+}
+
+.light-theme .phone-header-title,
+.light-theme .phone-header-title-sub {
+  color: var(--text-primary) !important;
+}
+
+.light-theme .payit-navbar-container {
+  background-color: var(--surface-color) !important;
+  border-top: 1px solid var(--border-color) !important;
+  box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.02) !important;
+}
+
+.light-theme .nav-circle-btn {
+  background: var(--surface-hover) !important;
+  color: var(--text-secondary) !important;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.04) !important;
+}
+
+.light-theme .nav-circle-btn:hover {
+  background: var(--border-color) !important;
+  color: var(--text-primary) !important;
+}
+
+.light-theme .nav-circle-btn.active {
+  background: var(--text-primary) !important;
+  color: var(--surface-color) !important;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.12) !important;
+}
+
+.light-theme .nav-item-wrapper:nth-child(3) .nav-circle-btn {
+  background: var(--surface-hover) !important;
+  color: var(--text-secondary) !important;
+}
+
+.light-theme .nav-item-wrapper:nth-child(3) .nav-circle-btn.active,
+.light-theme .nav-item-wrapper:nth-child(3) .nav-circle-btn:hover {
+  background: #1c1c1e !important;
+  color: #ffffff !important;
+  box-shadow:
+    0 0 0 3px var(--surface-color),
+    0 0 0 6px #1c1c1e,
+    0 6px 16px rgba(0,0,0,0.12) !important;
+}
+
+/* Screen element overrides */
+.light-theme .bill-amount,
+.light-theme .quick-send-name,
+.light-theme .bill-name {
+  color: var(--text-primary) !important;
+}
+
+.light-theme .quick-send-avatar-add {
+  background-color: var(--surface-hover) !important;
+  border: 1.5px dashed var(--border-color) !important;
+  color: var(--text-primary) !important;
+}
+
+/* Keypad overrides */
+.light-theme button[style*="background: 'none'"],
+.light-theme button[style*="background:none"],
+.light-theme button[style*="backgroundColor: 'transparent'"],
+.light-theme button[style*="background-color: transparent"] {
+  background-color: transparent !important;
+}
+
+.light-theme button[style*="color: '#ffffff'"],
+.light-theme button[style*="color: '#fff'"] {
+  color: var(--text-primary) !important;
+}
+
+.light-theme .phone-screen-content h3,
+.light-theme .phone-screen-content h2,
+.light-theme .phone-screen-content span,
+.light-theme .phone-screen-content p,
+.light-theme .phone-screen-content div {
+  /* Ensure text colors inside standard cards adapt */
+}
+
+/* Specifically style the transfer keypad and other screens */
+.light-theme .animate-slide-up button {
+  color: var(--text-primary);
+}
+
+.light-theme .animate-slide-up span {
+  color: var(--text-primary);
+}
+
+.light-theme .animate-slide-up div {
+  border-color: var(--border-color);
+}
+
+
 
 
 

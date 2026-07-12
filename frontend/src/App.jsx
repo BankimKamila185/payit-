@@ -43,6 +43,8 @@ function App() {
 
   // Global State (shared between screens)
   const [recipient, setRecipient] = useState('');
+  const [theme, setTheme] = useState('dark');
+  const toggleTheme = () => setTheme(prev => prev === 'light' ? 'dark' : 'light');
   const [balance, setBalance] = useState(14580);
   const [fixedDeposit, setFixedDeposit] = useState(0);
   const [monies, setMonies] = useState(3902);
@@ -846,7 +848,7 @@ function App() {
   if (!currentUser) {
     return (
       <div className="mobile-app-wrapper">
-        <PhoneFrame currentScreen="login" title="" showBackButton={false}>
+        <PhoneFrame currentScreen="login" title="" showBackButton={false} theme={theme} onToggleTheme={toggleTheme}>
           <OnboardingFlow onLogin={handleLogin} deviceId={getDeviceId()} />
         </PhoneFrame>
       </div>
@@ -861,6 +863,8 @@ function App() {
         title={getHeaderTitle()}
         showBackButton={showBackButton()}
         onBackClick={popScreen}
+        theme={theme}
+        onToggleTheme={toggleTheme}
       >
         {renderMobileScreen()}
 

@@ -22,9 +22,11 @@ export class AccountRepository {
     const res = await query(sql, [id]);
     if (!res.rows[0]) return null;
     const row = res.rows[0];
+    const ageDays = Math.floor((Date.now() - new Date(row.created_at).getTime()) / 86_400_000);
     return {
       ...row,
       balance: parseFloat(row.balance),
+      account_age_days: ageDays,
     };
   }
 
@@ -33,19 +35,25 @@ export class AccountRepository {
     const res = await query(sql, [accountNumber]);
     if (!res.rows[0]) return null;
     const row = res.rows[0];
+    const ageDays = Math.floor((Date.now() - new Date(row.created_at).getTime()) / 86_400_000);
     return {
       ...row,
       balance: parseFloat(row.balance),
+      account_age_days: ageDays,
     };
   }
 
   static async findByUserId(userId: string): Promise<Account[]> {
     const sql = 'SELECT * FROM accounts WHERE user_id = $1;';
     const res = await query(sql, [userId]);
-    return res.rows.map(row => ({
-      ...row,
-      balance: parseFloat(row.balance),
-    }));
+    return res.rows.map(row => {
+      const ageDays = Math.floor((Date.now() - new Date(row.created_at).getTime()) / 86_400_000);
+      return {
+        ...row,
+        balance: parseFloat(row.balance),
+        account_age_days: ageDays,
+      };
+    });
   }
 
   static async updateBalance(id: string, newBalance: number): Promise<Account | null> {

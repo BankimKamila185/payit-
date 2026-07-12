@@ -1,0 +1,420 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Fraud Shield · Score Analyser</title>
+<style>
+  /* ---- control-room theme (deliberately dark) ---------------------------- */
+  :root{
+    --plane:#0d0d0d; --surface:#1a1a19; --surface-2:#222220;
+    --ink:#ffffff; --ink-2:#c3c2b7; --muted:#898781;
+    --grid:#2c2c2a; --line:#383835; --border:rgba(255,255,255,.10);
+    /* status (fixed, never themed) */
+    --good:#0ca30c; --warn:#fab219; --serious:#ec835a; --crit:#d03b3b;
+    /* categorical layer accents */
+    --app:#3987e5; --backend:#199e70; --engine:#9085e9; --decision:#d95926;
+    --shadow:0 1px 0 rgba(255,255,255,.03), 0 8px 30px rgba(0,0,0,.45);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:
+      radial-gradient(1200px 600px at 80% -10%, rgba(57,135,229,.10), transparent 60%),
+      var(--plane);
+    color:var(--ink);
+    font-family:system-ui,-apple-system,"Segoe UI",sans-serif;
+    font-size:14px; line-height:1.45; -webkit-font-smoothing:antialiased;
+  }
+  .tnum{font-variant-numeric:tabular-nums}
+  h1,h2,h3{margin:0;font-weight:650;letter-spacing:-.01em}
+  a{color:var(--app);text-decoration:none}
+
+  /* ---- top bar ----------------------------------------------------------- */
+  header{
+    display:flex;align-items:center;gap:14px;
+    padding:14px 22px;border-bottom:1px solid var(--border);
+    background:linear-gradient(180deg,rgba(255,255,255,.02),transparent);
+    position:sticky;top:0;z-index:20;backdrop-filter:blur(8px);
+  }
+  .brand{display:flex;align-items:center;gap:11px}
+  .shield{
+    width:34px;height:34px;border-radius:9px;display:grid;place-items:center;
+    background:linear-gradient(140deg,var(--app),var(--engine));
+    box-shadow:0 4px 14px rgba(57,135,229,.4);font-size:18px;
+  }
+  .brand small{display:block;color:var(--muted);font-size:11px;letter-spacing:.08em;text-transform:uppercase}
+  .brand strong{font-size:15px}
+  .livepill{
+    margin-left:auto;display:flex;align-items:center;gap:7px;color:var(--ink-2);
+    font-size:12px;border:1px solid var(--border);border-radius:999px;padding:5px 12px;
+    background:var(--surface);
+  }
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--good);box-shadow:0 0 0 0 rgba(12,163,12,.6);animation:pulse 1.8s infinite}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(12,163,12,.5)}70%{box-shadow:0 0 0 7px rgba(12,163,12,0)}100%{box-shadow:0 0 0 0 rgba(12,163,12,0)}}
+
+  /* ---- count tiles ------------------------------------------------------- */
+  .tiles{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;padding:16px 22px 4px}
+  .tile{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:13px 15px;box-shadow:var(--shadow)}
+  .tile .k{color:var(--muted);font-size:11px;letter-spacing:.06em;text-transform:uppercase}
+  .tile .v{font-size:26px;font-weight:680;margin-top:4px}
+  .tile .v small{font-size:13px;color:var(--muted);font-weight:500}
+  .tile.good .v{color:var(--good)} .tile.warn .v{color:var(--warn)} .tile.crit .v{color:var(--crit)}
+
+  /* ---- layout ------------------------------------------------------------ */
+  main{display:grid;grid-template-columns:340px 1fr 320px;gap:16px;padding:16px 22px 40px;align-items:start}
+  .panel{background:var(--surface);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow)}
+  .panel h2{font-size:13px;letter-spacing:.04em;color:var(--ink-2);padding:14px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px}
+  .panel .body{padding:15px 16px}
+
+  /* ---- form -------------------------------------------------------------- */
+  label.f{display:block;margin:0 0 12px}
+  label.f span{display:block;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px}
+  input,select{
+    width:100%;background:var(--surface-2);border:1px solid var(--border);color:var(--ink);
+    border-radius:9px;padding:9px 11px;font:inherit;outline:none;transition:border-color .15s,box-shadow .15s;
+  }
+  input:focus,select:focus{border-color:var(--app);box-shadow:0 0 0 3px rgba(57,135,229,.18)}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .toggles{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:2px 0 14px}
+  .tog{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ink-2);background:var(--surface-2);border:1px solid var(--border);border-radius:9px;padding:8px 10px;cursor:pointer;user-select:none}
+  .tog input{width:auto;accent-color:var(--crit)}
+  .run{
+    width:100%;border:0;border-radius:10px;padding:12px;font:inherit;font-weight:650;cursor:pointer;
+    color:#fff;background:linear-gradient(135deg,var(--app),var(--engine));box-shadow:0 6px 18px rgba(57,135,229,.35);
+    transition:transform .08s, filter .15s;
+  }
+  .run:hover{filter:brightness(1.07)} .run:active{transform:translateY(1px)}
+  .run[disabled]{opacity:.6;cursor:progress}
+  .presets{display:flex;flex-wrap:wrap;gap:7px;margin-top:13px}
+  .presets button{
+    font:inherit;font-size:11.5px;color:var(--ink-2);background:var(--surface-2);
+    border:1px solid var(--border);border-radius:999px;padding:6px 11px;cursor:pointer;transition:all .12s;
+  }
+  .presets button:hover{border-color:var(--app);color:var(--ink)}
+
+  /* ---- pipeline / gauge -------------------------------------------------- */
+  .stage-head{display:flex;align-items:center;gap:16px;padding:16px 18px;border-bottom:1px solid var(--border)}
+  .gauge{position:relative;width:132px;height:132px;flex:0 0 auto}
+  .gauge svg{transform:rotate(-90deg)}
+  .gauge .num{position:absolute;inset:0;display:grid;place-content:center;text-align:center}
+  .gauge .num b{font-size:34px;font-weight:720;line-height:1}
+  .gauge .num em{font-style:normal;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;display:block;margin-top:3px}
+  .verdict{flex:1}
+  .verdict .label{display:inline-flex;align-items:center;gap:8px;font-size:22px;font-weight:720;letter-spacing:-.01em}
+  .verdict .sub{color:var(--muted);font-size:12.5px;margin-top:6px}
+  .chip{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;padding:3px 9px;border-radius:999px;border:1px solid var(--border)}
+
+  .flow{padding:8px 10px 16px}
+  .layer{margin:14px 8px 0}
+  .layer-title{display:flex;align-items:center;gap:9px;font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);margin:0 0 8px 4px}
+  .layer-title .tag{width:9px;height:9px;border-radius:3px}
+  .stage{
+    display:flex;gap:12px;align-items:flex-start;padding:11px 13px;margin-bottom:8px;border-radius:11px;
+    background:var(--surface-2);border:1px solid var(--border);border-left:3px solid var(--line);
+    opacity:0;transform:translateY(8px);transition:opacity .35s, transform .35s;
+  }
+  .stage.show{opacity:1;transform:none}
+  .stage .ic{width:26px;height:26px;border-radius:8px;display:grid;place-items:center;flex:0 0 auto;font-size:14px;font-weight:700}
+  .stage .st-t{font-weight:600;font-size:13.5px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .stage .st-d{color:var(--ink-2);font-size:12.5px;margin-top:3px}
+  .pts{margin-left:auto;font-weight:680;font-size:14px;flex:0 0 auto;padding-left:12px}
+  .stage.pass{border-left-color:var(--good)} .stage.pass .ic{background:rgba(12,163,12,.15);color:var(--good)}
+  .stage.warn{border-left-color:var(--warn)} .stage.warn .ic{background:rgba(250,178,25,.15);color:var(--warn)}
+  .stage.fail{border-left-color:var(--crit)} .stage.fail .ic{background:rgba(208,59,59,.18);color:var(--crit)}
+  .pts.pos{color:var(--warn)} .pts.neg{color:var(--good)} .pts.hi{color:var(--crit)}
+
+  .reasons{margin:6px 8px 0;padding:12px 14px;border-radius:11px;background:rgba(208,59,59,.06);border:1px solid rgba(208,59,59,.25)}
+  .reasons h3{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--serious);margin-bottom:8px}
+  .reasons li{color:var(--ink-2);font-size:12.5px;margin-left:4px;padding:2px 0}
+  .ring{margin:10px 8px 0;padding:12px 14px;border-radius:11px;background:rgba(208,59,59,.09);border:1px solid rgba(208,59,59,.35);display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .ring .node{background:var(--crit);color:#fff;font-weight:600;font-size:12px;padding:4px 10px;border-radius:8px}
+  .ring .arrow{color:var(--crit);font-weight:700}
+
+  .placeholder{padding:60px 24px;text-align:center;color:var(--muted)}
+  .placeholder .big{font-size:40px;margin-bottom:10px;opacity:.5}
+
+  /* component bars */
+  .comps{display:grid;gap:9px;padding:6px 18px 16px}
+  .comp{display:grid;grid-template-columns:82px 1fr 40px;align-items:center;gap:10px;font-size:12px}
+  .comp .bar{height:8px;border-radius:6px;background:var(--surface-2);overflow:hidden}
+  .comp .bar i{display:block;height:100%;width:0;border-radius:6px;transition:width .6s ease}
+  .comp .lab{color:var(--muted)} .comp .val{text-align:right;font-weight:640}
+
+  /* ---- feed -------------------------------------------------------------- */
+  .feed{max-height:640px;overflow:auto}
+  .fitem{display:flex;gap:11px;align-items:center;padding:11px 15px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s}
+  .fitem:hover{background:var(--surface-2)}
+  .fitem .bd{min-width:0;flex:1}
+  .fitem .vpas{font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .fitem .vpas b{color:var(--ink)} .fitem .vpas span{color:var(--muted)}
+  .fitem .meta{color:var(--muted);font-size:11px;margin-top:2px}
+  .score-badge{flex:0 0 auto;width:38px;height:38px;border-radius:10px;display:grid;place-items:center;font-weight:700;font-size:14px;border:1px solid var(--border)}
+  .amt{flex:0 0 auto;font-weight:640;font-size:12.5px;color:var(--ink-2)}
+
+  @media (max-width:1140px){ main{grid-template-columns:1fr} .tiles{grid-template-columns:repeat(3,1fr)} }
+</style>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <div class="shield">🛡️</div>
+      <div><strong>UPI Fraud Shield</strong><small>Transaction Score Analyser</small></div>
+    </div>
+    <div class="livepill"><span class="dot"></span> Live · engine online</div>
+  </header>
+
+  <section class="tiles" id="tiles"></section>
+
+  <main>
+    <!-- ---------------- left: input ---------------- -->
+    <section class="panel">
+      <h2>▶ Simulate / Replay a Transaction</h2>
+      <div class="body">
+        <div class="row2">
+          <label class="f"><span>Sender VPA</span><input id="sender" value="isha1@oksbi"></label>
+          <label class="f"><span>UPI PIN</span><input id="pin" value="1234" maxlength="6"></label>
+        </div>
+        <label class="f"><span>Receiver VPA</span><input id="receiver" value="simran3@ybl"></label>
+        <div class="row2">
+          <label class="f"><span>Amount (₹)</span><input id="amount" type="number" value="1500"></label>
+          <label class="f"><span>Device ID</span><input id="device" value="dev_0001"></label>
+        </div>
+        <div class="row2">
+          <label class="f"><span>Type</span>
+            <select id="type"><option>PAY</option><option>COLLECT</option><option>MANDATE</option></select></label>
+          <label class="f"><span>Channel</span>
+            <select id="channel"><option>MANUAL</option><option>QR</option><option>INTENT</option><option>CONTACT</option></select></label>
+        </div>
+        <div class="toggles">
+          <label class="tog"><input type="checkbox" id="rooted"> Rooted device</label>
+          <label class="tog"><input type="checkbox" id="screen_share"> Screen-share</label>
+          <label class="tog"><input type="checkbox" id="reverse"> Reverse pay</label>
+          <label class="tog"><input type="checkbox" id="sim_mismatch"> SIM mismatch</label>
+        </div>
+        <button class="run" id="run">Run Score Analysis</button>
+        <div class="presets">
+          <button data-preset="safe">✅ Normal pay</button>
+          <button data-preset="spike">📈 Amount spike</button>
+          <button data-preset="mule">🚫 Blacklisted payee</button>
+          <button data-preset="ghost">👻 Unknown account</button>
+          <button data-preset="brand">🎣 Brand-impersonation</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------------- center: pipeline ---------------- -->
+    <section class="panel">
+      <h2>🧮 Scoring Pipeline · App → Backend → Engine → Verdict</h2>
+      <div class="stage-head">
+        <div class="gauge">
+          <svg width="132" height="132" viewBox="0 0 132 132">
+            <circle cx="66" cy="66" r="56" fill="none" stroke="var(--grid)" stroke-width="11"/>
+            <circle id="arc" cx="66" cy="66" r="56" fill="none" stroke="var(--good)" stroke-width="11"
+                    stroke-linecap="round" stroke-dasharray="351.9" stroke-dashoffset="351.9"
+                    style="transition:stroke-dashoffset .7s ease, stroke .5s"/>
+          </svg>
+          <div class="num"><b id="scoreNum" class="tnum">0</b><em>Risk score</em></div>
+        </div>
+        <div class="verdict">
+          <div class="label" id="verdictLabel" style="color:var(--muted)">Awaiting run</div>
+          <div class="sub" id="verdictSub">Enter a transaction and press <b>Run Score Analysis</b> — every layer is replayed and scored below without moving money.</div>
+        </div>
+      </div>
+      <div class="comps" id="comps" style="display:none">
+        <div class="comp"><span class="lab">ML model</span><span class="bar"><i id="c-model" style="background:var(--engine)"></i></span><span class="val tnum" id="v-model">0</span></div>
+        <div class="comp"><span class="lab">Rules</span><span class="bar"><i id="c-rules" style="background:var(--app)"></i></span><span class="val tnum" id="v-rules">0</span></div>
+        <div class="comp"><span class="lab">Graph</span><span class="bar"><i id="c-graph" style="background:var(--decision)"></i></span><span class="val tnum" id="v-graph">0</span></div>
+      </div>
+      <div class="flow" id="flow">
+        <div class="placeholder"><div class="big">🛰️</div>The pipeline trace will stream here, stage by stage.</div>
+      </div>
+    </section>
+
+    <!-- ---------------- right: live feed ---------------- -->
+    <section class="panel">
+      <h2>📡 Live Transaction Feed</h2>
+      <div class="feed" id="feed"><div class="placeholder" style="padding:30px">Loading…</div></div>
+    </section>
+  </main>
+
+<script>
+const API = (location.protocol === 'file:') ? 'http://localhost:3000' : '';
+const $ = id => document.getElementById(id);
+
+/* ---- status helpers ---------------------------------------------------- */
+const bandColor = s => s >= 60 ? 'var(--crit)' : s >= 35 ? 'var(--warn)' : 'var(--good)';
+const labelMeta = l => ({
+  SAFE:  {c:'var(--good)', ic:'✓', txt:'SAFE — allow'},
+  REVIEW:{c:'var(--warn)', ic:'⚠', txt:'REVIEW — step-up auth'},
+  BLOCK: {c:'var(--crit)', ic:'⛔', txt:'BLOCK — reject payment'},
+}[l] || {c:'var(--muted)', ic:'', txt:l});
+const statusIcon = s => ({pass:'✓', warn:'!', fail:'✕'}[s] || '·');
+const layerMeta = {
+  APP:     {tag:'var(--app)',      name:'App level · auth'},
+  BACKEND: {tag:'var(--backend)',  name:'Backend level · checks'},
+  ENGINE:  {tag:'var(--engine)',   name:'Fraud engine · scoring'},
+  DECISION:{tag:'var(--decision)', name:'Decision'},
+};
+const CIRC = 2 * Math.PI * 56;
+
+/* ---- header count tiles ------------------------------------------------ */
+async function loadCounts(){
+  try{
+    const c = await (await fetch(API+'/analyzer/counts')).json();
+    $('tiles').innerHTML = `
+      <div class="tile"><div class="k">Transactions</div><div class="v tnum">${c.total}</div></div>
+      <div class="tile good"><div class="k">Safe</div><div class="v tnum">${c.safe}</div></div>
+      <div class="tile warn"><div class="k">Review</div><div class="v tnum">${c.review}</div></div>
+      <div class="tile crit"><div class="k">Blocked</div><div class="v tnum">${c.block}</div></div>
+      <div class="tile crit"><div class="k">₹ Blocked</div><div class="v tnum">₹${Number(c.blocked_amount).toLocaleString('en-IN',{maximumFractionDigits:0})}</div></div>
+      <div class="tile"><div class="k">Avg score</div><div class="v tnum">${c.avg_score}<small>/100</small></div></div>`;
+  }catch(e){ $('tiles').innerHTML = `<div class="tile" style="grid-column:1/-1;color:var(--crit)">⚠ Backend offline — start it with <b>uvicorn server.app:app --port 3000</b></div>`; }
+}
+
+/* ---- live feed --------------------------------------------------------- */
+async function loadFeed(){
+  try{
+    const rows = await (await fetch(API+'/analyzer/feed?limit=25')).json();
+    if(!rows.length){ $('feed').innerHTML = `<div class="placeholder" style="padding:30px">No transactions yet.</div>`; return; }
+    $('feed').innerHTML = rows.map(r=>{
+      const col = bandColor(r.score||0);
+      return `<div class="fitem" data-s="${r.sender}" data-r="${r.receiver}" data-a="${r.amount}">
+        <div class="score-badge" style="color:${col};border-color:${col}">${r.score??'–'}</div>
+        <div class="bd">
+          <div class="vpas"><b>${r.sender}</b> <span>→ ${r.receiver}</span></div>
+          <div class="meta">${(r.label||'').toUpperCase()} · ${r.status} · ${r.type}</div>
+        </div>
+        <div class="amt tnum">₹${Number(r.amount).toLocaleString('en-IN',{maximumFractionDigits:0})}</div>
+      </div>`;
+    }).join('');
+    document.querySelectorAll('.fitem').forEach(el=>el.onclick=()=>{
+      $('sender').value=el.dataset.s; $('receiver').value=el.dataset.r; $('amount').value=Math.round(el.dataset.a);
+      run();
+    });
+  }catch(e){ /* header already shows offline */ }
+}
+
+/* ---- presets ----------------------------------------------------------- */
+const PRESETS = {
+  safe:  {sender:'isha1@oksbi', receiver:'simran3@ybl', amount:1500,  device:'dev_0001', flags:{}},
+  spike: {sender:'isha1@oksbi', receiver:'simran3@ybl', amount:96000, device:'dev_0001', flags:{}},
+  mule:  {sender:'isha1@oksbi', receiver:'aarti29@okpnb', amount:49500, device:'dev_new_x9', flags:{rooted:true}},
+  ghost: {sender:'isha1@oksbi', receiver:'quickcash999@ybl', amount:25000, device:'dev_new_x9', flags:{}},
+  brand: {sender:'isha1@oksbi', receiver:'sbi.refund@ybl', amount:9999, device:'dev_new_x9', flags:{screen_share:true}},
+};
+document.querySelectorAll('.presets button').forEach(b=>b.onclick=()=>{
+  const p = PRESETS[b.dataset.preset]; if(!p) return;
+  $('sender').value=p.sender; $('receiver').value=p.receiver; $('amount').value=p.amount; $('device').value=p.device;
+  ['rooted','screen_share','reverse','sim_mismatch'].forEach(f=>$(f).checked=!!p.flags[f]);
+  run();
+});
+
+/* ---- animate helpers --------------------------------------------------- */
+function setGauge(score){
+  const arc = $('arc');
+  arc.style.stroke = bandColor(score);
+  arc.style.strokeDashoffset = CIRC * (1 - Math.min(score,100)/100);
+  // count up
+  const el = $('scoreNum'); const from = +el.textContent || 0; const t0 = performance.now();
+  (function tick(now){
+    const p = Math.min((now-t0)/700, 1);
+    el.textContent = Math.round(from + (score-from)*p);
+    if(p<1) requestAnimationFrame(tick);
+  })(performance.now());
+}
+const sleep = ms => new Promise(r=>setTimeout(r,ms));
+
+/* ---- the main run ------------------------------------------------------ */
+let running = false;
+async function run(){
+  if(running) return; running = true;
+  const btn = $('run'); btn.disabled = true; btn.textContent = 'Analysing…';
+  const body = {
+    sender_vpa: $('sender').value.trim(),
+    receiver_vpa: $('receiver').value.trim(),
+    amount: parseFloat($('amount').value) || 1,
+    pin: $('pin').value.trim(),
+    device_id: $('device').value.trim(),
+    type: $('type').value, channel: $('channel').value,
+    rooted: $('rooted').checked?1:0, screen_share: $('screen_share').checked?1:0,
+    reverse: $('reverse').checked?1:0, sim_mismatch: $('sim_mismatch').checked?1:0,
+  };
+  // reset view
+  $('flow').innerHTML=''; $('comps').style.display='none';
+  $('verdictLabel').textContent='Scoring…'; $('verdictLabel').style.color='var(--muted)';
+  $('verdictSub').textContent='Replaying '+body.sender_vpa+' → '+body.receiver_vpa;
+  setGauge(0);
+
+  let data;
+  try{ data = await (await fetch(API+'/analyzer/trace',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json(); }
+  catch(e){ $('verdictLabel').textContent='⚠ Request failed'; $('verdictLabel').style.color='var(--crit)'; btn.disabled=false; btn.textContent='Run Score Analysis'; running=false; return; }
+  if(data.detail){ $('verdictSub').textContent = 'Error: '+data.detail; btn.disabled=false; btn.textContent='Run Score Analysis'; running=false; return; }
+
+  // group stages by layer preserving order
+  const order = ['APP','BACKEND','ENGINE','DECISION'];
+  const groups = {}; data.stages.forEach(s=>{(groups[s.layer]=groups[s.layer]||[]).push(s);});
+  const flow = $('flow');
+
+  for(const L of order){
+    if(!groups[L]) continue;
+    const lm = layerMeta[L];
+    const wrap = document.createElement('div'); wrap.className='layer';
+    wrap.innerHTML = `<div class="layer-title"><span class="tag" style="background:${lm.tag}"></span>${lm.name}</div>`;
+    flow.appendChild(wrap);
+    for(const s of groups[L]){
+      const div = document.createElement('div'); div.className='stage '+s.status;
+      let ptsHtml='';
+      if(s.points!=null && s.points!==0){
+        const cls = s.points>=40?'hi':'pos';
+        ptsHtml = `<span class="pts ${cls}">+${Math.round(s.points)}</span>`;
+      } else if(s.points===0 && s.status==='pass'){
+        ptsHtml = `<span class="pts neg">✓</span>`;
+      }
+      div.innerHTML = `<div class="ic">${statusIcon(s.status)}</div>
+        <div style="flex:1;min-width:0"><div class="st-t">${s.title}</div><div class="st-d">${s.detail}</div></div>${ptsHtml}`;
+      wrap.appendChild(div);
+      requestAnimationFrame(()=>div.classList.add('show'));
+      // when engine stages land, grow the component bars + tick the gauge
+      if(L==='ENGINE' && s.meta && s.meta.component){
+        const k=s.meta.component, v=Math.round(s.points||0);
+        $('comps').style.display='grid';
+        $('c-'+k).style.width=Math.min(v,100)+'%'; $('v-'+k).textContent=v;
+      }
+      await sleep(420);
+    }
+  }
+
+  // reasons
+  if(data.reasons && data.reasons.length){
+    const r=document.createElement('div'); r.className='reasons';
+    r.innerHTML=`<h3>Why · reason codes</h3><ul>${data.reasons.map(x=>`<li>${x}</li>`).join('')}</ul>`;
+    flow.appendChild(r);
+  }
+  if(data.ring && data.ring.length){
+    const rg=document.createElement('div'); rg.className='ring';
+    rg.innerHTML = `<span style="color:var(--crit);font-weight:700;margin-right:4px">🕸️ Mule chain</span>` +
+      data.ring.map((n,i)=>`<span class="node">${n}</span>${i<data.ring.length-1?'<span class="arrow">→</span>':''}`).join('');
+    flow.appendChild(rg);
+  }
+
+  // verdict + gauge
+  const m = labelMeta(data.label);
+  setGauge(data.cumulative_score);
+  $('verdictLabel').innerHTML = `<span style="color:${m.c}">${m.ic} ${data.label}</span>`;
+  $('verdictSub').innerHTML =
+    `${m.txt} · fraud probability <b>${(data.fraud_probability*100).toFixed(1)}%</b> · scored in <b>${data.latency_ms} ms</b>` +
+    (!data.receiver_found ? ` · <span style="color:var(--warn)">receiver VPA not on file — treated as unknown, went forward</span>` : '') +
+    (!data.sender_found ? ` · <span style="color:var(--crit)">sender VPA not on file</span>` : '');
+
+  btn.disabled=false; btn.textContent='Run Score Analysis'; running=false;
+  loadCounts(); loadFeed();
+}
+$('run').onclick = run;
+
+/* ---- boot -------------------------------------------------------------- */
+loadCounts(); loadFeed();
+setInterval(()=>{ if(!running){ loadCounts(); loadFeed(); } }, 6000);
+</script>
+</body>
+</html>

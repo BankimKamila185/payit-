@@ -974,6 +974,297 @@ def stats():
     return {"total": total, "blocked": blocked, "review": review, "open_alerts": alerts, "recent": recent}
 
 
+# ============================================================================
+#  SCORE ANALYSER  —  standalone fraud "control room" dashboard backend
+# ============================================================================
+#  This is NOT part of the Payit app. It is an observability surface for
+#  analysts: it takes a would-be transaction and REPLAYS it through the whole
+#  pipeline (app-level auth -> backend checks -> fraud engine) WITHOUT moving
+#  any money, returning a stage-by-stage trace with the running score.
+#
+#  Design notes wired to the request:
+#    * app level  -> device login, UPI PIN / password, VPA match  (auth from DB)
+#    * backend    -> sender/receiver resolve + balance check
+#    * engine     -> model + rules + graph, cumulative score count
+#    * "an account that doesn't exist GOES FORWARD" -> a missing VPA is not a
+#      hard stop; it is treated as an unknown, brand-new, high-risk beneficiary
+#      and the pipeline continues so the analyst still sees the full verdict.
+# ============================================================================
+
+class AnalyzeReq(BaseModel):
+    sender_vpa: str
+    receiver_vpa: str
+    amount: float = Field(gt=0)
+    pin: str = ""
+    device_id: str = ""
+    type: str = "PAY"
+    channel: str = "MANUAL"
+    reverse: int = 0
+    screen_share: int = 0
+    rooted: int = 0
+    sim_mismatch: int = 0
+
+
+def _synth_account(vpa: str) -> dict:
+    """A synthetic 'unknown' profile for a VPA not present in the DB.
+    Deliberately risky defaults (age 0, no history) so a non-existent account
+    still flows through scoring and surfaces as a fresh/unknown beneficiary."""
+    return {
+        "id": -1, "user_id": -1, "vpa": vpa, "balance": 0.0,
+        "account_age_days": 0, "kyc_level": "BASIC", "is_merchant": 0,
+        "avg_amount": 1500.0, "usual_hours": "7-22", "home_device": None,
+        "txn_count": 0, "blacklisted": 0,
+    }
+
+
+def _enrich_tolerant(con, sender, receiver, t):
+    """Same feature vector as enrich_from_db, but NEVER raises on a missing
+    account — a non-existent VPA is replaced with a synthetic unknown profile
+    and the pipeline goes forward. Returns (feats, s_row, r_row, s_found, r_found)."""
+    s = con.execute("SELECT * FROM accounts WHERE vpa=?", (sender,)).fetchone()
+    r = con.execute("SELECT * FROM accounts WHERE vpa=?", (receiver,)).fetchone()
+    s_found, r_found = s is not None, r is not None
+    s = dict(s) if s else _synth_account(sender)
+    r = dict(r) if r else _synth_account(receiver)
+
+    amount = t.amount
+    avg = float(s["avg_amount"] or 1500)
+    try:
+        a, b = str(s["usual_hours"]).split("-"); usual = set(range(int(a), int(b)))
+    except Exception:
+        usual = set(range(6, 22))
+
+    win = "-60 seconds"
+    prior = con.execute(
+        "SELECT COUNT(*) c FROM transactions WHERE sender_account_id=? AND receiver_account_id=?",
+        (s["id"], r["id"])).fetchone()["c"]
+    first_time = int(prior == 0)
+    velocity = con.execute(
+        "SELECT COUNT(*) c FROM transactions WHERE sender_account_id=? AND created_at > datetime('now', ?)",
+        (s["id"], win)).fetchone()["c"]
+    fan_in = con.execute(
+        "SELECT COUNT(DISTINCT sender_account_id) c FROM transactions WHERE receiver_account_id=? AND created_at > datetime('now', ?)",
+        (r["id"], win)).fetchone()["c"]
+    fan_out = con.execute(
+        "SELECT COUNT(DISTINCT receiver_account_id) c FROM transactions WHERE sender_account_id=? AND created_at > datetime('now', ?)",
+        (s["id"], win)).fetchone()["c"]
+    inc = con.execute(
+        "SELECT amount FROM transactions WHERE receiver_account_id=? AND created_at > datetime('now', ?)",
+        (s["id"], win)).fetchall()
+    in_chain = int(any(abs(row["amount"] - amount) <= 0.25 * max(amount, 1) for row in inc))
+    recent_micro = int(any(row["amount"] < 100 for row in inc))
+    fwd = con.execute(
+        "SELECT COUNT(*) c FROM transactions WHERE sender_account_id=? AND created_at > datetime('now', ?)",
+        (r["id"], win)).fetchone()["c"]
+
+    dev = t.device_id or s["home_device"]
+    known = 0
+    if s["user_id"] != -1:
+        known = con.execute(
+            "SELECT COUNT(*) c FROM devices WHERE user_id=? AND device_fingerprint=?",
+            (s["user_id"], dev)).fetchone()["c"]
+    is_new_device = int(known == 0)
+
+    local = receiver.split("@")[0].lower()
+    BRAND = ("support", "refund", "help", "care", "update", "bill", "kyc",
+             "amazon", "flipkart", "bigbazaar", "irctc", "sbi.", "hdfc.", "shop")
+
+    feats = {
+        "sender_vpa": sender, "receiver_vpa": receiver, "amount": amount,
+        "hour": datetime.now().hour, "type": t.type, "channel": t.channel,
+        "ts": int(time.time()),
+        "amount_to_avg_ratio": round(amount / max(avg, 1), 3),
+        "odd_hour": int(datetime.now().hour not in usual and datetime.now().hour in range(0, 6)),
+        "balance_drawdown": round(amount / max(float(s["balance"] or 1e6), 1), 3),
+        "is_new_device": is_new_device, "first_time_payee": first_time,
+        "sender_velocity_60s": velocity, "receiver_fan_in_60s": fan_in,
+        "sender_fan_out_60s": fan_out, "receiver_forwards_recent": int(fwd > 0),
+        "in_mule_chain": in_chain,
+        "sender_account_age_days": int(s["account_age_days"] or 365),
+        "receiver_account_age_days": int(r["account_age_days"] or 0),
+        "sender_txn_count": int(s["txn_count"] or 0),
+        "receiver_txn_count": int(r["txn_count"] or 0),
+        "sender_is_corporate": int(s["is_merchant"] or 0),
+        "receiver_is_merchant": int(r["is_merchant"] or 0),
+        "receiver_kyc_basic": int(str(r["kyc_level"]) == "BASIC"),
+        "receiver_blacklisted": int(r["blacklisted"] or 0),
+        "name_vpa_mismatch": int(any(k in local for k in BRAND) and int(r["is_merchant"] or 0) == 0),
+        "is_collect": int(t.type == "COLLECT"), "is_mandate": int(t.type == "MANDATE"),
+        "is_qr": int(t.channel == "QR"), "reverse_transfer": int(t.reverse),
+        "device_screen_share": int(t.screen_share),
+        "device_rooted": int(t.rooted), "sim_carrier_mismatch": int(t.sim_mismatch),
+        "recent_micro_credit": recent_micro,
+        "_sender_bal": float(s["balance"] or 0), "_device": dev,
+    }
+    return feats, s, r, s_found, r_found
+
+
+@app.post("/analyzer/trace")
+def analyzer_trace(req: AnalyzeReq):
+    """Replay a transaction through the full pipeline (read-only, no money moves)
+    and return a stage-by-stage trace with the running fraud score."""
+    t0 = time.perf_counter()
+    con = db()
+    feats, s, r, s_found, r_found = _enrich_tolerant(con, req.sender_vpa, req.receiver_vpa, req)
+
+    stages = []
+
+    def stage(layer, title, status, detail, points=None, meta=None):
+        stages.append({"layer": layer, "title": title, "status": status,
+                       "detail": detail, "points": points, "meta": meta or {}})
+
+    # ---------------- APP LEVEL: device login ----------------
+    dev = req.device_id or (s["home_device"] if s_found else None)
+    if not s_found:
+        stage("APP", "Device login", "warn",
+              "Sender account not on file — device binding cannot be verified. Proceeding.",
+              25, {"device_id": dev})
+    elif feats["is_new_device"]:
+        stage("APP", "Device login", "warn",
+              f"New / unrecognised device ({dev}). Not bound to this user in the devices table.",
+              25, {"device_id": dev})
+    else:
+        stage("APP", "Device login", "pass",
+              f"Known device ({dev}) — bound to user in devices table.", 0, {"device_id": dev})
+
+    # ---------------- APP LEVEL: UPI PIN / password (auth from DB) ----------------
+    if not s_found:
+        stage("APP", "UPI PIN / password", "warn",
+              "No stored credential hash — sender VPA absent from accounts table. Proceeding.", None)
+    else:
+        stored = s.get("upi_pin_hash")
+        if not req.pin:
+            stage("APP", "UPI PIN / password", "warn",
+                  "No PIN supplied (analysis mode) — credential not checked.", None)
+        elif stored and hashlib.sha256(req.pin.encode()).hexdigest() == stored:
+            stage("APP", "UPI PIN / password", "pass",
+                  "PIN matches the stored SHA-256 hash in accounts.upi_pin_hash.", 0)
+        else:
+            stage("APP", "UPI PIN / password", "fail",
+                  "PIN does NOT match the stored hash — authentication failure.", 40)
+
+    # ---------------- APP LEVEL: VPA match (sender + receiver) ----------------
+    if s_found:
+        stage("APP", "Sender VPA match", "pass",
+              f"{req.sender_vpa} resolves to a real account in the DB.", 0)
+    else:
+        stage("APP", "Sender VPA match", "fail",
+              f"{req.sender_vpa} does not exist in accounts — treated as unknown. Going forward.", 30)
+
+    if r_found:
+        badge = "  ⚠ BLACKLISTED" if feats["receiver_blacklisted"] else ""
+        stage("BACKEND", "Receiver VPA resolve", "pass" if not feats["receiver_blacklisted"] else "fail",
+              f"{req.receiver_vpa} → real account (age {feats['receiver_account_age_days']}d).{badge}",
+              40 if feats["receiver_blacklisted"] else 0)
+    else:
+        stage("BACKEND", "Receiver VPA resolve", "warn",
+              f"{req.receiver_vpa} not in mapper — treated as brand-new unknown payee (age 0). Going forward.",
+              20)
+
+    # ---------------- BACKEND LEVEL: balance check ----------------
+    bal = feats["_sender_bal"]
+    if not s_found:
+        stage("BACKEND", "Balance check", "warn",
+              "Sender balance unknown (no account). Cannot guarantee funds. Proceeding.", None,
+              {"balance": bal, "amount": req.amount})
+    elif bal >= req.amount:
+        stage("BACKEND", "Balance check", "pass",
+              f"Sufficient funds — balance ₹{bal:,.0f} ≥ ₹{req.amount:,.0f}.", 0,
+              {"balance": bal, "amount": req.amount})
+    else:
+        stage("BACKEND", "Balance check", "fail",
+              f"Insufficient balance — ₹{bal:,.0f} < ₹{req.amount:,.0f}.", None,
+              {"balance": bal, "amount": req.amount})
+
+    # ---------------- ENGINE: model + rules + graph ----------------
+    out = engine.score(feats)
+    comp = out["components"]
+    if feats["receiver_blacklisted"] and out["label"] != "BLOCK":
+        out["label"] = "BLOCK"; out["score"] = 100
+        out["reasons"] = ["Receiver is on the fraud blacklist (auto-blocked)"] + out["reasons"][:3]
+
+    stage("ENGINE", "ML model (XGBoost)", "warn" if comp["model"] >= 40 else "pass",
+          f"Learned-pattern fraud probability: {out['fraud_probability']*100:.1f}%.",
+          round(comp["model"], 1), {"component": "model"})
+    stage("ENGINE", "Rule engine", "warn" if comp["rules"] >= 35 else "pass",
+          f"Deterministic risk signals fired → {comp['rules']} pts.",
+          comp["rules"], {"component": "rules", "reasons": out["reasons"]})
+    ring = out.get("ring") or []
+    stage("ENGINE", "Graph / mule-ring", "fail" if ring else ("warn" if comp["graph"] >= 40 else "pass"),
+          ("Mule chain detected: " + " → ".join(ring)) if ring else "No mule-ring pattern in the transfer graph.",
+          comp["graph"], {"component": "graph", "ring": ring})
+
+    # ---------------- DECISION ----------------
+    label = out["label"]
+    stage("DECISION", "Blend + escalation → verdict",
+          "pass" if label == "SAFE" else ("warn" if label == "REVIEW" else "fail"),
+          f"Weighted blend (model 50% / rules 30% / graph 20%) with strong-signal escalation → {label}.",
+          out["score"])
+
+    latency = round((time.perf_counter() - t0) * 1000, 2)
+    con.close()
+    return {
+        "input": req.model_dump(),
+        "sender_found": s_found, "receiver_found": r_found,
+        "stages": stages,
+        "cumulative_score": out["score"],
+        "label": label,
+        "fraud_probability": out["fraud_probability"],
+        "components": comp,
+        "reasons": out["reasons"],
+        "ring": ring,
+        "latency_ms": latency,
+    }
+
+
+@app.get("/analyzer/feed")
+def analyzer_feed(limit: int = 20):
+    """Recent transactions already scored by the app, for the live analyser feed."""
+    con = db()
+    rows = con.execute("""
+        SELECT t.id, t.txn_ref, t.amount, t.type, t.status, t.label, t.score,
+               t.reasons, t.created_at, sa.vpa sender, ra.vpa receiver
+        FROM transactions t
+        JOIN accounts sa ON sa.id = t.sender_account_id
+        JOIN accounts ra ON ra.id = t.receiver_account_id
+        WHERE t.label IS NOT NULL
+        ORDER BY t.id DESC LIMIT ?""", (limit,)).fetchall()
+    con.close()
+    out = []
+    for r in rows:
+        d = dict(r)
+        try:
+            d["reasons"] = json.loads(d["reasons"]) if d.get("reasons") else []
+        except Exception:
+            d["reasons"] = []
+        out.append(d)
+    return out
+
+
+@app.get("/analyzer/counts")
+def analyzer_counts():
+    """Aggregate score counts for the dashboard header tiles."""
+    con = db()
+    def one(sql, *a): return con.execute(sql, a).fetchone()[0]
+    res = {
+        "total": one("SELECT COUNT(*) FROM transactions"),
+        "safe": one("SELECT COUNT(*) FROM transactions WHERE label='SAFE'"),
+        "review": one("SELECT COUNT(*) FROM transactions WHERE label='REVIEW'"),
+        "block": one("SELECT COUNT(*) FROM transactions WHERE label='BLOCK'"),
+        "blocked_amount": one("SELECT COALESCE(SUM(amount),0) FROM transactions WHERE label='BLOCK'"),
+        "avg_score": round(one("SELECT COALESCE(AVG(score),0) FROM transactions WHERE score IS NOT NULL"), 1),
+    }
+    con.close()
+    return res
+
+
 @app.get("/health")
 def health():
     return {"status": "ok", "db": str(DB_PATH.name)}
+
+
+# --- mount the standalone control-room dashboard (separate from the app UI) ---
+from fastapi.staticfiles import StaticFiles
+_DASH_DIR = ROOT / "dashboard"
+if _DASH_DIR.exists():
+    app.mount("/monitor", StaticFiles(directory=str(_DASH_DIR), html=True), name="monitor")

@@ -25,86 +25,6 @@ const Banking = ({
   const holderName = (userName || 'Account Holder').toUpperCase();
   const moniesPoints = 3902;
 
-  if (theme === 'light') {
-    return (
-      <div style={lightStyles.container} className="animate-slide-up">
-        {/* Savings Card */}
-        <div style={lightStyles.card}>
-          <div style={lightStyles.cardHeaderRow}>
-            <span style={lightStyles.cardLabel}>Savings ••••5069</span>
-            <span style={lightStyles.badgeGreen}>
-              <span style={{ marginRight: '4px', fontSize: '12px' }}>🌱</span>Daily interest
-            </span>
-          </div>
-          <div style={lightStyles.balanceRow}>
-            <span style={lightStyles.balanceValue}>₹{savingsBalance.toLocaleString('en-IN')}</span>
-          </div>
-          <div style={lightStyles.interestRow}>
-            <span style={lightStyles.interestText}>↑ Earning interest at 100% RBI repo rate</span>
-          </div>
-          
-          {/* Invite sub-card */}
-          <div style={lightStyles.inviteCard} onClick={() => onAddMoney("Referral", 500)}>
-            <div style={lightStyles.inviteIconBox}>
-              <span style={{ fontSize: '16px' }}>🎁</span>
-            </div>
-            <div style={lightStyles.inviteTexts}>
-              <span style={lightStyles.inviteTitle}>Invite & earn ₹500</span>
-              <span style={lightStyles.inviteDesc}>Bring your friends to slice</span>
-            </div>
-          </div>
-        </div>
-
-        {/* slice atom Card */}
-        <div style={lightStyles.card}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', flex: 1 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={lightStyles.cardTitle}>slice atom</span>
-                <span style={lightStyles.badgeGreen}>✦ Live now</span>
-              </div>
-              <p style={lightStyles.cardDesc}>Set money aside, watch it grow</p>
-              <button 
-                onClick={() => onCheckBalance()} 
-                style={lightStyles.letsGoBtn}
-              >
-                Let's go
-              </button>
-            </div>
-            
-            {/* Mascot Illustration */}
-            <div style={lightStyles.mascotContainer}>
-              <div style={lightStyles.mascot}>
-                <div style={lightStyles.mascotBody}>
-                  <div style={lightStyles.mascotEyes}>
-                    <div style={lightStyles.mascotEye}></div>
-                    <div style={lightStyles.mascotEye}></div>
-                  </div>
-                  <div style={lightStyles.mascotSmile}></div>
-                </div>
-              </div>
-              <div style={lightStyles.jar}>
-                <div style={lightStyles.jarCoinSlot}></div>
-                <div style={lightStyles.jarHighlight}></div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Fixed deposits Card */}
-        <div style={lightStyles.card} onClick={onFixedDepositClick}>
-          <div style={lightStyles.cardHeaderRow}>
-            <span style={lightStyles.cardTitle}>Fixed deposits</span>
-            <span style={lightStyles.badgeBlue}>⚡ Instant withdrawal</span>
-          </div>
-          <div style={lightStyles.balanceRow}>
-            <span style={lightStyles.balanceValue}>₹0</span>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   const [activeCardIndex, setActiveCardIndex] = useState(0);
   const [isFlipped, setIsFlipped] = useState(false);
   const [isLocked, setIsLocked] = useState(false);
@@ -314,7 +234,7 @@ const Banking = ({
                     <div style={{ padding: '0 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <div>
                         <span className="card-holder-title" style={{ display: 'block' }}>Card Number</span>
-                        <span style={{ fontSize: 13, fontWeight: '600', fontFamily: 'var(--font-display)', color: '#fff', letterSpacing: 1.5 }}>
+                        <span style={{ fontSize: 13, fontWeight: '600', fontFamily: 'var(--font-display)', color: 'rgba(255,255,255,0.9)', letterSpacing: 1.5 }}>
                           {card.number}
                         </span>
                       </div>

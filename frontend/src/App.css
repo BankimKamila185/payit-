@@ -63,7 +63,7 @@
 
 .payit-navbar-container {
   height: 88px;
-  background-color: #0a0a0c;
+  background-color: var(--bg-color);
   border-top: none;
   position: relative;
   overflow: hidden;
@@ -98,12 +98,12 @@
   width: 46px;
   height: 46px;
   border-radius: 50%;
-  background: #232327;
+  background: var(--surface-hover);
   border: none;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #a0a0a8;
+  color: var(--text-secondary);
   cursor: pointer;
   transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
   box-shadow: 0 2px 8px rgba(0,0,0,0.45);
@@ -115,8 +115,8 @@
 }
 
 .nav-circle-btn:hover {
-  background: #2e2e34;
-  color: #ffffff;
+  background: var(--surface-color);
+  color: var(--text-primary);
 }
 
 /* Active State — slightly lighter dark bg, white icon */
@@ -134,31 +134,31 @@
 .nav-item-wrapper:nth-child(3) .nav-circle-btn {
   width: 56px;
   height: 56px;
-  background: #1e1e22;
-  color: #adadb5;
+  background: var(--border-color);
+  color: var(--text-secondary);
 }
 
 .nav-item-wrapper:nth-child(3) .nav-circle-btn.active,
 .nav-item-wrapper:nth-child(3) .nav-circle-btn:hover {
-  background: #ffffff;
-  color: #000000;
-  /* double ring: outer white ring + gap via black box-shadow */
+  background: var(--text-primary);
+  color: var(--bg-color);
+  /* double ring: outer ring + gap via box-shadow */
   box-shadow:
-    0 0 0 3px #0a0a0c,
-    0 0 0 6px #ffffff,
-    0 6px 20px rgba(255,255,255,0.25);
+    0 0 0 3px var(--bg-color),
+    0 0 0 6px var(--text-primary),
+    0 6px 20px rgba(0,0,0,0.25);
   width: 60px;
   height: 60px;
 }
 
 /* Active QR when qr-scanner screen is active — full scanner-active style */
 .nav-circle-btn.active.scanner-active {
-  background-color: #ffffff;
-  color: #000000;
+  background-color: var(--text-primary);
+  color: var(--bg-color);
   box-shadow:
-    0 0 0 3px #0a0a0c,
-    0 0 0 6px #ffffff,
-    0 8px 24px rgba(255, 255, 255, 0.3);
+    0 0 0 3px var(--bg-color),
+    0 0 0 6px var(--text-primary),
+    0 8px 24px rgba(0, 0, 0, 0.3);
 }
 
 /* Icon Animations */
@@ -577,7 +577,7 @@
 
 .card-control-btn {
   flex: 1;
-  background-color: #121214;
+  background-color: var(--surface-color);
   border: 1px solid var(--border-color);
   color: var(--text-secondary);
   height: 38px;
@@ -593,8 +593,8 @@
 }
 
 .card-control-btn:hover {
-  background-color: #1c1c21;
-  color: #ffffff;
+  background-color: var(--surface-hover);
+  color: var(--text-primary);
 }
 
 .card-control-btn.active {
@@ -875,7 +875,7 @@
 .bill-name {
   font-size: 13px;
   font-weight: 700;
-  color: #ffffff;
+  color: var(--text-primary);
   line-height: 1.2;
 }
 
@@ -926,7 +926,7 @@
 .bill-amount {
   font-size: 14px;
   font-weight: 800;
-  color: #ffffff;
+  color: var(--text-primary);
   font-family: var(--font-display);
 }
 
@@ -948,7 +948,7 @@
 }
 
 /* ==========================================================================
-   LIGHT THEME OVERRIDES (Vibrant & Clean Premium Light Mode)
+   LIGHT THEME OVERRIDES — Same design, light color palette
    ========================================================================== */
 
 .light-theme.phone-container,
@@ -965,7 +965,7 @@
 
 .light-theme .phone-header {
   background-color: var(--bg-color) !important;
-  border-bottom: none !important; /* Premium borderless header */
+  border-bottom: none !important;
 }
 
 .light-theme .phone-screen-content {
@@ -978,7 +978,7 @@
   color: var(--text-primary) !important;
 }
 
-/* Bottom Navigation Bar Custom Styles */
+/* Bottom Navigation */
 .light-theme .payit-navbar-container {
   background-color: var(--bg-color) !important;
   border-top: none !important;
@@ -1003,7 +1003,6 @@
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08) !important;
 }
 
-/* Clear middle tab special styles in light mode */
 .light-theme .nav-item-wrapper:nth-child(3) .nav-circle-btn {
   background: #e8e8ec !important;
   color: var(--text-secondary) !important;
@@ -1012,12 +1011,59 @@
 
 .light-theme .nav-item-wrapper:nth-child(3) .nav-circle-btn.active,
 .light-theme .nav-item-wrapper:nth-child(3) .nav-circle-btn:hover {
-  background: #ffffff !important;
-  color: #111111 !important;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08) !important;
+  background: #111111 !important;
+  color: #ffffff !important;
+  box-shadow:
+    0 0 0 3px #f4f5f8,
+    0 0 0 6px #111111,
+    0 4px 12px rgba(0, 0, 0, 0.12) !important;
 }
 
-/* Screen elements styling */
+/* ── Virtual Card — same dark gradient design, slightly lighter shadow ── */
+.light-theme .virtual-card-front,
+.light-theme .virtual-card-back {
+  border-color: rgba(0, 0, 0, 0.06) !important;
+  box-shadow: 0 15px 35px rgba(0, 0, 0, 0.18), inset 0 1px 1px rgba(255, 255, 255, 0.15) !important;
+}
+
+/* Card text is always white — cards always have dark gradient backgrounds */
+.light-theme .card-brand-logo,
+.light-theme .card-holder-name,
+.light-theme .card-expiry-date,
+.light-theme .card-balance-value,
+.light-theme .card-number-display {
+  color: #ffffff !important;
+}
+
+/* Card control buttons */
+.light-theme .card-control-btn {
+  background-color: #f0f0f5 !important;
+  border-color: #e0e0e5 !important;
+  color: #6e6e73 !important;
+}
+
+.light-theme .card-control-btn:hover {
+  background-color: #e8e8ec !important;
+  color: #111111 !important;
+}
+
+/* Bill reminder rows */
+.light-theme .bill-reminder-row {
+  background-color: #ffffff !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04) !important;
+}
+
+.light-theme .bill-reminder-row:hover {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08) !important;
+  border-color: rgba(0, 0, 0, 0.1) !important;
+}
+
+.light-theme .bill-icon-wrapper {
+  background-color: rgba(0, 0, 0, 0.04) !important;
+  border-color: rgba(0, 0, 0, 0.06) !important;
+}
+
+/* Text overrides */
 .light-theme .bill-amount,
 .light-theme .quick-send-name,
 .light-theme .bill-name {
@@ -1030,8 +1076,11 @@
   color: var(--text-secondary) !important;
 }
 
+/* Card lock overlay */
+.light-theme .card-lock-overlay {
+  background-color: rgba(244, 245, 248, 0.88) !important;
+}
 
-
-
-
-
+.light-theme .card-lock-text {
+  color: #111111 !important;
+}

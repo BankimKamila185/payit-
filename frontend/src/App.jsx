@@ -626,8 +626,11 @@ function App() {
                 setSelectedPayee({ name, vpa });
                 runPrecheck(vpa);                             // F2: early beneficiary warning
               }
+              const cameFromTransfer = history[history.length - 2] === 'transfer';
               popScreen();
-              pushScreen('transfer');
+              if (!cameFromTransfer) {
+                pushScreen('transfer');
+              }
             }}
           />
         );
@@ -763,7 +766,7 @@ function App() {
               setRecipient(name);
               setSelectedPayee({ name, vpa });
               runPrecheck(vpa);                               // F2: early beneficiary warning
-              handlePaymentProcess(parseFloat(payAmount), false);
+              popScreen();                                    // Return to transfer keypad screen with payee selected
             }}
           />
         );

@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
 import { RefreshCw, Delete } from 'lucide-react';
+import { api } from '../api';
 
 const CheckBalance = ({ onBack, upiId = "you@payit", realBalance = 0 }) => {
   const [pin, setPin] = useState("");
   const [loading, setLoading] = useState(false);
   const [balance, setBalance] = useState(null);
+  const [err, setErr] = useState('');
 
   // Masking the UPI ID in compliance with security guidelines
   const maskUpiId = (rawId) => {
@@ -23,13 +25,32 @@ const CheckBalance = ({ onBack, upiId = "you@payit", realBalance = 0 }) => {
     setPin(prev => prev.slice(0, -1));
   };
 
-  const handleCheckBalance = () => {
+  const handleCheckBalance = async () => {
     if (pin.length < 4) return;
     setLoading(true);
-    setTimeout(() => {
+    setErr('');
+    try {
+      // Verify UPI PIN against backend first (real 2nd-factor check)
+      const loginRes = await api.login(upiId, pin);
+      if (!loginRes.ok) {
+        setLoading(false);
+        setErr('Incorrect UPI PIN. Please try again.');
+        setPin('');
+        return;
+      }
+      // Fetch live balance from DB
+      const balRes = await api.balance(upiId);
       setLoading(false);
-      setBalance(Math.round(Number(realBalance) || 0)); // REAL logged-in balance
-    }, 1500);
+      if (balRes.ok) {
+        setBalance(Math.round(Number(balRes.data.balance) || 0));
+      } else {
+        setBalance(Math.round(Number(realBalance) || 0));
+      }
+    } catch {
+      setLoading(false);
+      // Fallback to prop balance if server unreachable
+      setBalance(Math.round(Number(realBalance) || 0));
+    }
   };
 
   return (
@@ -64,6 +85,7 @@ const CheckBalance = ({ onBack, upiId = "you@payit", realBalance = 0 }) => {
                 ></div>
               ))}
             </div>
+            {err && <p style={{ color: '#ff5470', fontSize: 12, fontWeight: 600, textAlign: 'center', marginTop: 4 }}>{err}</p>}
             {loading && (
               <div style={styles.loaderRow}>
                 <RefreshCw size={16} className="spin" style={styles.spinner} />

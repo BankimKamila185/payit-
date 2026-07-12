@@ -19,7 +19,7 @@ import OnboardingFlow from './screens/OnboardingFlow';
 import PayeeSelector from './screens/PayeeSelector';
 import ReferPage from './screens/ReferPage';
 import AutopayPage from './screens/AutopayPage';
-import { api, getDeviceId, saveSession, getSession, clearSession } from './api';
+import { api, getDeviceId, saveSession, getSession, clearSession, loginWithPasskey, hasPasskey } from './api';
 
 import { Shield, Lock, ShieldCheck, AlertTriangle, Fingerprint, Phone, X, Check, Bell, Clock, MapPin, Smartphone, ShieldAlert } from 'lucide-react';
 
@@ -86,32 +86,43 @@ function App() {
     setCurrentUser(null); setCurrentUserName(''); setRealTxns([]);
   };
 
-  // On app open: if this device already has a bound account, restore it and go
-  // straight to Home — no VPA re-entry (real UX). Login screen only shows 1st time.
+  // On app open: if this device already has a bound account, restore it silently
+  // then LOCK the app — user must re-enter PIN or use fingerprint before home screen.
   useEffect(() => {
     const saved = getSession();
-    if (!saved) { setBooting(false); return; }
+    if (!saved) { setBooting(false); setAppLocked(false); return; }  // no session = show login (not the lock gate)
     handleLogin(saved)
-      .then((r) => { if (!r || !r.ok) clearSession(); })   // account gone -> clean login
+      .then((r) => { if (!r || !r.ok) { clearSession(); setAppLocked(false); } })  // account gone -> clean login
       .finally(() => setBooting(false));
+    // appLocked remains true — the PIN gate will display on top of home
   }, []);
 
   const refreshTxns = () => {
     if (currentUser) api.history(currentUser).then((r) => { if (r.ok) setRealTxns(r.data); });
   };
-  const [lastTx, setLastTx] = useState({
-    id: 'TX-98127',
-    recipient: 'Gopichand Javanajad',
-    amount: 20,
-    date: '25 Jun, 11:54 AM',
-    upiRef: '617871427501',
-    transId: 'PAY27867B1E91953D47D9315D39D8361280',
-    status: 'success'
-  });
+  const [lastTx, setLastTx] = useState(null);
 
   // --- NEW SECURITY STATES ---
   const [isFrozen, setIsFrozen] = useState(false);
   const [isAccountLocked, setIsAccountLocked] = useState(false);
+
+  // --- APP LOCK (re-auth on every app open / refresh) ---
+  // true on mount so the PIN gate appears before anything is shown.
+  // Set to false after user proves identity (PIN or fingerprint).
+  const [appLocked, setAppLocked] = useState(true);
+  const [appPinInput, setAppPinInput] = useState('');
+  const [appPinError, setAppPinError] = useState('');
+  const [appPinBusy, setAppPinBusy] = useState(false);
+
+  // --- FORGOT-PIN (OTP flow, triggered from PIN gate or UpiSettings) ---
+  const [showForgotPin, setShowForgotPin] = useState(false);
+  const [forgotStep, setForgotStep] = useState('send');  // 'send' | 'otp' | 'newpin' | 'confirm'
+  const [forgotOtp, setForgotOtp] = useState('');
+  const [forgotNewPin, setForgotNewPin] = useState('');
+  const [forgotConfirmPin, setForgotConfirmPin] = useState('');
+  const [forgotBusy, setForgotBusy] = useState(false);
+  const [forgotMsg, setForgotMsg] = useState('');
+  const [forgotErr, setForgotErr] = useState('');
   
   // Approval Window Settings
   const [isApprovalWindowActive, setIsApprovalWindowActive] = useState(true);
@@ -651,7 +662,9 @@ function App() {
         );
       case 'analytics':
         return (
-          <Analytics 
+          <Analytics
+            liveTxns={realTxns}
+            me={currentUser}
             onCategoryClick={(name) => {
               setRecipient(name);
               pushScreen('transfer');
@@ -672,6 +685,7 @@ function App() {
             upiId={currentUser}
             userName={currentUserName}
             onLogout={handleLogout}
+            onForgotPin={() => { setShowForgotPin(true); setForgotStep('send'); setForgotErr(''); setForgotMsg(''); setForgotOtp(''); setForgotNewPin(''); setForgotConfirmPin(''); }}
             onAddAccount={() => {
               setRecipient("SBI Bank Link");
               pushScreen('transfer');
@@ -1178,9 +1192,272 @@ function App() {
           </div>
         )}
       </PhoneFrame>
+
+      {/* ═══════════════════════════════════════════════════════════════════
+          APP PIN GATE — shown on every refresh/reopen (like real UPI apps).
+          Overlays the entire PhoneFrame so nothing is accessible without auth.
+      ══════════════════════════════════════════════════════════════════════ */}
+      {appLocked && currentUser && (
+        <div style={appGateStyles.overlay}>
+          <div style={appGateStyles.card} className="animate-scale-in">
+            {/* Forgot PIN flow */}
+            {showForgotPin ? (
+              <>
+                <div style={appGateStyles.logoRow}>
+                  <div style={appGateStyles.logoBadge}><Lock size={20} color="#fff" /></div>
+                  <span style={appGateStyles.logoText}>Reset PIN</span>
+                </div>
+
+                {forgotStep === 'send' && (
+                  <>
+                    <p style={appGateStyles.subtitle}>We'll send an OTP to your registered mobile to reset your UPI PIN.</p>
+                    <p style={appGateStyles.vpaText}>{currentUser}</p>
+                    {forgotErr && <p style={appGateStyles.errText}>{forgotErr}</p>}
+                    {forgotMsg && <p style={appGateStyles.successText}>{forgotMsg}</p>}
+                    <button
+                      disabled={forgotBusy}
+                      style={{ ...appGateStyles.primaryBtn, marginTop: 16 }}
+                      onClick={async () => {
+                        setForgotBusy(true); setForgotErr('');
+                        const r = await api.forgotPin(currentUser).catch(() => ({ ok: false }));
+                        setForgotBusy(false);
+                        if (r.ok) { setForgotMsg(r.data?.message || 'OTP sent!'); setForgotStep('otp'); }
+                        else setForgotErr(r.data?.detail || 'Failed to send OTP. Check server.');
+                      }}
+                    >{forgotBusy ? 'Sending…' : 'Send OTP'}</button>
+                    <button style={appGateStyles.cancelBtn} onClick={() => setShowForgotPin(false)}>← Back to PIN</button>
+                  </>
+                )}
+
+                {forgotStep === 'otp' && (
+                  <>
+                    <p style={appGateStyles.subtitle}>Enter the 6-digit OTP sent to your mobile. (Check server logs for demo.)</p>
+                    <input
+                      type="text" maxLength={6} value={forgotOtp}
+                      onChange={e => setForgotOtp(e.target.value.replace(/\D/g,'').slice(0,6))}
+                      placeholder="------"
+                      style={appGateStyles.otpInput}
+                      autoFocus
+                    />
+                    {forgotErr && <p style={appGateStyles.errText}>{forgotErr}</p>}
+                    <button
+                      disabled={forgotOtp.length < 6 || forgotBusy}
+                      style={{ ...appGateStyles.primaryBtn, marginTop: 8, opacity: forgotOtp.length < 6 ? 0.5 : 1 }}
+                      onClick={() => { if (forgotOtp.length === 6) { setForgotStep('newpin'); setForgotErr(''); } }}
+                    >Verify OTP</button>
+                    <button style={appGateStyles.cancelBtn} onClick={() => setForgotStep('send')}>← Resend OTP</button>
+                  </>
+                )}
+
+                {(forgotStep === 'newpin' || forgotStep === 'confirm') && (() => {
+                  const isConfirm = forgotStep === 'confirm';
+                  const currentForgotPin = isConfirm ? forgotConfirmPin : forgotNewPin;
+                  const forgotSetter = isConfirm ? setForgotConfirmPin : setForgotNewPin;
+                  return (
+                    <>
+                      <p style={appGateStyles.subtitle}>{isConfirm ? 'Confirm your new UPI PIN' : 'Enter your new 4-digit UPI PIN'}</p>
+                      <div style={{ display: 'flex', justifyContent: 'center', gap: 12, margin: '16px 0' }}>
+                        {[0,1,2,3].map(i => (
+                          <div key={i} style={{ width: 14, height: 14, borderRadius: '50%', background: i < currentForgotPin.length ? 'var(--accent-neon)' : '#333' }} />
+                        ))}
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8, marginBottom: 8 }}>
+                        {['1','2','3','4','5','6','7','8','9','','0','⌫'].map((k, idx) => (
+                          <button key={idx} disabled={k === '' || forgotBusy}
+                            style={{ padding: '12px 0', fontSize: 20, borderRadius: 10, background: k === '' ? 'transparent' : '#222', color: '#fff', border: 'none', cursor: k === '' ? 'default' : 'pointer' }}
+                            onClick={() => {
+                              if (k === '⌫') { forgotSetter(p => p.slice(0,-1)); return; }
+                              if (!k) return;
+                              const next = currentForgotPin + k;
+                              if (next.length > 4) return;
+                              forgotSetter(next);
+                              if (next.length === 4) {
+                                if (!isConfirm) {
+                                  setTimeout(() => { setForgotStep('confirm'); setForgotConfirmPin(''); }, 200);
+                                } else {
+                                  // Submit reset
+                                  if (forgotNewPin !== next) {
+                                    setForgotErr("PINs don't match. Try again.");
+                                    setForgotStep('newpin'); setForgotNewPin(''); setForgotConfirmPin('');
+                                    return;
+                                  }
+                                  setForgotBusy(true); setForgotErr('');
+                                  api.resetPin(currentUser, forgotOtp, forgotNewPin)
+                                    .then(r => {
+                                      setForgotBusy(false);
+                                      if (r.ok) {
+                                        setForgotMsg('PIN reset! You can now login.');
+                                        setShowForgotPin(false);
+                                        setAppLocked(false);
+                                      } else {
+                                        setForgotErr(r.data?.detail || 'Reset failed.');
+                                        setForgotStep('newpin'); setForgotNewPin(''); setForgotConfirmPin('');
+                                      }
+                                    })
+                                    .catch(() => { setForgotBusy(false); setForgotErr('Server error.'); });
+                                }
+                              }
+                            }}
+                          >{k}</button>
+                        ))}
+                      </div>
+                      {forgotErr && <p style={appGateStyles.errText}>{forgotErr}</p>}
+                      {forgotBusy && <p style={{ color: 'var(--accent-neon)', fontSize: 12, textAlign: 'center' }}>Saving…</p>}
+                    </>
+                  );
+                })()}
+              </>
+            ) : (
+              /* ── Normal PIN gate ── */
+              <>
+                <div style={appGateStyles.logoRow}>
+                  <div style={appGateStyles.logoBadge}><Shield size={20} color="#fff" /></div>
+                  <span style={appGateStyles.logoText}>payit</span>
+                </div>
+                <h3 style={appGateStyles.title}>Welcome back</h3>
+                <p style={appGateStyles.subtitle}>{currentUserName || currentUser}</p>
+
+                {/* Fingerprint / passkey button */}
+                {hasPasskey(currentUser) && (
+                  <button
+                    style={appGateStyles.fingerprintBtn}
+                    disabled={appPinBusy}
+                    onClick={async () => {
+                      setAppPinBusy(true); setAppPinError('');
+                      const r = await loginWithPasskey(currentUser);
+                      setAppPinBusy(false);
+                      if (r.ok) setAppLocked(false);
+                      else setAppPinError(r.error || 'Biometric failed. Use PIN.');
+                    }}
+                  >
+                    <Fingerprint size={28} color="var(--accent-neon)" />
+                    <span>Use Fingerprint / Face ID</span>
+                  </button>
+                )}
+
+                {/* PIN dots */}
+                <div style={{ display: 'flex', justifyContent: 'center', gap: 12, margin: '16px 0 8px' }}>
+                  {[0,1,2,3].map(i => (
+                    <div key={i} style={{ width: 14, height: 14, borderRadius: '50%', background: i < appPinInput.length ? 'var(--accent-neon)' : '#333', transition: 'background 0.15s' }} />
+                  ))}
+                </div>
+
+                {/* Keypad */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8, marginBottom: 8 }}>
+                  {['1','2','3','4','5','6','7','8','9','','0','⌫'].map((k, idx) => (
+                    <button key={idx} disabled={k === '' || appPinBusy}
+                      style={{ padding: '13px 0', fontSize: 20, borderRadius: 10, background: k === '' ? 'transparent' : '#1a1a1d', color: '#fff', border: 'none', cursor: k === '' ? 'default' : 'pointer', transition: 'background 0.1s' }}
+                      onClick={() => {
+                        if (k === '⌫') { setAppPinInput(p => p.slice(0,-1)); return; }
+                        if (!k) return;
+                        const next = (appPinInput + k).slice(0,4);
+                        setAppPinInput(next);
+                        if (next.length === 4) {
+                          setAppPinBusy(true); setAppPinError('');
+                          api.login(currentUser, next)
+                            .then(r => {
+                              setAppPinBusy(false);
+                              if (r.ok) {
+                                if (r.data?.balance != null) setBalance(r.data.balance);
+                                setAppLocked(false);
+                              } else {
+                                setAppPinError('Incorrect PIN. Try again.');
+                                setAppPinInput('');
+                              }
+                            })
+                            .catch(() => {
+                              setAppPinBusy(false);
+                              setAppPinError('Server unreachable — check backend.');
+                              setAppPinInput('');
+                            });
+                        }
+                      }}
+                    >{k}</button>
+                  ))}
+                </div>
+
+                {appPinError && <p style={appGateStyles.errText}>{appPinError}</p>}
+                {appPinBusy && <p style={{ color: 'var(--accent-neon)', fontSize: 12, textAlign: 'center' }}>Verifying…</p>}
+
+                <button
+                  style={appGateStyles.forgotBtn}
+                  onClick={() => { setShowForgotPin(true); setForgotStep('send'); setForgotErr(''); setForgotMsg(''); }}
+                >
+                  Forgot PIN?
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
+// Styling for App PIN gate overlay
+const appGateStyles = {
+  overlay: {
+    position: 'fixed', inset: 0,
+    background: 'rgba(0,0,0,0.92)',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    zIndex: 999999,
+    backdropFilter: 'blur(12px)',
+  },
+  card: {
+    background: '#0f0f12',
+    border: '1px solid rgba(255,255,255,0.08)',
+    borderRadius: 28,
+    padding: '28px 24px',
+    width: 300,
+    maxWidth: '90vw',
+    boxShadow: '0 24px 64px rgba(0,0,0,0.9)',
+  },
+  logoRow: {
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    gap: 10, marginBottom: 16,
+  },
+  logoBadge: {
+    width: 40, height: 40, borderRadius: 12,
+    background: 'linear-gradient(135deg,#eb3b88,#aa33ff)',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+  },
+  logoText: { fontSize: 22, fontWeight: 800, color: '#fff', letterSpacing: '-0.5px' },
+  title: { color: '#fff', fontSize: 20, fontWeight: 700, textAlign: 'center', margin: '0 0 4px' },
+  subtitle: { color: 'rgba(255,255,255,0.5)', fontSize: 13, textAlign: 'center', margin: '0 0 8px' },
+  vpaText: { color: 'var(--accent-neon)', fontSize: 13, fontWeight: 600, textAlign: 'center', margin: '0 0 12px' },
+  fingerprintBtn: {
+    width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+    gap: 10, padding: '14px 0', borderRadius: 14,
+    background: 'rgba(34,230,123,0.06)', border: '1px solid rgba(34,230,123,0.2)',
+    color: 'var(--accent-neon)', fontSize: 14, fontWeight: 600, cursor: 'pointer',
+    marginBottom: 8,
+  },
+  errText: { color: '#ff5470', fontSize: 11, fontWeight: 600, textAlign: 'center', margin: '4px 0' },
+  successText: { color: 'var(--accent-neon)', fontSize: 11, fontWeight: 600, textAlign: 'center', margin: '4px 0' },
+  forgotBtn: {
+    width: '100%', background: 'none', border: 'none',
+    color: 'rgba(255,255,255,0.35)', fontSize: 12, fontWeight: 600,
+    cursor: 'pointer', padding: '8px 0', textAlign: 'center',
+  },
+  primaryBtn: {
+    width: '100%', padding: '13px 0', borderRadius: 14,
+    background: 'linear-gradient(135deg,#eb3b88,#aa33ff)',
+    color: '#fff', fontSize: 14, fontWeight: 700,
+    border: 'none', cursor: 'pointer',
+  },
+  cancelBtn: {
+    width: '100%', padding: '10px 0', background: 'none', border: 'none',
+    color: 'rgba(255,255,255,0.35)', fontSize: 12, fontWeight: 600,
+    cursor: 'pointer', marginTop: 6,
+  },
+  otpInput: {
+    width: '100%', backgroundColor: '#0c0c0e',
+    border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12,
+    padding: '12px', fontSize: '20px', textAlign: 'center',
+    color: '#fff', letterSpacing: '6px', fontWeight: '700',
+    marginBottom: 8, outline: 'none', boxSizing: 'border-box',
+  },
+};
 
 // Styling for all new overlay features inside App.jsx
 const styles = {

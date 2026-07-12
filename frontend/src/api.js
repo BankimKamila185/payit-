@@ -62,7 +62,9 @@ export const api = {
   phoneLookup: (phone) => post("/auth/phone-lookup", { phone }),
   register:    ({ phone, name, vpa, bank_id, upi_pin }) =>
     post("/auth/register", { phone, name, vpa, bank_id, upi_pin, device_id: getDeviceId() }),
-  setPin:      (vpa, upi_pin) => post("/auth/set-pin", { vpa, upi_pin }),
+  setPin:      (vpa, upi_pin) => post('/auth/set-pin', { vpa, upi_pin }),
+  forgotPin:   (vpa) => post('/auth/forgot-pin', { vpa }),
+  resetPin:    (vpa, otp, new_pin) => post('/auth/reset-pin', { vpa, otp, new_pin }),
 
   // Onboarding OTP — real send + real verify (no mock bypass)
   sendOtp:     (phone) => post("/auth/send-otp", { phone }),

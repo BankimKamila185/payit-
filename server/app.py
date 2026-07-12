@@ -200,6 +200,14 @@ class VerifyOnboardingOtpReq(BaseModel):
 class ResendOtpReq(BaseModel):
     pending_txn_id: int
 
+class ForgotPinReq(BaseModel):
+    vpa: str
+
+class ResetPinReq(BaseModel):
+    vpa: str
+    otp: str
+    new_pin: str
+
 # ----- WebAuthn / Passkey models -----
 class WebAuthnRegisterOptionsReq(BaseModel):
     vpa: str                       # logged-in user
@@ -339,6 +347,75 @@ def set_pin(req: SetPinReq):
     con.commit()
     con.close()
     return {"status": "success", "message": "UPI PIN set successfully"}
+
+
+@app.post("/auth/forgot-pin")
+def forgot_pin(req: ForgotPinReq):
+    """Generate an OTP so the user can reset their UPI PIN (Forgot PIN flow)."""
+    con = db()
+    acc = con.execute(
+        "SELECT a.*, u.phone FROM accounts a JOIN users u ON u.id=a.user_id WHERE a.vpa=?",
+        (req.vpa,)
+    ).fetchone()
+    if not acc:
+        con.close()
+        raise HTTPException(404, "Account not found")
+    otp_code = f"{random.randint(100000, 999999)}"
+    # Expire any existing reset OTPs for this user
+    con.execute(
+        "UPDATE otp_verifications SET status='expired' WHERE user_id=? AND code LIKE 'pin_reset:%' AND status='pending'",
+        (acc["user_id"],)
+    )
+    con.execute(
+        "INSERT INTO otp_verifications (user_id, code, status, attempts, expires_at, created_at) VALUES (?,?,?,?,?,?)",
+        (acc["user_id"], f"pin_reset:{otp_code}", "pending", 0,
+         (datetime.now() + timedelta(minutes=10)).isoformat(), now_iso())
+    )
+    con.commit(); con.close()
+    phone = acc["phone"] or ""
+    masked = f"****{phone[-4:]}" if len(phone) >= 4 else "****"
+    print(f"[Forgot PIN OTP] vpa={req.vpa} → OTP: {otp_code}  (check server logs)")
+    return {"result": "sent", "message": f"OTP sent to your registered mobile +91 {masked}"}
+
+
+@app.post("/auth/reset-pin")
+def reset_pin(req: ResetPinReq):
+    """Verify the forgot-PIN OTP and set a new UPI PIN."""
+    if len(req.new_pin) != 4 or not req.new_pin.isdigit():
+        raise HTTPException(400, "new_pin must be exactly 4 digits")
+    con = db()
+    acc = con.execute("SELECT * FROM accounts WHERE vpa=?", (req.vpa,)).fetchone()
+    if not acc:
+        con.close(); raise HTTPException(404, "Account not found")
+    otp_row = con.execute(
+        """SELECT * FROM otp_verifications
+           WHERE user_id=? AND status='pending' AND code LIKE 'pin_reset:%' AND expires_at > ?
+           ORDER BY id DESC LIMIT 1""",
+        (acc["user_id"], datetime.now().isoformat())
+    ).fetchone()
+    if not otp_row:
+        con.close(); raise HTTPException(400, "OTP expired or not found. Please request a new one.")
+    stored_code = otp_row["code"].split(":")[-1]
+    if stored_code != req.otp.strip():
+        new_attempts = otp_row["attempts"] + 1
+        con.execute("UPDATE otp_verifications SET attempts=? WHERE id=?", (new_attempts, otp_row["id"]))
+        if new_attempts >= 3:
+            con.execute("UPDATE otp_verifications SET status='expired' WHERE id=?", (otp_row["id"],))
+            con.commit(); con.close()
+            raise HTTPException(423, "Too many wrong OTP attempts. Please request a new OTP.")
+        con.commit(); con.close()
+        left = 3 - new_attempts
+        raise HTTPException(400, f"Incorrect OTP. {left} attempt(s) remaining.")
+    # OTP verified → set new PIN
+    pin_hash = hashlib.sha256(req.new_pin.encode()).hexdigest()
+    con.execute("UPDATE accounts SET upi_pin_hash=? WHERE vpa=?", (pin_hash, req.vpa))
+    con.execute("UPDATE otp_verifications SET status='verified' WHERE id=?", (otp_row["id"],))
+    # Clear any PIN lockout for this VPA
+    if req.vpa in _pin_fails:
+        del _pin_fails[req.vpa]
+    con.commit(); con.close()
+    print(f"[Forgot PIN] UPI PIN reset successfully for {req.vpa}")
+    return {"result": "success", "message": "UPI PIN reset successfully. You can now login with your new PIN."}
 
 
 @app.get("/banks")

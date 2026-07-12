@@ -16,8 +16,9 @@ import {
   Lock,
   KeyRound,
   X,
+  Fingerprint,
 } from 'lucide-react';
-import { api } from '../api';
+import { api, registerPasskey, hasPasskey } from '../api';
 
 // ── Derive real bank from VPA handle ──────────────────────────────────────────
 const BANK_META = {
@@ -268,6 +269,27 @@ const modalCard = {
 const UpiSettings = ({ onAddAccount, upiId = 'you@payit', userName = '', onLogout, onForgotPin }) => {
   const [showChangePinModal, setShowChangePinModal] = useState(false);
   const [pinChanged, setPinChanged] = useState(false);
+  const [passkeyStatus, setPasskeyStatus] = useState(hasPasskey(upiId));
+  const [biometricMsg, setBiometricMsg] = useState('');
+  const [biometricErr, setBiometricErr] = useState('');
+
+  const handleRegisterBiometric = async () => {
+    setBiometricMsg('Prompting fingerprint enrollment…');
+    setBiometricErr('');
+    try {
+      const r = await registerPasskey(upiId);
+      if (r.ok) {
+        setPasskeyStatus(true);
+        setBiometricMsg('Fingerprint enrolled successfully!');
+      } else {
+        setBiometricErr(r.error || 'Failed to enroll. Try again.');
+        setBiometricMsg('');
+      }
+    } catch {
+      setBiometricErr('Registration failed.');
+      setBiometricMsg('');
+    }
+  };
 
   // Derive primary bank from VPA handle
   const primaryBank = bankFromVpa(upiId);
@@ -359,6 +381,15 @@ const UpiSettings = ({ onAddAccount, upiId = 'you@payit', userName = '', onLogou
           <span style={styles.optionArrow}>&gt;</span>
         </button>
 
+        {/* Fingerprint / Biometric enrollment */}
+        <button style={styles.optionRow} onClick={handleRegisterBiometric}>
+          <div style={styles.optionLeft}>
+            <Fingerprint size={16} color={passkeyStatus ? 'var(--accent-neon)' : 'var(--text-secondary)'} style={{ marginRight: 12 }} />
+            <span>{passkeyStatus ? '✓ Biometrics Registered' : 'Register Fingerprint / Face ID'}</span>
+          </div>
+          <span style={styles.optionArrow}>&gt;</span>
+        </button>
+
         <button style={styles.optionRow}>
           <div style={styles.optionLeft}>
             <Smartphone size={16} color="var(--text-secondary)" style={{ marginRight: 12 }} />
@@ -374,6 +405,17 @@ const UpiSettings = ({ onAddAccount, upiId = 'you@payit', userName = '', onLogou
           <span style={styles.optionArrow}>&gt;</span>
         </button>
       </div>
+
+      {biometricMsg && (
+        <p style={{ color: 'var(--accent-neon)', fontSize: 12, textAlign: 'center', fontWeight: 'bold', margin: '4px 0 0 0' }}>
+          {biometricMsg}
+        </p>
+      )}
+      {biometricErr && (
+        <p style={{ color: '#ff5470', fontSize: 12, textAlign: 'center', fontWeight: 'bold', margin: '4px 0 0 0' }}>
+          {biometricErr}
+        </p>
+      )}
 
       {/* Deregister */}
       <div style={styles.optionsList}>

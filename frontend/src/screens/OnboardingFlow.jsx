@@ -17,6 +17,7 @@ export default function OnboardingFlow({ onLogin, deviceId }) {
   const [otpTimer, setOtpTimer] = useState(60);
   const [fullName, setFullName] = useState('');
   const [vpa, setVpa] = useState('');
+  const [onboardingOtpDemo, setOnboardingOtpDemo] = useState('');
   const [selectedBank, setSelectedBank] = useState(null); // {id, name, upi_handle}
   const [banks, setBanks] = useState([]);
   
@@ -106,7 +107,10 @@ export default function OnboardingFlow({ onLogin, deviceId }) {
         setVpa(cleanPhone + '@payit');
       }
       // Send real OTP via backend (printed to server logs)
-      await api.sendOtp(cleanPhone);
+      const otpRes = await api.sendOtp(cleanPhone);
+      if (otpRes.ok && otpRes.data.otp_demo) {
+        setOnboardingOtpDemo(otpRes.data.otp_demo);
+      }
       setBusy(false);
       setOtp(['', '', '', '', '', '']);
       setActiveOtpIdx(0);
@@ -455,7 +459,11 @@ export default function OnboardingFlow({ onLogin, deviceId }) {
           {/* Server-log notice */}
           <div style={{ backgroundColor: 'rgba(170,51,255,0.07)', border: '1px solid rgba(170,51,255,0.2)', borderRadius: 10, padding: '8px 12px', marginBottom: 10, textAlign: 'center' }}>
             <p style={{ color: '#aa33ff', fontSize: 11, fontWeight: 600, margin: 0 }}>📱 OTP sent to +91 {phone.slice(-4).padStart(phone.length, '•')}</p>
-            <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: 10, margin: '3px 0 0 0' }}>Check Render / server logs to retrieve code.</p>
+            {onboardingOtpDemo ? (
+              <p style={{ color: '#22e67b', fontSize: 11, fontWeight: 700, margin: '3px 0 0 0' }}>Demo OTP: {onboardingOtpDemo} (real app: SMS only)</p>
+            ) : (
+              <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: 10, margin: '3px 0 0 0' }}>Check Render / server logs to retrieve code.</p>
+            )}
           </div>
 
           <div style={S.otpResendRow}>
@@ -464,7 +472,10 @@ export default function OnboardingFlow({ onLogin, deviceId }) {
             ) : (
               <button style={S.resendBtn} onClick={async () => {
                 const cleanPhone = phone.replace(/\D/g, '');
-                await api.sendOtp(cleanPhone);
+                const otpRes = await api.sendOtp(cleanPhone);
+                if (otpRes.ok && otpRes.data.otp_demo) {
+                  setOnboardingOtpDemo(otpRes.data.otp_demo);
+                }
                 setOtpTimer(60);
                 setErr('');
               }}>Resend OTP</button>

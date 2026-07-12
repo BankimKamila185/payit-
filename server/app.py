@@ -375,7 +375,7 @@ def forgot_pin(req: ForgotPinReq):
     phone = acc["phone"] or ""
     masked = f"****{phone[-4:]}" if len(phone) >= 4 else "****"
     print(f"[Forgot PIN OTP] vpa={req.vpa} → OTP: {otp_code}  (check server logs)")
-    return {"result": "sent", "message": f"OTP sent to your registered mobile +91 {masked}"}
+    return {"result": "sent", "message": f"OTP sent to your registered mobile +91 {masked}", "otp_demo": otp_code}
 
 
 @app.post("/auth/reset-pin")
@@ -877,7 +877,7 @@ def auth_send_otp(req: SendOtpReq):
     )
     con.commit(); con.close()
     print(f"[OTP SMS] Onboarding → phone={phone_clean} → OTP: {otp_code}  (check Render/server logs)")
-    return {"result": "sent", "message": f"OTP sent to +91 ****{phone_clean[-4:]}"}
+    return {"result": "sent", "message": f"OTP sent to +91 ****{phone_clean[-4:]}", "otp_demo": otp_code}
 
 
 @app.post("/auth/verify-otp")

@@ -123,6 +123,8 @@ function App() {
   const [forgotBusy, setForgotBusy] = useState(false);
   const [forgotMsg, setForgotMsg] = useState('');
   const [forgotErr, setForgotErr] = useState('');
+  const [forgotOtpDemo, setForgotOtpDemo] = useState('');
+  const [forgotPinCameFromSettings, setForgotPinCameFromSettings] = useState(false);
   
   // Approval Window Settings
   const [isApprovalWindowActive, setIsApprovalWindowActive] = useState(true);
@@ -713,7 +715,7 @@ function App() {
             upiId={currentUser}
             userName={currentUserName}
             onLogout={handleLogout}
-            onForgotPin={() => { setShowForgotPin(true); setForgotStep('send'); setForgotErr(''); setForgotMsg(''); setForgotOtp(''); setForgotNewPin(''); setForgotConfirmPin(''); }}
+            onForgotPin={() => { setAppLocked(true); setShowForgotPin(true); setForgotPinCameFromSettings(true); setForgotStep('send'); setForgotErr(''); setForgotMsg(''); setForgotOtp(''); setForgotNewPin(''); setForgotConfirmPin(''); }}
             onAddAccount={() => {
               setRecipient("SBI Bank Link");
               pushScreen('transfer');
@@ -1253,20 +1255,37 @@ function App() {
                       disabled={forgotBusy}
                       style={{ ...appGateStyles.primaryBtn, marginTop: 16 }}
                       onClick={async () => {
-                        setForgotBusy(true); setForgotErr('');
-                        const r = await api.forgotPin(currentUser).catch(() => ({ ok: false }));
-                        setForgotBusy(false);
-                        if (r.ok) { setForgotMsg(r.data?.message || 'OTP sent!'); setForgotStep('otp'); }
-                        else setForgotErr(r.data?.detail || 'Failed to send OTP. Check server.');
-                      }}
+                         setForgotBusy(true); setForgotErr('');
+                         const r = await api.forgotPin(currentUser).catch(() => ({ ok: false }));
+                         setForgotBusy(false);
+                         if (r.ok) {
+                           setForgotMsg(r.data?.message || 'OTP sent!');
+                           setForgotOtpDemo(r.data?.otp_demo || '');
+                           setForgotStep('otp');
+                         }
+                         else setForgotErr(r.data?.detail || 'Failed to send OTP. Check server.');
+                       }}
                     >{forgotBusy ? 'Sending…' : 'Send OTP'}</button>
-                    <button style={appGateStyles.cancelBtn} onClick={() => setShowForgotPin(false)}>← Back to PIN</button>
+                    <button style={appGateStyles.cancelBtn} onClick={() => {
+                       if (forgotPinCameFromSettings) {
+                         setAppLocked(false);
+                         setShowForgotPin(false);
+                         setForgotPinCameFromSettings(false);
+                       } else {
+                         setShowForgotPin(false);
+                       }
+                     }}>← Back to PIN</button>
                   </>
                 )}
 
                 {forgotStep === 'otp' && (
                   <>
-                    <p style={appGateStyles.subtitle}>Enter the 6-digit OTP sent to your mobile. (Check server logs for demo.)</p>
+                    <p style={appGateStyles.subtitle}>Enter the 6-digit OTP sent to your mobile.</p>
+                     {forgotOtpDemo ? (
+                       <p style={{ color: '#22e67b', fontSize: 12, margin: '4px 0 12px 0', textAlign: 'center', fontWeight: 'bold' }}>Demo OTP: {forgotOtpDemo} (real app: SMS only)</p>
+                     ) : (
+                       <p style={appGateStyles.subtitle}>(Check server logs for demo.)</p>
+                     )}
                     <input
                       type="text" maxLength={6} value={forgotOtp}
                       onChange={e => setForgotOtp(e.target.value.replace(/\D/g,'').slice(0,6))}
@@ -1324,6 +1343,7 @@ function App() {
                                         setForgotMsg('PIN reset! You can now login.');
                                         setShowForgotPin(false);
                                         setAppLocked(false);
+                                        setForgotPinCameFromSettings(false);
                                       } else {
                                         setForgotErr(r.data?.detail || 'Reset failed.');
                                         setForgotStep('newpin'); setForgotNewPin(''); setForgotConfirmPin('');

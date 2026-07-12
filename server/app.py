@@ -651,6 +651,14 @@ def pay(req: PayReq):
     con = db()
 
     # ---- 2nd factor: verify UPI PIN (device is the 1st factor) ----
+    if not req.pin or req.pin.strip() == "":
+        con.close()
+        raise HTTPException(401, "invalid UPI PIN")
+
+    if req.sender_vpa == req.receiver_vpa:
+        con.close()
+        raise HTTPException(400, "cannot pay your own account")
+
     srow = con.execute("SELECT upi_pin_hash FROM accounts WHERE vpa=?", (req.sender_vpa,)).fetchone()
     if not srow:
         con.close(); raise HTTPException(404, "sender not found")

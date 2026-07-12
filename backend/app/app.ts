@@ -6,6 +6,8 @@ import {
 } from './repositories';
 import { FraudService } from './services/fraudService';
 import { IpReputationService } from './services/ipReputationService';
+import { query } from './db';
+
 
 const app = express();
 app.use(express.json());
@@ -136,4 +138,16 @@ app.get('/api/users/:id/transactions', async (req: Request, res: Response): Prom
   }
 });
 
+// 4. GET /health
+app.get('/health', async (req: Request, res: Response): Promise<void> => {
+  try {
+    await query('SELECT 1');
+    res.status(200).json({ status: 'ok', database: 'connected' });
+  } catch (error: any) {
+    console.error('Health check failed:', error);
+    res.status(500).json({ status: 'error', error: 'Database connection failed' });
+  }
+});
+
 export default app;
+

@@ -95,4 +95,68 @@ export class TransactionRepository {
     const res = await query(sql, [deviceId]);
     return parseInt(res.rows[0].count);
   }
+
+  // Count recent incoming transactions to this account below a threshold amount (unsolicited micro-credits)
+  static async countRecentIncomingMicroCredits(accountId: string, minutes: number, maxAmount: number = 100): Promise<number> {
+    const sql = `
+      SELECT COUNT(*) as count
+      FROM transactions
+      WHERE receiver_account_id = $1
+        AND status = 'success'
+        AND amount < $2
+        AND created_at >= NOW() - ($3 * INTERVAL '1 minute');
+    `;
+    const res = await query(sql, [accountId, maxAmount, minutes]);
+    return parseInt(res.rows[0].count);
+  }
+
+  // Check if sender has previously sent money to this receiver successfully
+  static async hasPaidBefore(senderAccountId: string, receiverAccountId: string): Promise<boolean> {
+    const sql = `
+      SELECT COUNT(*) as count
+      FROM transactions
+      WHERE sender_account_id = $1
+        AND receiver_account_id = $2
+        AND status = 'success';
+    `;
+    const res = await query(sql, [senderAccountId, receiverAccountId]);
+    return parseInt(res.rows[0].count) > 0;
+  }
+
+  // Traces similar amounts backwards in time to find rapid multi-hop transfers (money forwarding / mule ring)
+  static async detectMuleChain(senderAccountId: string, amount: number): Promise<string[]> {
+    const windowMinutes = 10;
+    const tolerance = 0.25;
+    const path = [senderAccountId];
+    let currentAccount = senderAccountId;
+    
+    for (let hop = 0; hop < 3; hop++) {
+      const sql = `
+        SELECT sender_account_id, amount, created_at
+        FROM transactions
+        WHERE receiver_account_id = $1
+          AND status = 'success'
+          AND amount BETWEEN $2 AND $3
+          AND created_at >= NOW() - ($4 * INTERVAL '1 minute')
+        ORDER BY created_at DESC
+        LIMIT 1;
+      `;
+      const minAmount = amount * (1 - tolerance);
+      const maxAmount = amount * (1 + tolerance);
+      const res = await query(sql, [currentAccount, minAmount, maxAmount, windowMinutes * (hop + 1)]);
+      if (res.rows.length === 0) {
+        break;
+      }
+      const row = res.rows[0];
+      const nextSender = row.sender_account_id;
+      if (path.includes(nextSender)) {
+        // Prevent cycle infinite loop
+        break;
+      }
+      path.unshift(nextSender);
+      currentAccount = nextSender;
+    }
+    return path.length >= 3 ? path : [];
+  }
 }
+

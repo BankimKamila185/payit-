@@ -1,0 +1,67 @@
+INFO:     Started server process [62192]
+INFO:     Waiting for application startup.
+ERROR:    Traceback (most recent call last):
+  File "/Users/bankimkamila/Payit/.venv/lib/python3.14/site-packages/starlette/routing.py", line 638, in lifespan
+    async with self.lifespan_context(app) as maybe_state:
+               ~~~~~~~~~~~~~~~~~~~~~^^^^^
+  File "/Users/bankimkamila/Payit/.venv/lib/python3.14/site-packages/fastapi/routing.py", line 257, in __aenter__
+    await self._router._startup()
+  File "/Users/bankimkamila/Payit/.venv/lib/python3.14/site-packages/fastapi/routing.py", line 6326, in _startup
+    handler()
+    ~~~~~~~^^
+  File "/Users/bankimkamila/Payit/server/app.py", line 58, in _startup
+    engine = FraudEngine()
+  File "/Users/bankimkamila/Payit/ml/score.py", line 67, in __init__
+    self.explainer = Explainer()          # loads XGBoost + SHAP
+                     ~~~~~~~~~^^
+  File "/Users/bankimkamila/Payit/ml/explain.py", line 63, in __init__
+    self.pipe = joblib.load(model_path)
+                ~~~~~~~~~~~^^^^^^^^^^^^
+  File "/Users/bankimkamila/Payit/.venv/lib/python3.14/site-packages/joblib/numpy_pickle.py", line 749, in load
+    obj = _unpickle(
+        fobj,
+    ...<2 lines>...
+        mmap_mode=validated_mmap_mode,
+    )
+  File "/Users/bankimkamila/Payit/.venv/lib/python3.14/site-packages/joblib/numpy_pickle.py", line 626, in _unpickle
+    obj = unpickler.load()
+  File "/opt/homebrew/Cellar/python@3.14/3.14.0/Frameworks/Python.framework/Versions/3.14/lib/python3.14/pickle.py", line 1326, in load
+    dispatch[key[0]](self)
+    ~~~~~~~~~~~~~~~~^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.0/Frameworks/Python.framework/Versions/3.14/lib/python3.14/pickle.py", line 1651, in load_stack_global
+    self.append(self.find_class(module, name))
+                ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.0/Frameworks/Python.framework/Versions/3.14/lib/python3.14/pickle.py", line 1692, in find_class
+    __import__(module, level=0)
+    ~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/Users/bankimkamila/Payit/.venv/lib/python3.14/site-packages/xgboost/__init__.py", line 6, in <module>
+    from . import (
+    ...<3 lines>...
+    )
+  File "/Users/bankimkamila/Payit/.venv/lib/python3.14/site-packages/xgboost/collective.py", line 14, in <module>
+    from .core import _LIB, _check_call, build_info, c_str, make_jcargs, py_str
+  File "/Users/bankimkamila/Payit/.venv/lib/python3.14/site-packages/xgboost/core.py", line 39, in <module>
+    from ._c_api import (
+    ...<6 lines>...
+    )
+  File "/Users/bankimkamila/Payit/.venv/lib/python3.14/site-packages/xgboost/_c_api.py", line 184, in <module>
+    _LIB = _load_lib()
+  File "/Users/bankimkamila/Payit/.venv/lib/python3.14/site-packages/xgboost/_c_api.py", line 148, in _load_lib
+            raise XGBoostError(f"""
+    ...<11 lines>...
+    """)
+xgboost._c_api.XGBoostError: 
+XGBoost Library (libxgboost.dylib) could not be loaded.
+Likely causes:
+  * OpenMP runtime is not installed
+    - vcomp140.dll or libgomp-1.dll for Windows
+    - libomp.dylib for Mac OSX
+    - libgomp.so for Linux and other UNIX-like OSes
+    Mac OSX users: Run `brew install libomp` to install OpenMP runtime.
+
+  * You are running 32-bit Python on a 64-bit OS
+
+Error message(s): ["dlopen(/Users/bankimkamila/Payit/.venv/lib/python3.14/site-packages/xgboost/lib/libxgboost.dylib, 0x0006): Library not loaded: @rpath/libomp.dylib\n  Referenced from: <4E82201A-ED82-3451-AD25-7886C77941A1> /Users/bankimkamila/Payit/.venv/lib/python3.14/site-packages/xgboost/lib/libxgboost.dylib\n  Reason: tried: '/opt/homebrew/opt/libomp/lib/libomp.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/opt/homebrew/opt/libomp/lib/libomp.dylib' (no such file), '/opt/homebrew/opt/libomp/lib/libomp.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/opt/homebrew/opt/libomp/lib/libomp.dylib' (no such file), '/opt/homebrew/lib/libomp.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/opt/homebrew/lib/libomp.dylib' (no such file), '/opt/homebrew/lib/libomp.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/opt/homebrew/lib/libomp.dylib' (no such file)"]
+
+
+ERROR:    Application startup failed. Exiting.

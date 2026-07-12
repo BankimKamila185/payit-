@@ -1259,8 +1259,10 @@ def analyzer_counts():
 
 
 @app.get("/health")
+@app.head("/health")
 def health():
     return {"status": "ok", "db": str(DB_PATH.name)}
+
 
 
 # --- mount the standalone control-room dashboard (separate from the app UI) ---

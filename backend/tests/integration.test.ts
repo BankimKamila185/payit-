@@ -152,7 +152,43 @@ describe('Integration Tests (Database-Connected)', () => {
       const updatedSender = await AccountRepository.findById(senderAccount.id);
       expect(updatedSender?.balance).toBe(15000.00);
     });
+
+    it('should auto-reject transactions if the receiver is blacklisted', async () => {
+      // First, remove sender from blacklist to isolate this test
+      await BlacklistRepository.remove('user', senderUser.id);
+
+      // Add receiver to blacklist
+      await BlacklistRepository.create({
+        entity_type: 'user',
+        entity_value: receiverUser.id,
+        reason: 'Testing receiver blacklist auto-reject',
+      });
+
+      const payload = {
+        sender_account_id: senderAccount.id,
+        receiver_account_id: receiverAccount.id,
+        amount: 100,
+        ip_address: '127.0.0.1',
+      };
+
+      const res = await request(app)
+        .post('/api/transactions')
+        .send(payload);
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe('Transaction rejected due to security policy');
+      expect(res.body.fraudVerdict.verdict).toBe('rejected');
+      expect(res.body.fraudVerdict.score).toBe(100);
+
+      // Verify balance did not change
+      const updatedSender = await AccountRepository.findById(senderAccount.id);
+      expect(updatedSender?.balance).toBe(15000.00);
+
+      // Clean up receiver blacklist
+      await BlacklistRepository.remove('user', receiverUser.id);
+    });
   });
+
 
   describe('GET /api/alerts', () => {
     it('should list open alerts', async () => {
@@ -174,4 +210,14 @@ describe('Integration Tests (Database-Connected)', () => {
       expect(res.body.length).toBeGreaterThanOrEqual(2); // 1 success, 1 rejected, 1 failed (insufficient balance)
     });
   });
+
+  describe('GET /health', () => {
+    it('should return 200 ok and database status', async () => {
+      const res = await request(app).get('/health');
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe('ok');
+      expect(res.body.database).toBe('connected');
+    });
+  });
 });
+

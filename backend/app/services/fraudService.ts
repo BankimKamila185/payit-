@@ -27,6 +27,12 @@ const PATTERN_DEFAULTS: Record<string, { id: number; score: number }> = {
   high_balance_drawdown:    { id: 6, score: 35 },
   dormant_account_spike:    { id: 7, score: 40 },
   new_receiver_account:     { id: 8, score: 30 },
+  device_rooted:            { id: 9, score: 55 },
+  screen_sharing_active:    { id: 10, score: 50 },
+  sim_carrier_mismatch:     { id: 11, score: 60 },
+  recent_micro_credit_spike:{ id: 12, score: 45 },
+  beneficiary_drain_pattern:{ id: 13, score: 65 },
+  mule_ring_chain:          { id: 14, score: 60 },
 };
 
 export class FraudService {
@@ -42,6 +48,7 @@ export class FraudService {
     const receiverAccount = receiver_account_id
       ? await AccountRepository.findById(receiver_account_id)
       : null;
+    const receiverUserId = receiverAccount?.user_id;
 
     // ── Load DB fraud patterns ────────────────────────────────────────────────
     const patterns = await FraudPatternRepository.listAll();
@@ -53,13 +60,14 @@ export class FraudService {
       patternMap.get(name) ?? PATTERN_DEFAULTS[name] ?? { id: 99, score: 30 };
 
     // ── 2. BLACKLIST — auto-reject ─────────────────────────────────────────────
-    const [isUserBlacklisted, isDeviceBlacklisted, isIpBlacklisted] = await Promise.all([
+    const [isUserBlacklisted, isDeviceBlacklisted, isIpBlacklisted, isReceiverBlacklisted] = await Promise.all([
       BlacklistRepository.checkExists('user', senderUserId),
       device_id ? BlacklistRepository.checkExists('device', device_id) : Promise.resolve(false),
       BlacklistRepository.checkExists('ip', ip_address),
+      receiverUserId ? BlacklistRepository.checkExists('user', receiverUserId) : Promise.resolve(false),
     ]);
 
-    if (isUserBlacklisted || isDeviceBlacklisted || isIpBlacklisted) {
+    if (isUserBlacklisted || isDeviceBlacklisted || isIpBlacklisted || isReceiverBlacklisted) {
       const blacklistPattern = getPattern('blacklisted_ip_match');
       await Promise.all([
         FraudScoreRepository.create({ transaction_id: txId, cumulative_score: 100 }),
@@ -71,6 +79,7 @@ export class FraudService {
             isUserBlacklisted && 'User in blacklist',
             isDeviceBlacklisted && 'Device in blacklist',
             isIpBlacklisted && 'IP in blacklist',
+            isReceiverBlacklisted && 'Receiver in blacklist',
           ].filter(Boolean).join(', ')}`,
         }),
         AlertRepository.create({ transaction_id: txId, status: 'open', severity: 'critical' }),
@@ -82,6 +91,7 @@ export class FraudService {
       ]);
       return { verdict: 'rejected', score: 100, matches: ['blacklisted_ip_match'] };
     }
+
 
     // ── 3. FRAUD RULES — accumulate score ─────────────────────────────────────
     let cumulativeScore = 0;
@@ -147,6 +157,41 @@ export class FraudService {
       }
     }
 
+    // ── Rule H: Device Rooted / Compromised ──────────────────────────────────
+    if (transaction.rooted === 1) {
+      addMatch('device_rooted', 'Rooted device / emulator detected. Potential security bypass.');
+    }
+
+    // ── Rule I: Screen Sharing Active ────────────────────────────────────────
+    if (transaction.screen_share === 1) {
+      addMatch('screen_sharing_active', 'Active screen sharing/remote access application detected (e.g. AnyDesk).');
+    }
+
+    // ── Rule J: SIM Carrier Mismatch ─────────────────────────────────────────
+    if (transaction.sim_mismatch === 1) {
+      addMatch('sim_carrier_mismatch', 'SIM reported carrier details mismatch. Possible SIM swap or clone.');
+    }
+
+    // ── Rule K: Jumped Deposit (Recent Micro-credit followed by large transfer)
+    const microCreditCount = await TransactionRepository.countRecentIncomingMicroCredits(sender_account_id, 15);
+    if (microCreditCount > 0 && amount > 1000) {
+      addMatch('recent_micro_credit_spike', `Transaction preceded by ${microCreditCount} unsolicited micro-credits (₹<100) on sender account.`);
+    }
+
+    // ── Rule L: Beneficiary Drain (SIM Swap ATO) ─────────────────────────────
+    if (receiver_account_id) {
+      const hasPaid = await TransactionRepository.hasPaidBefore(sender_account_id, receiver_account_id);
+      if (!hasPaid && amount > 20000) {
+        addMatch('beneficiary_drain_pattern', `First-time transfer to a new payee with high value amount (₹${amount.toLocaleString()}).`);
+      }
+    }
+
+    // ── Rule M: Mule Ring Graph Anomaly (Money Forwarding) ───────────────────
+    const muleChain = await TransactionRepository.detectMuleChain(sender_account_id, amount);
+    if (muleChain.length >= 3) {
+      addMatch('mule_ring_chain', `MULE RING DETECTED: Money forwarded rapidly through chain: ${muleChain.join(' -> ')}`);
+    }
+
     // ── Rule G: Python ML Engine /score Integration ──────────────────────────
     // Contact Python ML server to get the ensemble score and SHAP reason codes
     try {
@@ -178,7 +223,13 @@ export class FraudService {
             for (const reason of mlVerdict.reasons) {
               const lowerReason = reason.toLowerCase();
               let patternName = 'velocity_check'; // default fallback mapping
-              if (lowerReason.includes('device')) patternName = 'new_device_high_amount';
+              if (lowerReason.includes('rooted')) patternName = 'device_rooted';
+              else if (lowerReason.includes('screen') || lowerReason.includes('share')) patternName = 'screen_sharing_active';
+              else if (lowerReason.includes('sim') || lowerReason.includes('carrier')) patternName = 'sim_carrier_mismatch';
+              else if (lowerReason.includes('micro') || lowerReason.includes('deposit')) patternName = 'recent_micro_credit_spike';
+              else if (lowerReason.includes('drain')) patternName = 'beneficiary_drain_pattern';
+              else if (lowerReason.includes('ring') || lowerReason.includes('forward')) patternName = 'mule_ring_chain';
+              else if (lowerReason.includes('device')) patternName = 'new_device_high_amount';
               else if (lowerReason.includes('blacklist') || lowerReason.includes('mule')) patternName = 'blacklisted_ip_match';
               else if (lowerReason.includes('travel') || lowerReason.includes('geo')) patternName = 'impossible_travel';
               else if (lowerReason.includes('drawdown') || lowerReason.includes('balance')) patternName = 'high_balance_drawdown';
@@ -201,6 +252,7 @@ export class FraudService {
     } catch (err) {
       console.warn('[FraudService] Failed to contact Python ML Engine, falling back to local scoring:', err);
     }
+
 
     // ── 4. WRITE SCORES + MATCHES to DB ───────────────────────────────────────
     if (cumulativeScore > 0) {

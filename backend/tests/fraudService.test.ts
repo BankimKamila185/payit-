@@ -59,6 +59,9 @@ describe('FraudService', () => {
     (BlacklistRepository.checkExists as any).mockResolvedValue(false);
     (TransactionRepository.countRecentTransactionsByUser as any).mockResolvedValue(0);
     (TransactionRepository.countSuccessfulTransactionsByDevice as any).mockResolvedValue(2);
+    (TransactionRepository.countRecentIncomingMicroCredits as any).mockResolvedValue(0);
+    (TransactionRepository.hasPaidBefore as any).mockResolvedValue(true);
+    (TransactionRepository.detectMuleChain as any).mockResolvedValue([]);
     (IpReputationRepository.findByIpAddress as any).mockResolvedValue(null);
     (FraudPatternRepository.listAll as any).mockResolvedValue([
       { id: 1, pattern_name: 'velocity_check',         base_score: 40 },
@@ -69,11 +72,18 @@ describe('FraudService', () => {
       { id: 6, pattern_name: 'high_balance_drawdown',   base_score: 35 },
       { id: 7, pattern_name: 'dormant_account_spike',   base_score: 40 },
       { id: 8, pattern_name: 'new_receiver_account',    base_score: 30 },
+      { id: 9, pattern_name: 'device_rooted',           base_score: 55 },
+      { id: 10, pattern_name: 'screen_sharing_active',   base_score: 50 },
+      { id: 11, pattern_name: 'sim_carrier_mismatch',    base_score: 60 },
+      { id: 12, pattern_name: 'recent_micro_credit_spike', base_score: 45 },
+      { id: 13, pattern_name: 'beneficiary_drain_pattern', base_score: 65 },
+      { id: 14, pattern_name: 'mule_ring_chain',          base_score: 60 },
     ]);
     (TransactionFraudMatchRepository.create as any).mockResolvedValue({});
     (FraudScoreRepository.create as any).mockResolvedValue({});
     (AlertRepository.create as any).mockResolvedValue({});
     (AuditLogRepository.create as any).mockResolvedValue({});
+
 
     // Mock global fetch to isolate tests from real ML server calls
     (global as any).fetch = jest.fn().mockImplementation(() =>
@@ -332,4 +342,74 @@ describe('FraudService', () => {
       expect(result.matches).toContain('velocity_check');
     });
   });
+
+  // ─── Receiver Blacklist ─────────────────────────────────────────────────────
+  describe('Receiver Blacklist Check', () => {
+    it('should auto-reject when the receiver user is blacklisted', async () => {
+      (BlacklistRepository.checkExists as any).mockImplementation((type: string, value: string) => {
+        if (type === 'user' && value === 'user-uuid-2') return Promise.resolve(true); // receiver
+        return Promise.resolve(false);
+      });
+
+      const result = await FraudService.evaluate(mockTransaction);
+
+      expect(result.verdict).toBe('rejected');
+      expect(result.score).toBe(100);
+      expect(result.matches).toContain('blacklisted_ip_match');
+    });
+  });
+
+  // ─── Smart Rules (Rooted, Screen share, SIM carrier mismatch) ────────────────
+  describe('Smart Device Integrity Rules', () => {
+    it('should flag when device is rooted', async () => {
+      const tx = { ...mockTransaction, rooted: 1 };
+      const result = await FraudService.evaluate(tx);
+      expect(result.matches).toContain('device_rooted');
+      expect(result.score).toBe(55);
+    });
+
+    it('should flag when screen share is active', async () => {
+      const tx = { ...mockTransaction, screen_share: 1 };
+      const result = await FraudService.evaluate(tx);
+      expect(result.matches).toContain('screen_sharing_active');
+      expect(result.score).toBe(50);
+    });
+
+    it('should flag when SIM carrier mismatch is active', async () => {
+      const tx = { ...mockTransaction, sim_mismatch: 1 };
+      const result = await FraudService.evaluate(tx);
+      expect(result.matches).toContain('sim_carrier_mismatch');
+      expect(result.score).toBe(60);
+    });
+  });
+
+  // ─── Advanced Algorithms (Jumped Deposit, Beneficiary Drain, Mule Ring) ─────
+  describe('Advanced Transaction Logic and Anomaly Algorithms', () => {
+    it('should flag Jumped Deposit (recent micro-credits followed by larger transfer)', async () => {
+      (TransactionRepository.countRecentIncomingMicroCredits as any).mockResolvedValue(1);
+      const tx = { ...mockTransaction, amount: 2000 };
+      
+      const result = await FraudService.evaluate(tx);
+      expect(result.matches).toContain('recent_micro_credit_spike');
+      expect(result.score).toBe(45);
+    });
+
+    it('should flag Beneficiary Drain pattern for first-time high-value payee transfer', async () => {
+      (TransactionRepository.hasPaidBefore as any).mockResolvedValue(false); // first-time payee
+      const tx = { ...mockTransaction, amount: 25000 };
+
+      const result = await FraudService.evaluate(tx);
+      expect(result.matches).toContain('beneficiary_drain_pattern');
+      expect(result.score).toBe(65);
+    });
+
+    it('should flag Mule Ring Graph Anomaly (rapid forwarding chain)', async () => {
+      (TransactionRepository.detectMuleChain as any).mockResolvedValue(['acc-1', 'acc-2', 'sender-acc-uuid']);
+      
+      const result = await FraudService.evaluate(mockTransaction);
+      expect(result.matches).toContain('mule_ring_chain');
+      expect(result.score).toBe(60);
+    });
+  });
 });
+

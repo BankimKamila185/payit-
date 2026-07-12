@@ -10,10 +10,12 @@ const Activity = ({ onTransactionSelect, onReportFraud, liveTxns, me }) => {
     id: t.id,
     type: t.sender === me ? 'payment' : 'deposit',
     recipient: (t.sender === me ? t.receiver : t.sender) || 'Unknown',
+    recipientVpa: (t.sender === me ? t.receiver : t.sender) || '',
     amount: Math.round(t.amount),
     date: (t.created_at || '').slice(0, 10),
     status: t.label === 'BLOCK' ? 'blocked' : (t.status || 'success'),
     upiRef: '-', transId: String(t.id), label: t.label, score: t.score,
+    reasons: t.reasons || [],
   }));
 
   const fallback = [

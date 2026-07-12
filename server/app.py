@@ -918,14 +918,25 @@ def history(vpa: str):
     acc = con.execute("SELECT id FROM accounts WHERE vpa=?", (vpa,)).fetchone()
     if not acc:
         con.close(); raise HTTPException(404, "account not found")
-    rows = con.execute("""SELECT t.id, t.amount, t.type, t.status, t.label, t.score, t.created_at,
+    rows = con.execute("""SELECT t.id, t.amount, t.type, t.status, t.label, t.score, t.reasons, t.created_at,
         sa.vpa sender, ra.vpa receiver FROM transactions t
         JOIN accounts sa ON sa.id=t.sender_account_id
         JOIN accounts ra ON ra.id=t.receiver_account_id
         WHERE t.sender_account_id=? OR t.receiver_account_id=?
         ORDER BY t.id DESC LIMIT 25""", (acc["id"], acc["id"])).fetchall()
     con.close()
-    return [dict(r) for r in rows]
+    res = []
+    for r in rows:
+        d = dict(r)
+        if d.get("reasons"):
+            try:
+                d["reasons"] = json.loads(d["reasons"])
+            except Exception:
+                d["reasons"] = []
+        else:
+            d["reasons"] = []
+        res.append(d)
+    return res
 
 
 class ReportReq(BaseModel):

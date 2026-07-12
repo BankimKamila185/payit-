@@ -168,7 +168,7 @@ export class FraudService {
         }),
       });
 
-      if (response.ok) {
+      if (response && response.ok) {
         const mlVerdict: any = await response.json();
         // Blend ML score with local rules
         if (mlVerdict && typeof mlVerdict.score === 'number') {

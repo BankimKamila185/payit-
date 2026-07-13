@@ -7,7 +7,7 @@
     "build": "tsc",
     "start": "node dist/app/server.js",
     "dev": "nodemon --watch 'app/**/*.ts' --exec 'ts-node' app/server.ts",
-    "test": "jest",
+    "test": "ts-node app/ensureTestDb.ts && NODE_ENV=test ts-node app/dbInit.ts --reset && NODE_ENV=test jest",
     "db:init": "ts-node app/dbInit.ts",
     "db:reset": "ts-node app/dbInit.ts --reset"
   },

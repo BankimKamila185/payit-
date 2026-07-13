@@ -33,6 +33,8 @@ from ml.score import FraudEngine
 ROOT = Path(__file__).resolve().parent.parent
 DB_PATH = ROOT / "db" / "payit.db"
 
+app = FastAPI(title="Payit Backend", version="1.0")
+
 import os
 ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:5174").split(",")
 app.add_middleware(CORSMiddleware,
@@ -60,6 +62,21 @@ def now_iso():
 def _startup():
     global engine
     engine = FraudEngine()
+    
+    # Auto-initialize SQLite DB if missing or empty
+    if not DB_PATH.exists() or DB_PATH.stat().st_size == 0:
+        print(f"Database at {DB_PATH} is missing or empty. Auto-building it...")
+        # Add project root to sys.path if not present, so we can import from db
+        import sys
+        if str(ROOT) not in sys.path:
+            sys.path.append(str(ROOT))
+        from db.build_db import build
+        try:
+            build()
+            print("Database built and seeded successfully.")
+        except Exception as e:
+            print(f"Error auto-building database: {e}")
+            
     print(f"Payit backend up. DB: {DB_PATH}")
 
 

@@ -36,11 +36,11 @@ DB_PATH = ROOT / "db" / "payit.db"
 app = FastAPI(title="Payit Backend", version="1.0")
 
 import os
-ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:5174").split(",")
+ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:5174,https://payit-mu.vercel.app").split(",")
 app.add_middleware(CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
-    allow_methods=["GET", "POST"],
-    allow_headers=["Content-Type", "Authorization"])
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["*"])
 
 engine: FraudEngine | None = None
 _pin_fails: dict[str, dict] = {}  # vpa -> {"attempts": count, "lockout_until": float}

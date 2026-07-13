@@ -16,8 +16,13 @@ const CheckBalance = ({ onBack, upiId = "you@payit", realBalance = 0 }) => {
   };
 
   const handleKeyPress = (val) => {
-    if (pin.length < 4) {
-      setPin(prev => prev + val);
+    if (pin.length < 6) {
+      const nextPin = pin + val;
+      setPin(nextPin);
+      if (nextPin.length === 6) {
+        // Automatically check balance once 6 digits are entered
+        setTimeout(() => handleCheckBalance(nextPin), 150);
+      }
     }
   };
 
@@ -25,13 +30,13 @@ const CheckBalance = ({ onBack, upiId = "you@payit", realBalance = 0 }) => {
     setPin(prev => prev.slice(0, -1));
   };
 
-  const handleCheckBalance = async () => {
-    if (pin.length < 4) return;
+  const handleCheckBalance = async (enteredPin = pin) => {
+    if (enteredPin.length < 6) return;
     setLoading(true);
     setErr('');
     try {
       // Verify UPI PIN against backend first (real 2nd-factor check)
-      const loginRes = await api.login(upiId, pin);
+      const loginRes = await api.verifyUpiPin(upiId, enteredPin);
       if (!loginRes.ok) {
         setLoading(false);
         setErr('Incorrect UPI PIN. Please try again.');
@@ -72,9 +77,9 @@ const CheckBalance = ({ onBack, upiId = "you@payit", realBalance = 0 }) => {
           </div>
         ) : (
           <div style={styles.pinWrapper}>
-            <span style={styles.pinPromptText}>Enter 4-digit UPI PIN</span>
+            <span style={styles.pinPromptText}>Enter 6-digit UPI PIN</span>
             <div style={styles.dotsRow}>
-              {[0, 1, 2, 3].map((idx) => (
+              {[0, 1, 2, 3, 4, 5].map((idx) => (
                 <div 
                   key={idx} 
                   style={{

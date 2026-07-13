@@ -20,7 +20,7 @@ def call(path, body):
         return e.code, json.loads(e.read())
 
 
-def pay(s, r, amt, pin="1234", dev="x", ch="MANUAL", ty="PAY"):
+def pay(s, r, amt, pin="123456", dev="x", ch="MANUAL", ty="PAY"):
     return call("/pay", {"sender_vpa": s, "receiver_vpa": r, "amount": amt,
                          "pin": pin, "device_id": dev, "channel": ch, "type": ty})
 

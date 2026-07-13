@@ -22,9 +22,11 @@ export default function OnboardingFlow({ onLogin, deviceId }) {
   const [banks, setBanks] = useState([]);
   
   // PIN flows
-  const [pin, setPin] = useState(''); // for setup & login
-  const [confirmPin, setConfirmPin] = useState('');
-  const [pinMode, setPinMode] = useState('create'); // 'create' | 'confirm'
+  const [pin, setPin] = useState(''); // for login screen
+  const [appPin, setAppPin] = useState(''); // for setup
+  const [confirmAppPin, setConfirmAppPin] = useState('');
+  const [upiPin, setUpiPin] = useState('');
+  const [confirmUpiPin, setConfirmUpiPin] = useState('');
 
   // Network/Error states
   const [busy, setBusy] = useState(false);
@@ -184,22 +186,51 @@ export default function OnboardingFlow({ onLogin, deviceId }) {
           handlePinLogin(nextPin);
         }
       }
-    } else if (step === 'pin_create') {
-      if (pin.length < 4) {
-        const nextPin = pin + val;
-        setPin(nextPin);
+    } else if (step === 'app_pin_create') {
+      if (appPin.length < 4) {
+        const nextPin = appPin + val;
+        setAppPin(nextPin);
         if (nextPin.length === 4) {
           setTimeout(() => {
-            setStep('pin_confirm');
-            setConfirmPin('');
+            setStep('app_pin_confirm');
+            setConfirmAppPin('');
           }, 300);
         }
       }
-    } else if (step === 'pin_confirm') {
-      if (confirmPin.length < 4) {
-        const nextPin = confirmPin + val;
-        setConfirmPin(nextPin);
+    } else if (step === 'app_pin_confirm') {
+      if (confirmAppPin.length < 4) {
+        const nextPin = confirmAppPin + val;
+        setConfirmAppPin(nextPin);
         if (nextPin.length === 4) {
+          if (appPin !== nextPin) {
+            setErr("PINs do not match. Try again.");
+            setStep('app_pin_create');
+            setAppPin('');
+            setConfirmAppPin('');
+          } else {
+            setTimeout(() => {
+              setStep('upi_pin_create');
+              setUpiPin('');
+            }, 300);
+          }
+        }
+      }
+    } else if (step === 'upi_pin_create') {
+      if (upiPin.length < 6) {
+        const nextPin = upiPin + val;
+        setUpiPin(nextPin);
+        if (nextPin.length === 6) {
+          setTimeout(() => {
+            setStep('upi_pin_confirm');
+            setConfirmUpiPin('');
+          }, 300);
+        }
+      }
+    } else if (step === 'upi_pin_confirm') {
+      if (confirmUpiPin.length < 6) {
+        const nextPin = confirmUpiPin + val;
+        setConfirmUpiPin(nextPin);
+        if (nextPin.length === 6) {
           handlePinRegister(nextPin);
         }
       }
@@ -210,10 +241,14 @@ export default function OnboardingFlow({ onLogin, deviceId }) {
     setErr('');
     if (step === 'pin_login') {
       setPin(prev => prev.slice(0, -1));
-    } else if (step === 'pin_create') {
-      setPin(prev => prev.slice(0, -1));
-    } else if (step === 'pin_confirm') {
-      setConfirmPin(prev => prev.slice(0, -1));
+    } else if (step === 'app_pin_create') {
+      setAppPin(prev => prev.slice(0, -1));
+    } else if (step === 'app_pin_confirm') {
+      setConfirmAppPin(prev => prev.slice(0, -1));
+    } else if (step === 'upi_pin_create') {
+      setUpiPin(prev => prev.slice(0, -1));
+    } else if (step === 'upi_pin_confirm') {
+      setConfirmUpiPin(prev => prev.slice(0, -1));
     }
   };
 
@@ -247,12 +282,12 @@ export default function OnboardingFlow({ onLogin, deviceId }) {
     }
   };
 
-  const handlePinRegister = async (enteredConfirmPin) => {
-    if (pin !== enteredConfirmPin) {
-      setErr('PINs do not match. Try again.');
-      setStep('pin_create');
-      setPin('');
-      setConfirmPin('');
+  const handlePinRegister = async (enteredConfirmUpiPin) => {
+    if (upiPin !== enteredConfirmUpiPin) {
+      setErr('UPI PINs do not match. Try again.');
+      setStep('upi_pin_create');
+      setUpiPin('');
+      setConfirmUpiPin('');
       return;
     }
     setBusy(true); setErr('');
@@ -262,13 +297,14 @@ export default function OnboardingFlow({ onLogin, deviceId }) {
         name: fullName.trim(),
         vpa: vpa.trim(),
         bank_id: selectedBank?.id || 1,
-        upi_pin: pin
+        upi_pin: upiPin,
+        login_pin: appPin
       };
       const res = await api.register(payload);
       setBusy(false);
       if (res.ok) {
-        // Auto-login after registration
-        const loginRes = await onLogin(payload.vpa, pin);
+        // Auto-login after registration (uses 4-digit App PIN)
+        const loginRes = await onLogin(payload.vpa, appPin);
         if (!loginRes.ok) {
           setErr(loginRes.error || 'Failed to login after registration');
           return;
@@ -636,7 +672,7 @@ export default function OnboardingFlow({ onLogin, deviceId }) {
           {err && <div style={S.errText}>{err}</div>}
 
           <div style={S.actionRowRight}>
-            <button style={{ ...S.nextCircleBtn, opacity: selectedBank ? 1 : 0.5 }} disabled={!selectedBank} onClick={() => setStep('pin_create')}>
+            <button style={{ ...S.nextCircleBtn, opacity: selectedBank ? 1 : 0.5 }} disabled={!selectedBank} onClick={() => setStep('app_pin_create')}>
               <ArrowRight size={22} color="#fff" />
             </button>
           </div>
@@ -644,26 +680,38 @@ export default function OnboardingFlow({ onLogin, deviceId }) {
       )}
 
       {/* -------------------- STEP 7 & 8: PIN Setup (Create / Confirm) -------------------- */}
-      {(step === 'pin_create' || step === 'pin_confirm') && (
+      {(step === 'app_pin_create' || step === 'app_pin_confirm' || step === 'upi_pin_create' || step === 'upi_pin_confirm') && (
         <div style={S.screenContainer}>
-          {renderBackBtn(step === 'pin_confirm' ? 'pin_create' : 'bank_select')}
+          {renderBackBtn(
+            step === 'app_pin_confirm' ? 'app_pin_create' :
+            step === 'upi_pin_create' ? 'app_pin_confirm' :
+            step === 'upi_pin_confirm' ? 'upi_pin_create' :
+            'bank_select'
+          )}
           
           <div style={S.headerSection}>
             <h2 style={S.screenTitle}>
-              {step === 'pin_create' ? 'Create UPI PIN' : 'Confirm UPI PIN'}
+              {step === 'app_pin_create' ? 'Create App PIN' :
+               step === 'app_pin_confirm' ? 'Confirm App PIN' :
+               step === 'upi_pin_create' ? 'Create UPI PIN' : 'Confirm UPI PIN'}
             </h2>
             <p style={S.screenSub}>
-              {step === 'pin_create' 
-                ? 'Create a secure 4-digit UPI PIN. Never share this PIN.' 
-                : 'Confirm your secure 4-digit UPI PIN by entering it again.'
-              }
+              {step === 'app_pin_create' ? 'Create a secure 4-digit App PIN to lock the application.' :
+               step === 'app_pin_confirm' ? 'Confirm your secure 4-digit App PIN by entering it again.' :
+               step === 'upi_pin_create' ? 'Create a secure 6-digit UPI transaction PIN. Never share it.' :
+               'Confirm your secure 6-digit UPI PIN by entering it again.'}
             </p>
           </div>
 
           {/* Dot indicators */}
           <div style={S.dotRow}>
-            {Array(4).fill(0).map((_, idx) => {
-              const enteredLen = step === 'pin_create' ? pin.length : confirmPin.length;
+            {Array(
+              (step === 'app_pin_create' || step === 'app_pin_confirm') ? 4 : 6
+            ).fill(0).map((_, idx) => {
+              const enteredLen = 
+                step === 'app_pin_create' ? appPin.length :
+                step === 'app_pin_confirm' ? confirmAppPin.length :
+                step === 'upi_pin_create' ? upiPin.length : confirmUpiPin.length;
               return (
                 <div 
                   key={idx} 

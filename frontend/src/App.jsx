@@ -920,9 +920,9 @@ triggerNotification("Identity verified. Account unlocked.", "info");
               <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 2 }}>
                 Paying ₹{pinModal.amount} to {recipient}
               </p>
-              <p style={{ color: 'var(--text-muted)', fontSize: 11, marginBottom: 16 }}>(demo PIN: 1234)</p>
+              <p style={{ color: 'var(--text-muted)', fontSize: 11, marginBottom: 16 }}>(demo PIN: 123456)</p>
               <div style={{ display: 'flex', justifyContent: 'center', gap: 12, marginBottom: 20 }}>
-                {[0,1,2,3].map(i => (
+                {[0,1,2,3,4,5].map(i => (
                   <div key={i} style={{ width: 14, height: 14, borderRadius: '50%',
                     background: i < pinInput.length ? 'var(--accent-neon)' : 'var(--border-color)' }} />
                 ))}
@@ -933,9 +933,9 @@ triggerNotification("Identity verified. Account unlocked.", "info");
                     onClick={() => {
                       if (k === '⌫') { setPinInput(p => p.slice(0, -1)); return; }
                       if (k === '') return;
-                      const next = (pinInput + k).slice(0, 4);
+                      const next = (pinInput + k).slice(0, 6);
                       setPinInput(next);
-                      if (next.length === 4) {
+                      if (next.length === 6) {
                         const pm = pinModal;
                         setTimeout(() => executePayment(pm.amount, pm.isInvest, next), 150);
                       }

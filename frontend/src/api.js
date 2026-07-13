@@ -60,9 +60,10 @@ export const api = {
   // Auth
   login:       (vpa, pin) => post("/auth/login", { vpa, pin, device_id: getDeviceId() }),
   phoneLookup: (phone) => post("/auth/phone-lookup", { phone }),
-  register:    ({ phone, name, vpa, bank_id, upi_pin }) =>
-    post("/auth/register", { phone, name, vpa, bank_id, upi_pin, device_id: getDeviceId() }),
+  register:    ({ phone, name, vpa, bank_id, upi_pin, login_pin }) =>
+    post("/auth/register", { phone, name, vpa, bank_id, upi_pin, login_pin, device_id: getDeviceId() }),
   setPin:      (vpa, upi_pin) => post('/auth/set-pin', { vpa, upi_pin }),
+  verifyUpiPin: (vpa, upi_pin) => post('/auth/verify-upi-pin', { vpa, upi_pin }),
   forgotPin:   (vpa) => post('/auth/forgot-pin', { vpa }),
   resetPin:    (vpa, otp, new_pin) => post('/auth/reset-pin', { vpa, otp, new_pin }),
 

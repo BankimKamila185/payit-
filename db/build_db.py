@@ -20,9 +20,11 @@ random.seed(42)
 HERE = Path(__file__).resolve().parent
 DB = HERE / "payit.db"
 
-# demo UPI PIN for ALL accounts = "1234" (stored hashed, never plaintext — like real)
-DEMO_PIN = "1234"
-PIN_HASH = hashlib.sha256(DEMO_PIN.encode()).hexdigest()
+# demo PINs for ALL accounts: login PIN = "1234" (4-digit), UPI PIN = "123456" (6-digit)
+DEMO_LOGIN_PIN = "1234"
+DEMO_UPI_PIN = "123456"
+LOGIN_PIN_HASH = hashlib.sha256(DEMO_LOGIN_PIN.encode()).hexdigest()
+UPI_PIN_HASH = hashlib.sha256(DEMO_UPI_PIN.encode()).hexdigest()
 
 # ---------------------------------------------------------------- Indian data
 MALE = ["Rahul", "Amit", "Vikram", "Arjun", "Rohan", "Karan", "Suresh", "Rajesh",
@@ -88,7 +90,7 @@ def build():
         is_merchant INTEGER, mcc INTEGER,
         avg_amount REAL, usual_hours TEXT,               -- "7-22"
         home_device TEXT, txn_count INTEGER, blacklisted INTEGER,
-        created_at TEXT, upi_pin_hash TEXT,              -- hashed UPI PIN (2FA)
+        created_at TEXT, upi_pin_hash TEXT, login_pin_hash TEXT, -- hashed PINs
         FOREIGN KEY(user_id) REFERENCES users(id),
         FOREIGN KEY(bank_id) REFERENCES banks(id)
     );
@@ -171,12 +173,12 @@ def build():
         avg = random.choice([500, 1000, 2000, 5000, 12000])
         sh = random.randint(6, 10); eh = random.randint(20, 23)
         accounts.append((acc_id, vpa(first, handle, user_id), 0, black))
-        c.execute("""INSERT INTO accounts VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
+        c.execute("""INSERT INTO accounts VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
             acc_id, user_id, bank_i, vpa(first, handle, user_id),
             f"XXXX{random.randint(1000,9999)}", round(random.uniform(2000, 250000), 2),
             age, random.choice(["BASIC", "VIDEO", "CORPORATE"]),
             0, 0, avg, f"{sh}-{eh}", f"dev_{user_id:04d}",
-            random.randint(0, 200), black, ts(age), PIN_HASH))
+            random.randint(0, 200), black, ts(age), UPI_PIN_HASH, LOGIN_PIN_HASH))
 
     # ------------------------------------------------------------ MERCHANTS
     for mname, mcc in MERCHANTS:
@@ -188,12 +190,12 @@ def build():
         acc_id += 1
         slug = mname.lower().replace(" ", "")[:12]
         accounts.append((acc_id, f"{slug}@{handle}", 1, 0))
-        c.execute("""INSERT INTO accounts VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
+        c.execute("""INSERT INTO accounts VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
             acc_id, user_id, bank_i, f"{slug}@{handle}",
             f"XXXX{random.randint(1000,9999)}", round(random.uniform(50000, 5000000), 2),
             random.randint(200, 2500), "CORPORATE", 1, mcc,
             random.choice([200, 500, 1500]), "0-23", f"mdev_{user_id:04d}",
-            random.randint(500, 5000), 0, ts(500), PIN_HASH))
+            random.randint(500, 5000), 0, ts(500), UPI_PIN_HASH, LOGIN_PIN_HASH))
 
     # ------------------------------------------------------------ FIXED DEMO ACCOUNTS
     # Known VPAs the frontend uses (so the demo is repeatable + relatable).
@@ -209,11 +211,11 @@ def build():
                   (user_id, name_, "7" + "".join(random.choice("0123456789") for _ in range(9)), None, ts(age_)))
         bank_i = random.randint(1, len(BANKS)); acc_id += 1
         accounts.append((acc_id, vpa_, ism, black_))
-        c.execute("INSERT INTO accounts VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (
+        c.execute("INSERT INTO accounts VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (
             acc_id, user_id, bank_i, vpa_, f"XXXX{random.randint(1000,9999)}", bal_,
             age_, "CORPORATE" if ism else "VIDEO", ism, mcc_, avg_,
             "6-23" if ism else "7-22", f"demodev_{acc_id}",
-            2000 if ism else 100, black_, ts(age_), PIN_HASH))
+            2000 if ism else 100, black_, ts(age_), UPI_PIN_HASH, LOGIN_PIN_HASH))
         if black_:
             c.execute("INSERT INTO blacklist (entity_type, entity_value, reason, created_at) VALUES (?,?,?,?)",
                       ("account", vpa_, "money mule", ts(2)))

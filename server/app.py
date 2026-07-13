@@ -212,6 +212,7 @@ class RegisterReq(BaseModel):
     vpa: str
     bank_id: int
     upi_pin: str
+    login_pin: str
     device_id: str = ""
 
 class SetPinReq(BaseModel):
@@ -230,6 +231,10 @@ class PayReq(BaseModel):
     screen_share: int = 0
     rooted: int = 0             # device rooted/Xposed/emulator (from app RASP)
     sim_mismatch: int = 0       # SIM number != carrier records
+
+class VerifyUpiPinReq(BaseModel):
+    vpa: str
+    upi_pin: str
 
 class OtpReq(BaseModel):
     pending_txn_id: int
@@ -283,10 +288,11 @@ def login(req: LoginReq):
     if not acc:
         con.close()
         raise HTTPException(404, "account not found")
-    if req.pin and acc["upi_pin_hash"] and \
-            hashlib.sha256(req.pin.encode()).hexdigest() != acc["upi_pin_hash"]:
+    stored_hash = acc["login_pin_hash"] if ("login_pin_hash" in acc.keys() and acc["login_pin_hash"]) else acc["upi_pin_hash"]
+    if req.pin and stored_hash and \
+            hashlib.sha256(req.pin.encode()).hexdigest() != stored_hash:
         con.close()
-        raise HTTPException(401, "invalid UPI PIN")
+        raise HTTPException(401, "invalid Login PIN")
     # device binding: register device as known if new
     if req.device_id:
         known = con.execute("SELECT COUNT(*) c FROM devices WHERE user_id=? AND device_fingerprint=?",
@@ -352,15 +358,21 @@ def register(req: RegisterReq):
         if exist_acc:
             raise HTTPException(400, "UPI ID / VPA already registered")
             
-        pin_hash = hashlib.sha256(req.upi_pin.encode()).hexdigest()
+        if len(req.login_pin) != 4 or not req.login_pin.isdigit():
+            raise HTTPException(400, "App Login PIN must be a 4-digit number")
+        if len(req.upi_pin) != 6 or not req.upi_pin.isdigit():
+            raise HTTPException(400, "UPI Transaction PIN must be a 6-digit number")
+            
+        upi_pin_hash = hashlib.sha256(req.upi_pin.encode()).hexdigest()
+        login_pin_hash = hashlib.sha256(req.login_pin.encode()).hexdigest()
         account_number = f"ACC{random.randint(10**10, 10**11)}"
         con.execute("""
             INSERT INTO accounts (
                 user_id, bank_id, vpa, account_number, balance, account_age_days,
                 kyc_level, is_merchant, mcc, avg_amount, usual_hours,
-                home_device, txn_count, blacklisted, created_at, upi_pin_hash
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-        """, (user_id, req.bank_id, req.vpa, account_number, 5000.0, 1, "BASIC", 0, 0, 1500.0, "7-22", req.device_id, 0, 0, now_iso(), pin_hash))
+                home_device, txn_count, blacklisted, created_at, upi_pin_hash, login_pin_hash
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """, (user_id, req.bank_id, req.vpa, account_number, 5000.0, 1, "BASIC", 0, 0, 1500.0, "7-22", req.device_id, 0, 0, now_iso(), upi_pin_hash, login_pin_hash))
         
         token = f"tok_{random.randint(10**9, 10**10)}"
         con.execute("INSERT INTO sessions (user_id, device_id, token, expires_at, created_at) VALUES (?,?,?,?,?)",
@@ -379,6 +391,21 @@ def register(req: RegisterReq):
         con.close()
 
 
+@app.post("/auth/verify-upi-pin")
+def verify_upi_pin(req: VerifyUpiPinReq):
+    con = db()
+    acc = con.execute("SELECT upi_pin_hash FROM accounts WHERE vpa=?", (req.vpa,)).fetchone()
+    con.close()
+    if not acc:
+        raise HTTPException(404, "account not found")
+    if not acc["upi_pin_hash"]:
+        raise HTTPException(400, "UPI PIN not set")
+    pin_hash = hashlib.sha256(req.upi_pin.encode()).hexdigest()
+    if pin_hash != acc["upi_pin_hash"]:
+        raise HTTPException(401, "invalid UPI PIN")
+    return {"status": "success", "message": "UPI PIN is correct"}
+
+
 @app.post("/auth/set-pin")
 def set_pin(req: SetPinReq):
     con = db()
@@ -386,6 +413,10 @@ def set_pin(req: SetPinReq):
     if not acc:
         con.close()
         raise HTTPException(404, "VPA not found")
+    
+    if len(req.upi_pin) != 6 or not req.upi_pin.isdigit():
+        con.close()
+        raise HTTPException(400, "UPI PIN must be a 6-digit number")
     
     pin_hash = hashlib.sha256(req.upi_pin.encode()).hexdigest()
     con.execute("UPDATE accounts SET upi_pin_hash=? WHERE vpa=?", (pin_hash, req.vpa))
@@ -452,6 +483,9 @@ def reset_pin(req: ResetPinReq):
         left = 3 - new_attempts
         raise HTTPException(400, f"Incorrect OTP. {left} attempt(s) remaining.")
     # OTP verified → set new PIN
+    if len(req.new_pin) != 6 or not req.new_pin.isdigit():
+        con.close()
+        raise HTTPException(400, "UPI PIN must be a 6-digit number")
     pin_hash = hashlib.sha256(req.new_pin.encode()).hexdigest()
     con.execute("UPDATE accounts SET upi_pin_hash=? WHERE vpa=?", (pin_hash, req.vpa))
     con.execute("UPDATE otp_verifications SET status='verified' WHERE id=?", (otp_row["id"],))

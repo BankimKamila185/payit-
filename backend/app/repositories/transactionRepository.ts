@@ -42,14 +42,15 @@ export class TransactionRepository {
     };
   }
 
-  static async updateStatus(id: string, status: string): Promise<Transaction | null> {
+  static async updateStatus(id: string, status: string, client?: any): Promise<Transaction | null> {
     const sql = `
       UPDATE transactions
       SET status = $1
       WHERE id = $2
       RETURNING *;
     `;
-    const res = await query(sql, [status, id]);
+    const executor = client ? client.query.bind(client) : query;
+    const res = await executor(sql, [status, id]);
     if (!res.rows[0]) return null;
     const row = res.rows[0];
     return {

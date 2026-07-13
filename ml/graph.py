@@ -23,6 +23,7 @@ from __future__ import annotations
 from collections import defaultdict, deque
 
 RING_WINDOW = 60          # seconds: hops must be recent to count as one ring
+RING_WINDOW_LONG = 900    # seconds: 15 minutes lookback for slower/evasive rings
 AMOUNT_TOL = 0.25         # +-25% counts as "the same money" flowing through
 FANIN_WINDOW = 60         # seconds for fan-in counting
 
@@ -35,11 +36,16 @@ class GraphAnalyzer:
         self.edges_in = defaultdict(lambda: deque(maxlen=100))
         # outgoing edges per node: sender -> deque of (receiver, amount, ts)
         self.edges_out = defaultdict(lambda: deque(maxlen=100))
+        # long-window edges for evasive slower chains (up to 15m)
+        self.edges_in_long = defaultdict(lambda: deque(maxlen=500))
+        self.edges_out_long = defaultdict(lambda: deque(maxlen=500))
 
     def add(self, sender, receiver, amount, ts):
         """Record a transaction into the graph (call AFTER scoring it)."""
         self.edges_in[receiver].append((sender, amount, ts))
         self.edges_out[sender].append((receiver, amount, ts))
+        self.edges_in_long[receiver].append((sender, amount, ts))
+        self.edges_out_long[sender].append((receiver, amount, ts))
 
     # ---------------------------------------------------------------- scoring
     def score(self, sender, receiver, amount, ts):
@@ -59,8 +65,20 @@ class GraphAnalyzer:
             result["detail"] = (f"Money forwarded through {hops} hops in "
                                  f"<{RING_WINDOW}s, amount ~conserved")
 
+        # ---- CHAIN_SLOW: did similar money arrive in the longer window (900s)? ----
+        long_chain = self._trace_chain_long(sender, receiver, amount, ts)
+        if len(long_chain) >= 3 and not result["score"]:
+            hops = len(long_chain) - 1
+            # 60% of original chain weight, capped at 55
+            result["score"] = min(int((60 + (hops - 2) * 15) * 0.6), 55)
+            result["motif"] = "CHAIN_SLOW"
+            result["path"] = long_chain
+            result["detail"] = (f"Money forwarded through {hops} hops in "
+                                 f"<{RING_WINDOW_LONG}s, amount ~conserved")
+
         # ---- CYCLE: does this edge close a loop back to origin? ----
-        if receiver in chain[:-1] if chain else False:
+        closed_cycle = (receiver in chain[:-1] if chain else False) or (receiver in long_chain[:-1] if long_chain else False)
+        if closed_cycle:
             result["score"] = max(result["score"], 85)
             result["motif"] = "CYCLE"
             result["detail"] = "Funds cycling back to an earlier account (A->B->C->A)"
@@ -75,6 +93,17 @@ class GraphAnalyzer:
                 result["path"] = result["path"] or [sender, receiver]
                 result["detail"] = (f"Receiver got money from {fan_in} different "
                                     f"senders in <{FANIN_WINDOW}s (mule collection)")
+
+        # ---- FAN-OUT: one sender paying many unique receivers recently ----
+        fan_out = self._fan_out(sender, ts)
+        if fan_out >= 5:
+            add = min(20 + (fan_out - 5) * 3, 40)
+            if add > result["score"]:
+                result["score"] = add
+                result["motif"] = result["motif"] or "FAN_OUT"
+                result["path"] = result["path"] or [sender, receiver]
+                result["detail"] = (f"Sender paid {fan_out} different receivers "
+                                    f"in <{FANIN_WINDOW}s (smurfing/distribution)")
 
         return result
 
@@ -104,10 +133,39 @@ class GraphAnalyzer:
             cur = best[0]
         return path
 
+    def _trace_chain_long(self, sender, receiver, amount, ts, max_hops=4):
+        """Walk backwards from `sender` using the long lookback window (900s).
+        Returns node path [origin, ..., sender, receiver] if a chain exists."""
+        path = [sender, receiver]
+        cur = sender
+        visited = {sender, receiver}
+        for _ in range(max_hops):
+            best = None
+            for (src, amt, t) in reversed(self.edges_in_long[cur]):
+                if ts - t > RING_WINDOW_LONG:
+                    continue
+                if src in visited:
+                    path.insert(0, src)
+                    return path
+                if abs(amt - amount) <= AMOUNT_TOL * amount:
+                    best = (src, t)
+                    break
+            if best is None:
+                break
+            path.insert(0, best[0])
+            visited.add(best[0])
+            cur = best[0]
+        return path
+
     def _fan_in(self, receiver, ts):
         senders = {src for (src, amt, t) in self.edges_in[receiver]
                    if ts - t <= FANIN_WINDOW}
         return len(senders)
+
+    def _fan_out(self, sender, ts):
+        receivers = {dest for (dest, amt, t) in self.edges_out[sender]
+                     if ts - t <= FANIN_WINDOW}
+        return len(receivers)
 
 
 def _demo():

@@ -9,7 +9,8 @@ import {
   TransactionFraudMatchRepository,
   FraudScoreRepository,
   AlertRepository,
-  AuditLogRepository
+  AuditLogRepository,
+  OtpVerificationRepository
 } from '../app/repositories';
 import { Transaction } from '../app/models';
 
@@ -83,7 +84,11 @@ describe('FraudService', () => {
     (FraudScoreRepository.create as any).mockResolvedValue({});
     (AlertRepository.create as any).mockResolvedValue({});
     (AuditLogRepository.create as any).mockResolvedValue({});
+    (OtpVerificationRepository.create as any).mockResolvedValue({ id: 'mock-otp-id', code: '123456' });
+    (OtpVerificationRepository.findLatestPendingByUserId as any).mockResolvedValue(null);
 
+    // Set mock ML URL to ensure ML calls are executed
+    process.env.ML_ENGINE_URL = 'http://mock-ml-url';
 
     // Mock global fetch to isolate tests from real ML server calls
     (global as any).fetch = jest.fn().mockImplementation(() =>
@@ -148,7 +153,7 @@ describe('FraudService', () => {
 
       const result = await FraudService.evaluate(mockTransaction);
 
-      expect(result.verdict).toBe('flagged');
+      expect(result.verdict).toBe('review');
       expect(result.score).toBe(40);
       expect(result.matches).toContain('velocity_check');
       expect(TransactionFraudMatchRepository.create as any).toHaveBeenCalledWith(
@@ -277,14 +282,14 @@ describe('FraudService', () => {
       const result = await FraudService.evaluate(highValueTx);
 
       expect(result.score).toBe(90);
-      expect(result.verdict).toBe('alerted');
+      expect(result.verdict).toBe('blocked');
       expect(result.matches).toContain('velocity_check');
       expect(result.matches).toContain('new_device_high_amount');
 
       expect(AlertRepository.create as any).toHaveBeenCalledWith({
         transaction_id: highValueTx.id,
         status: 'open',
-        severity: 'high',
+        severity: 'critical',
       });
     });
 
@@ -316,7 +321,7 @@ describe('FraudService', () => {
       const result = await FraudService.evaluate(mockTransaction);
 
       expect(result.score).toBe(85);
-      expect(result.verdict).toBe('alerted');
+      expect(result.verdict).toBe('blocked');
       // Reasons mapped back to correct pattern names
       expect(result.matches).toContain('velocity_check');
       expect(result.matches).toContain('new_device_high_amount');
@@ -338,7 +343,7 @@ describe('FraudService', () => {
 
       // Local score should still apply successfully
       expect(result.score).toBe(40);
-      expect(result.verdict).toBe('flagged');
+      expect(result.verdict).toBe('review');
       expect(result.matches).toContain('velocity_check');
     });
   });

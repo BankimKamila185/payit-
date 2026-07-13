@@ -56,15 +56,50 @@ export class AccountRepository {
     });
   }
 
-  static async updateBalance(id: string, newBalance: number): Promise<Account | null> {
+  static async updateBalance(id: string, newBalance: number, client?: any): Promise<Account | null> {
     const sql = `
       UPDATE accounts
       SET balance = $1
       WHERE id = $2
       RETURNING *;
     `;
-    const res = await query(sql, [newBalance, id]);
+    const executor = client ? client.query.bind(client) : query;
+    const res = await executor(sql, [newBalance, id]);
     if (!res.rows[0]) return null;
+    const row = res.rows[0];
+    return {
+      ...row,
+      balance: parseFloat(row.balance),
+    };
+  }
+
+  static async atomicDebit(id: string, amount: number, client?: any): Promise<Account | null> {
+    const sql = `
+      UPDATE accounts
+      SET balance = balance - $1
+      WHERE id = $2 AND balance >= $1
+      RETURNING *;
+    `;
+    const executor = client ? client.query.bind(client) : query;
+    const res = await executor(sql, [amount, id]);
+    if (!res.rows || res.rows.length === 0) return null;
+    const row = res.rows[0];
+    return {
+      ...row,
+      balance: parseFloat(row.balance),
+    };
+  }
+
+  static async atomicCredit(id: string, amount: number, client?: any): Promise<Account | null> {
+    const sql = `
+      UPDATE accounts
+      SET balance = balance + $1
+      WHERE id = $2
+      RETURNING *;
+    `;
+    const executor = client ? client.query.bind(client) : query;
+    const res = await executor(sql, [amount, id]);
+    if (!res.rows || res.rows.length === 0) return null;
     const row = res.rows[0];
     return {
       ...row,

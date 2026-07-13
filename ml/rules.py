@@ -33,6 +33,12 @@ W = {
     "rooted": 30,               # rooted / Xposed / emulator device (Digital Lutera)
     "sim_mismatch": 30,         # SIM-reported number != carrier (SIM-swap / spoof)
     "jumped_deposit": 30,       # tiny credit then collect-request (jumped-deposit scam)
+    "velocity_10m": 12,         # medium confidence slower velocity check
+    "velocity_24h": 6,          # lower confidence daily volume check
+    "fan_in_10m": 12,           # medium confidence slower fan-in
+    "fan_in_24h": 6,            # lower confidence daily fan-in
+    "fan_out_10m": 12,          # medium confidence slower fan-out
+    "fan_out_24h": 6,           # lower confidence daily fan-out
 }
 
 
@@ -70,15 +76,39 @@ def score(f: dict) -> dict:
         pts += W["velocity"]
         reasons.append(f"Velocity spike: {int(f['sender_velocity_60s'])+1} transfers in <60s")
 
+    if f.get("sender_velocity_10m", 0) >= 8 and not f.get("sender_is_corporate"):
+        pts += W["velocity_10m"]
+        reasons.append(f"High 10m velocity: {int(f['sender_velocity_10m'])} transfers in 10m")
+
+    if f.get("sender_velocity_24h", 0) >= 20 and not f.get("sender_is_corporate"):
+        pts += W["velocity_24h"]
+        reasons.append(f"High 24h velocity: {int(f['sender_velocity_24h'])} transfers in 24h")
+
     # fan-out (smurfing) — also exempt corporate
     if f.get("sender_fan_out_60s", 0) >= 8 and not f.get("sender_is_corporate"):
         pts += W["velocity"]
         reasons.append(f"Fan-out to {int(f['sender_fan_out_60s'])} receivers (smurfing)")
 
+    if f.get("sender_fan_out_10m", 0) >= 12 and not f.get("sender_is_corporate"):
+        pts += W["fan_out_10m"]
+        reasons.append(f"Fan-out to {int(f['sender_fan_out_10m'])} receivers in 10m")
+
+    if f.get("sender_fan_out_24h", 0) >= 30 and not f.get("sender_is_corporate"):
+        pts += W["fan_out_24h"]
+        reasons.append(f"Fan-out to {int(f['sender_fan_out_24h'])} receivers in 24h")
+
     # fan-in — EXEMPT verified merchants (shop getting many payments is normal)
     if f.get("receiver_fan_in_60s", 0) >= 5 and not f.get("receiver_is_merchant"):
         pts += W["fan_in"]
         reasons.append(f"Receiver getting money from {int(f['receiver_fan_in_60s'])} senders (fan-in)")
+
+    if f.get("receiver_fan_in_10m", 0) >= 10 and not f.get("receiver_is_merchant"):
+        pts += W["fan_in_10m"]
+        reasons.append(f"Receiver fan-in: {int(f['receiver_fan_in_10m'])} senders in 10m")
+
+    if f.get("receiver_fan_in_24h", 0) >= 25 and not f.get("receiver_is_merchant"):
+        pts += W["fan_in_24h"]
+        reasons.append(f"Receiver fan-in: {int(f['receiver_fan_in_24h'])} senders in 24h")
 
     if f.get("receiver_forwards_recent") and not f.get("receiver_is_merchant"):
         pts += W["forwards_recent"]

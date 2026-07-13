@@ -33,8 +33,12 @@ from ml.score import FraudEngine
 ROOT = Path(__file__).resolve().parent.parent
 DB_PATH = ROOT / "db" / "payit.db"
 
-app = FastAPI(title="Payit Backend", version="1.0")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+import os
+ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:5174").split(",")
+app.add_middleware(CORSMiddleware,
+    allow_origins=ALLOWED_ORIGINS,
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type", "Authorization"])
 
 engine: FraudEngine | None = None
 _pin_fails: dict[str, dict] = {}  # vpa -> {"attempts": count, "lockout_until": float}
@@ -76,26 +80,47 @@ def enrich_from_db(con, sender, receiver, t) -> dict:
         usual = set(range(6, 22))
 
     win = "-60 seconds"
+    win_10m = "-10 minutes"
+    win_24h = "-24 hours"
+
     # first-time payee: has sender EVER paid this receiver?
     prior = con.execute(
         "SELECT COUNT(*) c FROM transactions WHERE sender_account_id=? AND receiver_account_id=?",
         (s["id"], r["id"])).fetchone()["c"]
     first_time = int(prior == 0)
 
-    # velocity: sender's txns in last 60s
+    # velocity: sender's txns in last 60s / 10m / 24h
     velocity = con.execute(
         "SELECT COUNT(*) c FROM transactions WHERE sender_account_id=? AND created_at > datetime('now', ?)",
         (s["id"], win)).fetchone()["c"]
+    velocity_10m = con.execute(
+        "SELECT COUNT(*) c FROM transactions WHERE sender_account_id=? AND created_at > datetime('now', ?)",
+        (s["id"], win_10m)).fetchone()["c"]
+    velocity_24h = con.execute(
+        "SELECT COUNT(*) c FROM transactions WHERE sender_account_id=? AND created_at > datetime('now', ?)",
+        (s["id"], win_24h)).fetchone()["c"]
 
-    # fan-in: distinct senders to receiver in last 60s
+    # fan-in: distinct senders to receiver in last 60s / 10m / 24h
     fan_in = con.execute(
         "SELECT COUNT(DISTINCT sender_account_id) c FROM transactions WHERE receiver_account_id=? AND created_at > datetime('now', ?)",
         (r["id"], win)).fetchone()["c"]
+    fan_in_10m = con.execute(
+        "SELECT COUNT(DISTINCT sender_account_id) c FROM transactions WHERE receiver_account_id=? AND created_at > datetime('now', ?)",
+        (r["id"], win_10m)).fetchone()["c"]
+    fan_in_24h = con.execute(
+        "SELECT COUNT(DISTINCT sender_account_id) c FROM transactions WHERE receiver_account_id=? AND created_at > datetime('now', ?)",
+        (r["id"], win_24h)).fetchone()["c"]
 
-    # fan-out: distinct receivers from sender in last 60s
+    # fan-out: distinct receivers from sender in last 60s / 10m / 24h
     fan_out = con.execute(
         "SELECT COUNT(DISTINCT receiver_account_id) c FROM transactions WHERE sender_account_id=? AND created_at > datetime('now', ?)",
         (s["id"], win)).fetchone()["c"]
+    fan_out_10m = con.execute(
+        "SELECT COUNT(DISTINCT receiver_account_id) c FROM transactions WHERE sender_account_id=? AND created_at > datetime('now', ?)",
+        (s["id"], win_10m)).fetchone()["c"]
+    fan_out_24h = con.execute(
+        "SELECT COUNT(DISTINCT receiver_account_id) c FROM transactions WHERE sender_account_id=? AND created_at > datetime('now', ?)",
+        (s["id"], win_24h)).fetchone()["c"]
 
     # in_mule_chain: did sender RECEIVE a similar amount in last 60s (now forwarding)?
     inc = con.execute(
@@ -131,6 +156,9 @@ def enrich_from_db(con, sender, receiver, t) -> dict:
         "is_new_device": is_new_device, "first_time_payee": first_time,
         "sender_velocity_60s": velocity, "receiver_fan_in_60s": fan_in,
         "sender_fan_out_60s": fan_out, "receiver_forwards_recent": int(fwd > 0),
+        "sender_velocity_10m": velocity_10m, "sender_velocity_24h": velocity_24h,
+        "receiver_fan_in_10m": fan_in_10m, "receiver_fan_in_24h": fan_in_24h,
+        "sender_fan_out_10m": fan_out_10m, "sender_fan_out_24h": fan_out_24h,
         "in_mule_chain": in_chain,
         "sender_account_age_days": int(s["account_age_days"] or 365),
         "receiver_account_age_days": int(r["account_age_days"] or 365),
@@ -747,18 +775,27 @@ def pay(req: PayReq):
                 "otp_demo": otp_code}   # demo only: lets the local demo show the code (real app: SMS only)
 
     # SAFE -> atomic transfer
-    con.execute("UPDATE accounts SET balance = balance - ?, txn_count = txn_count + 1 WHERE id=?", (req.amount, sid))
-    con.execute("UPDATE accounts SET balance = balance + ?, txn_count = txn_count + 1 WHERE id=?", (req.amount, rid))
-    # F3: post-payment second look -> flag a completed payment to a newish receiver for recall
-    post_review = feats["receiver_account_age_days"] < 90 and not req.receiver_vpa.endswith("@payit")
-    post_msg = None
-    if post_review:
-        con.execute("UPDATE transactions SET status='flagged' WHERE id=?", (txid,))
-        con.execute("INSERT INTO alerts (transaction_id, status, severity, created_at) VALUES (?,?,?,?)",
-                    (txid, "post_review", "high", now_iso()))
-        post_msg = (f"Payment done, but our system flagged it right after. If confirmed fraud, "
-                    f"₹{req.amount:.0f} will be returned to you. You can also recall it now.")
-    con.commit()
+    try:
+        with con:
+            cursor = con.execute("UPDATE accounts SET balance = balance - ?, txn_count = txn_count + 1 WHERE id=? AND balance >= ?", (req.amount, sid, req.amount))
+            if cursor.rowcount == 0:
+                raise ValueError("Insufficient balance")
+            con.execute("UPDATE accounts SET balance = balance + ?, txn_count = txn_count + 1 WHERE id=?", (req.amount, rid))
+            # F3: post-payment second look -> flag a completed payment to a newish receiver for recall
+            post_review = feats["receiver_account_age_days"] < 90 and not req.receiver_vpa.endswith("@payit")
+            post_msg = None
+            if post_review:
+                con.execute("UPDATE transactions SET status='flagged' WHERE id=?", (txid,))
+                con.execute("INSERT INTO alerts (transaction_id, status, severity, created_at) VALUES (?,?,?,?)",
+                            (txid, "post_review", "high", now_iso()))
+                post_msg = (f"Payment done, but our system flagged it right after. If confirmed fraud, "
+                            f"₹{req.amount:.0f} will be returned to you. You can also recall it now.")
+    except Exception as e:
+        con.execute("UPDATE transactions SET status='failed' WHERE id=?", (txid,))
+        con.commit()
+        con.close()
+        raise HTTPException(400, "insufficient balance or transaction failed")
+
     new_bal = con.execute("SELECT balance FROM accounts WHERE id=?", (sid,)).fetchone()["balance"]
     con.close()
     return {"result": "SUCCESS", "transaction_id": txid, **out,
@@ -803,25 +840,34 @@ def verify_otp(req: OtpReq):
             con.commit(); con.close()
             left = 3 - new_attempts
             raise HTTPException(400, f"Incorrect OTP. {left} attempt(s) remaining.")
-    # OTP ok -> complete transfer
-    con.execute("UPDATE otp_verifications SET status='verified' WHERE id=?", (otp["id"],))
-    con.execute("UPDATE accounts SET balance = balance - ?, txn_count = txn_count + 1 WHERE id=?", (tx["amount"], tx["sender_account_id"]))
-    con.execute("UPDATE accounts SET balance = balance + ?, txn_count = txn_count + 1 WHERE id=?", (tx["amount"], tx["receiver_account_id"]))
-    # F3: post-payment second look (newish receiver -> flag for recall even after OTP)
-    r_row = con.execute("SELECT account_age_days, vpa FROM accounts WHERE id=?", (tx["receiver_account_id"],)).fetchone()
-    rage = r_row["account_age_days"]
-    r_vpa = r_row["vpa"]
-    post_review = rage < 90 and not r_vpa.endswith("@payit")
-    post_msg = None
-    if post_review:
-        con.execute("UPDATE transactions SET status='flagged' WHERE id=?", (tx["id"],))
-        con.execute("INSERT INTO alerts (transaction_id, status, severity, created_at) VALUES (?,?,?,?)",
-                    (tx["id"], "post_review", "high", now_iso()))
-        post_msg = (f"Payment done, but our system flagged it right after. If confirmed fraud, "
-                    f"₹{tx['amount']:.0f} will be returned to you. You can also recall it now.")
-    else:
-        con.execute("UPDATE transactions SET status='success' WHERE id=?", (tx["id"],))
-    con.commit()
+    # OTP ok -> complete transfer via transaction
+    try:
+        with con:
+            con.execute("UPDATE otp_verifications SET status='verified' WHERE id=?", (otp["id"],))
+            cursor = con.execute("UPDATE accounts SET balance = balance - ?, txn_count = txn_count + 1 WHERE id=? AND balance >= ?", (tx["amount"], tx["sender_account_id"], tx["amount"]))
+            if cursor.rowcount == 0:
+                raise ValueError("Insufficient balance")
+            con.execute("UPDATE accounts SET balance = balance + ?, txn_count = txn_count + 1 WHERE id=?", (tx["amount"], tx["receiver_account_id"]))
+            # F3: post-payment second look (newish receiver -> flag for recall even after OTP)
+            r_row = con.execute("SELECT account_age_days, vpa FROM accounts WHERE id=?", (tx["receiver_account_id"],)).fetchone()
+            rage = r_row["account_age_days"]
+            r_vpa = r_row["vpa"]
+            post_review = rage < 90 and not r_vpa.endswith("@payit")
+            post_msg = None
+            if post_review:
+                con.execute("UPDATE transactions SET status='flagged' WHERE id=?", (tx["id"],))
+                con.execute("INSERT INTO alerts (transaction_id, status, severity, created_at) VALUES (?,?,?,?)",
+                            (tx["id"], "post_review", "high", now_iso()))
+                post_msg = (f"Payment done, but our system flagged it right after. If confirmed fraud, "
+                            f"₹{tx['amount']:.0f} will be returned to you. You can also recall it now.")
+            else:
+                con.execute("UPDATE transactions SET status='success' WHERE id=?", (tx["id"],))
+    except Exception as e:
+        con.execute("UPDATE transactions SET status='failed' WHERE id=?", (tx["id"],))
+        con.commit()
+        con.close()
+        raise HTTPException(400, "insufficient balance or transaction failed")
+
     bal = con.execute("SELECT balance FROM accounts WHERE id=?", (tx["sender_account_id"],)).fetchone()["balance"]
     con.close()
     return {"result": "SUCCESS", "transaction_id": tx["id"], "message": "Verified — payment completed.",

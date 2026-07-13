@@ -7,22 +7,28 @@ import {
   TransactionFraudMatchRepository,
   FraudScoreRepository,
   AlertRepository,
-  AuditLogRepository
+  AuditLogRepository,
+  OtpVerificationRepository,
 } from '../repositories';
 import { Transaction } from '../models';
 
 export interface FraudVerdict {
-  verdict: 'approved' | 'flagged' | 'alerted' | 'rejected';
+  verdict: 'approved' | 'review' | 'blocked' | 'rejected';
   score: number;
   matches: string[];
+  /** Present when verdict === 'review': ID of the otp_verifications row to verify against */
+  otp_verification_id?: string;
+  /** Demo-only: OTP code (real prod sends via SMS, never returned to API client) */
+  otp_demo?: string;
 }
+
 
 // ─── Pattern name → default id/score fallback ────────────────────────────────
 const PATTERN_DEFAULTS: Record<string, { id: number; score: number }> = {
   velocity_check:           { id: 1, score: 40 },
   new_device_high_amount:   { id: 2, score: 50 },
   blacklisted_ip_match:     { id: 3, score: 100 },
-  impossible_travel:        { id: 4, score: 60 },
+  // impossible_travel removed: no GeoIP database available; re-add when MaxMind/ipapi integrated
   otp_brute_force:          { id: 5, score: 45 },
   high_balance_drawdown:    { id: 6, score: 35 },
   dormant_account_spike:    { id: 7, score: 40 },
@@ -34,6 +40,10 @@ const PATTERN_DEFAULTS: Record<string, { id: number; score: number }> = {
   beneficiary_drain_pattern:{ id: 13, score: 65 },
   mule_ring_chain:          { id: 14, score: 60 },
 };
+
+// ─── Score thresholds (mirrors server/app.py SAFE/REVIEW/BLOCK) ───────────────
+const SCORE_BLOCK  = 60;   // >= SCORE_BLOCK  → reject, money does NOT move
+const SCORE_REVIEW = 35;   // >= SCORE_REVIEW → hold, OTP step-up required
 
 export class FraudService {
   static async evaluate(transaction: Transaction): Promise<FraudVerdict> {
@@ -192,10 +202,22 @@ export class FraudService {
       addMatch('mule_ring_chain', `MULE RING DETECTED: Money forwarded rapidly through chain: ${muleChain.join(' -> ')}`);
     }
 
+    // ── Rule N: OTP Brute-Force Detection ────────────────────────────────────
+    // If there is a pending OTP for this user with >= 3 failed attempts,
+    // the account is being actively probed — escalate risk.
+    const latestOtp = await OtpVerificationRepository.findLatestPendingByUserId(senderUserId);
+    if (latestOtp && latestOtp.attempts >= 3) {
+      addMatch('otp_brute_force',
+        `OTP brute-force: ${latestOtp.attempts} failed attempts on pending OTP for user ${senderUserId}`);
+    }
+
     // ── Rule G: Python ML Engine /score Integration ──────────────────────────
     // Contact Python ML server to get the ensemble score and SHAP reason codes
     try {
-      const mlHost = process.env.ML_ENGINE_URL || 'https://payit-ru7o.onrender.com';
+      const mlHost = process.env.ML_ENGINE_URL;
+      if (!mlHost) {
+        console.warn('[FraudService] ML_ENGINE_URL not set — skipping ML engine, local rules only');
+      } else {
       const response = await fetch(`${mlHost}/score`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -249,12 +271,14 @@ export class FraudService {
           }
         }
       }
+      } // end if (mlHost)
     } catch (err) {
       console.warn('[FraudService] Failed to contact Python ML Engine, falling back to local scoring:', err);
     }
 
-
-    // ── 4. WRITE SCORES + MATCHES to DB ───────────────────────────────────────
+    // ── 4. CAP SCORE + WRITE SCORES + MATCHES to DB ───────────────────────────
+    // Cap before threshold comparison — stacking rules can push score above 100
+    cumulativeScore = Math.min(cumulativeScore, 100);
     if (cumulativeScore > 0) {
       await FraudScoreRepository.create({ transaction_id: txId, cumulative_score: cumulativeScore });
       await Promise.all(
@@ -270,35 +294,64 @@ export class FraudService {
       );
     }
 
-    // ── 5. DETERMINE VERDICT ──────────────────────────────────────────────────
-    //   approved  : score = 0
-    //   flagged   : score 1–70 (logged, allowed through with monitoring)
-    //   alerted   : score >70 (creates an open alert for analyst review)
-    let verdict: 'approved' | 'flagged' | 'alerted' = 'approved';
-    if (cumulativeScore > 70) {
-      verdict = 'alerted';
-      await AlertRepository.create({ transaction_id: txId, status: 'open', severity: 'high' });
-    } else if (cumulativeScore > 0) {
-      verdict = 'flagged';
+    // ── 5. DETERMINE VERDICT (3-tier: approved / review / blocked) ───────────
+    //   blocked  : score >= 60 → reject, money does NOT move, critical alert logged
+    //   review   : score >= 35 → hold, OTP step-up required before money moves
+    //   approved : score <  35 → transfer proceeds
+    //
+    // 'rejected' is only returned from the blacklist path above (score=100, immediate).
+    const matchNames = triggeredMatches.map(m => m.patternName);
+
+    if (cumulativeScore >= SCORE_BLOCK) {
+      await AlertRepository.create({ transaction_id: txId, status: 'open', severity: 'critical' });
+      await AuditLogRepository.create({
+        action: 'transaction_blocked',
+        user_id: senderUserId,
+        details: { transaction_id: txId, verdict: 'blocked', score: cumulativeScore, matches: matchNames },
+      });
+      return { verdict: 'blocked', score: cumulativeScore, matches: matchNames };
     }
 
-    if (verdict !== 'approved') {
-      await AuditLogRepository.create({
-        action: 'transaction_fraud_detected',
+    if (cumulativeScore >= SCORE_REVIEW) {
+      await AlertRepository.create({ transaction_id: txId, status: 'open', severity: 'high' });
+
+      // Generate OTP step-up record (5-minute expiry)
+      const otpCode = String(Math.floor(100000 + Math.random() * 900000));
+      const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
+      const otpRecord = await OtpVerificationRepository.create({
         user_id: senderUserId,
-        details: {
-          transaction_id: txId,
-          verdict,
-          score: cumulativeScore,
-          matches: triggeredMatches.map(m => m.patternName),
-        },
+        code: otpCode,
+        expires_at: expiresAt,
+      });
+
+      await AuditLogRepository.create({
+        action: 'transaction_step_up_required',
+        user_id: senderUserId,
+        details: { transaction_id: txId, verdict: 'review', score: cumulativeScore, matches: matchNames },
+      });
+
+      // Production: send otpCode via SMS only — never expose in API response.
+      // otp_demo mirrors server/app.py behaviour for the local demo environment.
+      console.log(`[FraudService][OTP DEMO] txn=${txId} user=${senderUserId} OTP=${otpCode}`);
+      return {
+        verdict: 'review',
+        score: cumulativeScore,
+        matches: matchNames,
+        otp_verification_id: String(otpRecord.id),
+        otp_demo: otpCode,
+      };
+    }
+
+    // APPROVED — score < 35
+    if (cumulativeScore > 0) {
+      // Low-risk flags are audit-logged but do not block the transfer
+      await AuditLogRepository.create({
+        action: 'transaction_low_risk_flagged',
+        user_id: senderUserId,
+        details: { transaction_id: txId, verdict: 'approved', score: cumulativeScore, matches: matchNames },
       });
     }
 
-    return {
-      verdict,
-      score: cumulativeScore,
-      matches: triggeredMatches.map(m => m.patternName),
-    };
+    return { verdict: 'approved', score: cumulativeScore, matches: matchNames };
   }
 }

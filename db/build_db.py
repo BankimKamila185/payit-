@@ -133,6 +133,11 @@ def build():
         id INTEGER PRIMARY KEY, reported_vpa TEXT, reporter_vpa TEXT,
         reason TEXT, amount_lost REAL, status TEXT DEFAULT 'reported', created_at TEXT
     );
+    CREATE INDEX IF NOT EXISTS idx_transactions_sender_created_at ON transactions(sender_account_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_transactions_receiver_created_at ON transactions(receiver_account_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_transactions_created_at ON transactions(created_at);
+    CREATE INDEX IF NOT EXISTS idx_otp_verifications_user_pending ON otp_verifications(user_id, status) WHERE status = 'pending';
+    CREATE INDEX IF NOT EXISTS idx_blacklist_lookup ON blacklist(entity_type, entity_value);
     """)
 
     now = datetime(2026, 7, 1, 12, 0, 0)

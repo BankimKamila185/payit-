@@ -144,7 +144,7 @@ describe('Integration Tests (Database-Connected)', () => {
         .send(payload);
 
       expect(res.status).toBe(400);
-      expect(res.body.error).toBe('Transaction rejected due to security policy');
+      expect(res.body.error).toBe('Transaction blocked by security policy — money not deducted');
       expect(res.body.fraudVerdict.verdict).toBe('rejected');
       expect(res.body.fraudVerdict.score).toBe(100);
 
@@ -176,7 +176,7 @@ describe('Integration Tests (Database-Connected)', () => {
         .send(payload);
 
       expect(res.status).toBe(400);
-      expect(res.body.error).toBe('Transaction rejected due to security policy');
+      expect(res.body.error).toBe('Transaction blocked by security policy — money not deducted');
       expect(res.body.fraudVerdict.verdict).toBe('rejected');
       expect(res.body.fraudVerdict.score).toBe(100);
 

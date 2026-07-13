@@ -29,25 +29,27 @@ export class OtpVerificationRepository {
     return res.rows[0] || null;
   }
 
-  static async incrementAttempts(id: string): Promise<number> {
+  static async incrementAttempts(id: string, client?: any): Promise<number> {
     const sql = `
       UPDATE otp_verifications
       SET attempts = attempts + 1
       WHERE id = $1
       RETURNING attempts;
     `;
-    const res = await query(sql, [id]);
+    const executor = client ? client.query.bind(client) : query;
+    const res = await executor(sql, [id]);
     return res.rows[0]?.attempts || 0;
   }
 
-  static async updateStatus(id: string, status: string): Promise<OtpVerification | null> {
+  static async updateStatus(id: string, status: string, client?: any): Promise<OtpVerification | null> {
     const sql = `
       UPDATE otp_verifications
       SET status = $1
       WHERE id = $2
       RETURNING *;
     `;
-    const res = await query(sql, [status, id]);
+    const executor = client ? client.query.bind(client) : query;
+    const res = await executor(sql, [status, id]);
     return res.rows[0] || null;
   }
 }

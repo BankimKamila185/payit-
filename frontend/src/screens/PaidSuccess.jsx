@@ -86,8 +86,8 @@ const PaidSuccess = ({
             margin: '12px auto' 
           }}>
             {(transactionDetails.score || 0) >= 35 
-              ? `⚠️ Ye payment fraud lag raha. Confirm hone pe ₹${amount} aapke account mein 3 ghante mein wapas aa jayega.`
-              : `⚠️ Naya recipient / VPA detected. Suraksha ke liye ₹${amount} hold pe hai (3 ghante mein settle hoga). Recall available.`}
+              ? `⚠️ Ye payment fraud lag raha. Confirm hone pe ₹${amount} aapke account mein 60 seconds mein wapas aa jayega.`
+              : `⚠️ Naya recipient / VPA detected. Suraksha ke liye ₹${amount} hold pe hai (60 seconds mein settle hoga). Recall available.`}
           </p>
           <div style={styles.pendingActions}>
             <button
@@ -139,8 +139,8 @@ const PaidSuccess = ({
               <span>🔄</span>
               <span>
                 {(transactionDetails.score || 0) >= 35 
-                  ? "Demo reversal auto-enabled (Production: bank clawback reverses funds in 3h)" 
-                  : "Safe settlement hold (Production: funds released to recipient in 3h)"}
+                  ? "Demo reversal auto-enabled (Production: bank clawback reverses funds in 60s)" 
+                  : "Safe settlement hold (Production: funds released to recipient in 60s)"}
               </span>
             </div>
           </div>

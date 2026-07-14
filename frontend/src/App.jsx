@@ -504,9 +504,14 @@ function App() {
 
   // --- RECALL / CANCEL TRANSACTION ---
   const handleRecallTransaction = async (txId) => {
-    const realTxId = lastTx && lastTx.txId;   // F3: real backend txn -> actually reverse money
-    if (realTxId) {
-      const r = await api.recall(realTxId);
+    let rawId = txId || (lastTx && (lastTx.txId || lastTx.id || lastTx.transId));
+    if (typeof rawId === 'string') {
+      rawId = rawId.replace(/\D/g, ''); // strip "TX-" prefixes
+    }
+    const numericTxId = parseInt(rawId);
+
+    if (numericTxId && !isNaN(numericTxId)) {
+      const r = await api.recall(numericTxId);
       if (r.ok) {
         setBalance(r.data.sender_balance);
         setLastTx(prev => ({ ...prev, status: 'recalled', timeLeft: 0 }));

@@ -77,8 +77,17 @@ const PaidSuccess = ({
           </div>
           <h2 style={{ ...styles.amountText, color: '#ff8c00' }}>Paid ₹{amount}</h2>
           <p style={styles.recipientSub}>To {recipientName}</p>
-          <p style={{ ...styles.pendingBannerText, color: 'var(--accent-pink)', fontSize: '13px', fontWeight: 'bold', maxWidth: '300px', margin: '12px auto' }}>
-            ⚠️ Ye payment fraud lag raha. Confirm hone pe ₹{amount} aapke account mein 3 ghante mein wapas aa jayega.
+          <p style={{ 
+            ...styles.pendingBannerText, 
+            color: (transactionDetails.score || 0) >= 35 ? 'var(--accent-pink)' : '#ff8c00', 
+            fontSize: '13px', 
+            fontWeight: 'bold', 
+            maxWidth: '300px', 
+            margin: '12px auto' 
+          }}>
+            {(transactionDetails.score || 0) >= 35 
+              ? `⚠️ Ye payment fraud lag raha. Confirm hone pe ₹${amount} aapke account mein 3 ghante mein wapas aa jayega.`
+              : `⚠️ Naya recipient / VPA detected. Suraksha ke liye ₹${amount} hold pe hai (3 ghante mein settle hoga). Recall available.`}
           </p>
           <div style={styles.pendingActions}>
             <button
@@ -90,20 +99,28 @@ const PaidSuccess = ({
             </button>
           </div>
 
-          {/* Dispute Raised with Bank/NPCI Widget */}
+          {/* Dispute Raised / Settlement Hold Widget */}
           <div style={{
             marginTop: '20px',
             backgroundColor: 'var(--surface-color)',
-            border: '1px solid rgba(235, 59, 136, 0.2)',
+            border: (transactionDetails.score || 0) >= 35 
+              ? '1px solid rgba(235, 59, 136, 0.2)' 
+              : '1px solid rgba(255, 140, 0, 0.2)',
             borderRadius: '16px',
             padding: '16px',
             width: '100%',
             textAlign: 'left',
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
-              <ShieldAlert size={18} color="var(--accent-pink)" />
-              <span style={{ fontSize: '12px', fontWeight: '800', color: 'var(--accent-pink)', letterSpacing: '0.5px', textTransform: 'uppercase' }}>
-                Dispute raised → Bank/NPCI
+              <ShieldAlert size={18} color={(transactionDetails.score || 0) >= 35 ? "var(--accent-pink)" : "#ff8c00"} />
+              <span style={{ 
+                fontSize: '12px', 
+                fontWeight: '800', 
+                color: (transactionDetails.score || 0) >= 35 ? 'var(--accent-pink)' : '#ff8c00', 
+                letterSpacing: '0.5px', 
+                textTransform: 'uppercase' 
+              }}>
+                {(transactionDetails.score || 0) >= 35 ? "Dispute raised → Bank/NPCI" : "Safety cooling-off active"}
               </span>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '12px', color: 'var(--text-secondary)', fontFamily: 'monospace', lineHeight: '1.4' }}>
@@ -120,7 +137,11 @@ const PaidSuccess = ({
             </div>
             <div style={{ marginTop: '12px', paddingTop: '8px', borderTop: '1px solid var(--border-color)', fontSize: '10px', color: '#22e67b', display: 'flex', alignItems: 'center', gap: '6px' }}>
               <span>🔄</span>
-              <span>Demo reversal auto-enabled (Production: bank clawback reverses funds in 3h)</span>
+              <span>
+                {(transactionDetails.score || 0) >= 35 
+                  ? "Demo reversal auto-enabled (Production: bank clawback reverses funds in 3h)" 
+                  : "Safe settlement hold (Production: funds released to recipient in 3h)"}
+              </span>
             </div>
           </div>
         </div>

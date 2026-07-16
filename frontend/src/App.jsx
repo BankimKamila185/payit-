@@ -19,7 +19,8 @@ import OnboardingFlow from './screens/OnboardingFlow';
 import PayeeSelector from './screens/PayeeSelector';
 import ReferPage from './screens/ReferPage';
 import AutopayPage from './screens/AutopayPage';
-import { api, getDeviceId, saveSession, getSession, clearSession, loginWithPasskey, hasPasskey } from './api';
+import { api, getDeviceId, saveSession, getSession, clearSession, loginWithPasskey, hasPasskey,
+         setToken, newIdempotencyKey } from './api';
 
 import { Shield, Lock, ShieldCheck, AlertTriangle, Fingerprint, Phone, X, Check, Bell, Clock, MapPin, Smartphone, ShieldAlert } from 'lucide-react';
 
@@ -69,11 +70,15 @@ function App() {
     if (preVerifiedData) {
       name = preVerifiedData.name;
       balance = preVerifiedData.balance;
+      setToken(preVerifiedData.token);                  // passkey login returns one too
     } else {
       const { ok, data } = await api.login(vpa, pin);   // verifies account + binds device
       if (!ok) return { ok: false, error: data.detail || 'Incorrect PIN or account not found' };
       name = data.name;
       balance = data.balance;
+      // Every subsequent call sends this as a Bearer header. /pay, /balance and
+      // /transactions reject the request without it.
+      setToken(data.token);
     }
     setCurrentUser(vpa);
     setCurrentUserName(name || vpa);
@@ -85,6 +90,7 @@ function App() {
 
   const handleLogout = () => {                          // "switch account" for the demo
     clearSession();
+    setToken(null);                                     // don't leave a live token behind
     setCurrentUser(null); setCurrentUserName(''); setRealTxns([]);
   };
 
@@ -309,11 +315,18 @@ function App() {
   };
 
   // --- INTERCEPTED TRANSACTION FLOW ---
+  // One idempotency key per payment ATTEMPT, minted when the PIN pad opens and
+  // reused by every retry of that attempt. Minting it inside executePayment
+  // instead would hand out a fresh key per call — which dedupes nothing, and is
+  // the same mistake the backend's old server-side random RRN made.
+  const idemKeyRef = useRef(null);
+
   // Step A: user confirms amount -> show the UPI PIN pad (2nd factor)
   const handlePaymentProcess = (amount, isInvest = false) => {
     if (isFrozen) { triggerNotification("Blocked: Kill Switch is currently active", "alert"); return; }
     if (isAccountLocked) { triggerNotification("Blocked: Account is locked", "alert"); return; }
     setPinInput("");
+    idemKeyRef.current = newIdempotencyKey();  // this attempt starts here
     setPinModal({ amount, isInvest });        // open PIN entry screen
   };
 
@@ -335,6 +348,7 @@ function App() {
       const { ok, status, data } = await api.pay({
         sender_vpa: currentUser, receiver_vpa: receiver,
         amount, pin, channel: "MANUAL",
+        idempotency_key: idemKeyRef.current || newIdempotencyKey(),
         rooted: isDeviceRooted ? 1 : 0,
         screen_share: isActiveScreenShare ? 1 : 0,
       });

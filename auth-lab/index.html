@@ -1,0 +1,421 @@
+<meta charset="utf-8" />
+<title>Payit Auth Lab</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<script src="https://unpkg.com/@simplewebauthn/browser@10.0.0/dist/bundle/index.umd.min.js"></script>
+
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background:#08080a; color:#e8e8ea; font:14px/1.5 -apple-system,"Segoe UI",Roboto,sans-serif;
+         min-height:100vh; display:flex; align-items:center; justify-content:center; padding:20px; }
+
+  .phone { width:390px; height:760px; background:#0e0e11; border:1px solid #26262b;
+           border-radius:28px; overflow:hidden; display:flex; flex-direction:column;
+           box-shadow:0 24px 60px rgba(0,0,0,.6); }
+  .bar { padding:14px 18px; border-bottom:1px solid #1e1e24; display:flex; align-items:center;
+         gap:10px; flex-shrink:0; }
+  .bar b { font-size:14px; }
+  .back { background:none; border:none; color:#8a8a90; font-size:18px; cursor:pointer; padding:0 4px; }
+  .body { flex:1; overflow-y:auto; padding:18px; }
+
+  h2 { font-size:19px; margin-bottom:4px; }
+  .sub { color:#8a8a90; font-size:12px; margin-bottom:18px; }
+  label { display:block; font-size:11px; color:#8a8a90; margin:12px 0 5px; }
+  input { width:100%; padding:11px 13px; border-radius:10px; background:#141418;
+          border:1px solid #2e2e36; color:#fff; font-size:15px; }
+  button { width:100%; padding:12px; border-radius:11px; border:1px solid #2e2e36;
+           background:#1c1c22; color:#fff; font-size:14px; font-weight:600; cursor:pointer;
+           margin-top:10px; }
+  button:hover { background:#26262e; }
+  .primary { background:linear-gradient(135deg,#eb3b88,#aa33ff); border:none; }
+  .ghost { background:none; color:#8a8a90; border:none; font-size:12px; }
+  .err { color:#ff6b8a; font-size:12px; margin-top:10px; min-height:16px; }
+
+  .bal { background:linear-gradient(135deg,#1a1a2e,#16213e); border:1px solid #2a2a3e;
+         border-radius:16px; padding:18px; margin-bottom:14px; }
+  .bal .lbl { font-size:11px; color:#8a8a90; }
+  .bal .amt { font-size:30px; font-weight:800; margin-top:2px; }
+  .bal .who { font-size:12px; color:#a9a9b2; margin-top:4px; }
+
+  .tile { background:#141418; border:1px solid #26262b; border-radius:13px; padding:13px;
+          margin-bottom:9px; }
+  .tile .t { font-size:11px; color:#8a8a90; text-transform:uppercase; letter-spacing:.4px;
+             font-weight:700; margin-bottom:7px; }
+  .kv { display:grid; grid-template-columns:88px 1fr; gap:3px 8px; font-size:11.5px; }
+  .kv div:nth-child(odd) { color:#8a8a90; }
+  .kv div:nth-child(even) { word-break:break-all; }
+
+  .pill { display:inline-block; font-size:9.5px; font-weight:800; padding:2px 7px;
+          border-radius:20px; letter-spacing:.3px; }
+  .green{background:#12351f;color:#63e089} .amber{background:#3a2a10;color:#ffb454}
+  .red{background:#3a1220;color:#ff6b8a}  .grey{background:#212127;color:#9a9aa2}
+
+  .warn { border-color:#5a3a12; background:#241a08; }
+  .warn .t { color:#ffb454; }
+  .warn ul { margin:0 0 0 15px; font-size:12px; color:#ffce8a; }
+
+  .res { text-align:center; padding:26px 0 14px; }
+  .res .ico { font-size:46px; }
+  .res .big { font-size:26px; font-weight:800; margin-top:6px; }
+  .res .who2 { font-size:13px; color:#a9a9b2; margin-top:2px; }
+  .res .msg { font-size:12px; margin-top:10px; padding:0 8px; line-height:1.5; }
+
+  .rsn { font-size:12px; color:#d8d8dc; margin:5px 0 0 14px; }
+  .step { display:flex; gap:8px; font-size:11.5px; color:#8a8a90; margin-top:6px; }
+  .step b { color:#e8e8ea; font-weight:600; }
+</style>
+
+<div class="phone">
+  <div class="bar">
+    <button class="back" id="back" style="display:none">‹</button>
+    <b id="title">payit</b>
+    <span style="margin-left:auto" class="pill grey" id="devPill">device: —</span>
+  </div>
+  <div class="body" id="body"></div>
+</div>
+
+<script>
+const API = "http://localhost:8000";
+let TOKEN = null, USER = null, LAST = null;
+const $ = (id) => document.getElementById(id);
+
+/* ── fingerprint: recomputed EVERY call, never cached. It is a risk SIGNAL that
+      the server scores against the baseline stored with your passkey — the
+      identity itself comes from the passkey, never from this. ─────────────── */
+function fingerprint() {
+  let canvas = "";
+  try {
+    const c = document.createElement("canvas"), x = c.getContext("2d");
+    x.textBaseline = "top"; x.font = "14px Arial"; x.fillText("payit-fp", 2, 2);
+    const d = c.toDataURL(); let h = 0;
+    for (let i = 0; i < d.length; i++) h = (h * 31 + d.charCodeAt(i)) | 0;
+    canvas = Math.abs(h).toString(36);
+  } catch {}
+  return { ua: navigator.userAgent, lang: navigator.language,
+           screen: `${screen.width}x${screen.height}`,
+           tz: Intl.DateTimeFormat().resolvedOptions().timeZone, canvas };
+}
+
+async function api(path, body, auth) {
+  const h = { "Content-Type": "application/json" };
+  if (auth && TOKEN) h["Authorization"] = `Bearer ${TOKEN}`;
+  const r = await fetch(API + path, { method: "POST", headers: h, body: JSON.stringify(body) });
+  return { ok: r.ok, status: r.status, data: await r.json().catch(() => ({})) };
+}
+const money = (n) => "₹" + Number(n).toLocaleString("en-IN");
+
+/* ───────────────────────────── router ───────────────────────────── */
+const stack = [];
+const NEW = {};                 // in-progress signup (phone, name, bank, vpa…)
+function go(screen, replace) {
+  if (replace) stack.pop();
+  stack.push(screen);
+  render();
+}
+function back() { stack.pop(); render(); }
+$("back").onclick = back;
+
+function render() {
+  const s = stack[stack.length - 1] || "login";
+  $("back").style.display = stack.length > 1 ? "block" : "none";
+  $("title").textContent = { login:"payit", home:"Home", pay:"Send money",
+                             result:"Payment", device:"Device security",
+                             phone:"Create account", otp:"Verify number",
+                             details:"Your account", pins:"Set your PINs" }[s] || "payit";
+  $("devPill").textContent = USER ? "device: bound" : "device: —";
+  $("devPill").className = "pill " + (USER ? "green" : "grey");
+  ({ login: Login, home: Home, pay: Pay, result: Result, device: Device,
+     phone: Phone, otp: Otp, details: Details, pins: Pins }[s] || Login)();
+}
+
+/* ───────────────────────────── 1. LOGIN ───────────────────────────── */
+function Login() {
+  $("body").innerHTML = `
+    <h2>Welcome back</h2>
+    <div class="sub">Sign in with your UPI ID and app PIN, or your passkey.</div>
+    <label>UPI ID</label><input id="vpa" value="omsawant@okicici" />
+    <label>App PIN (4-digit)</label><input id="pin" type="password" value="1234" />
+    <button class="primary" id="b1">Login</button>
+    <button id="b2">Login with passkey (Touch ID)</button>
+    <button class="ghost" id="b3">Bind a passkey to this device (needs your PIN)</button>
+    <button class="ghost" id="b4" style="color:#eb3b88">New here? Create an account →</button>
+    <div class="err" id="err"></div>`;
+  $("b4").onclick = () => go("phone");
+
+  $("b1").onclick = async () => {
+    $("err").textContent = "Checking…";
+    const r = await api("/auth/login", { vpa: $("vpa").value, pin: $("pin").value, device_id: "authlab" });
+    if (!r.ok) return $("err").textContent = r.data.detail || "Login failed";
+    TOKEN = r.data.token; USER = { ...r.data, proof: "PIN" };
+    go("home", true);
+  };
+  $("b2").onclick = async () => {
+    const vpa = $("vpa").value;
+    $("err").textContent = "Waiting for Touch ID…";
+    try {
+      const o = await api("/auth/webauthn/login-options", { vpa });
+      if (!o.ok) return $("err").textContent = o.data.detail || "No passkey — register one first";
+      const cred = await SimpleWebAuthnBrowser.startAuthentication(o.data);
+      const r = await api("/auth/webauthn/login-verify", { vpa, credential: cred, fingerprint: fingerprint() });
+      if (!r.ok) return $("err").textContent = r.data.detail || "Passkey failed";
+      TOKEN = r.data.token; USER = { ...r.data, proof: "Passkey" };
+      go("home", true);
+    } catch (e) { $("err").textContent = String(e.message || e); }
+  };
+  $("b3").onclick = async () => {
+    const vpa = $("vpa").value;
+    // Enrolment needs a session: a passkey is only ever as strong as whatever was
+    // allowed to enrol it. This used to bind a key to any VPA with no credential at
+    // all — and a VPA is public, you hand it out to get paid — so anyone could enrol
+    // their own authenticator on your account and then log in as you. The PIN
+    // bootstraps the passkey; the passkey replaces the PIN afterwards.
+    $("err").textContent = "Checking PIN…";
+    const li = await api("/auth/login", { vpa, pin: $("pin").value, device_id: "authlab" });
+    if (!li.ok) return $("err").textContent = li.data.detail || "Your PIN is needed to bind a passkey";
+    TOKEN = li.data.token;
+    $("err").textContent = "Waiting for Touch ID…";
+    try {
+      const o = await api("/auth/webauthn/register-options", { vpa }, true);
+      if (!o.ok) return $("err").textContent = o.data.detail || "Failed";
+      const cred = await SimpleWebAuthnBrowser.startRegistration(o.data);
+      const r = await api("/auth/webauthn/register-verify",
+                          { vpa, credential: cred, fingerprint: fingerprint() }, true);
+      $("err").textContent = r.ok ? "✅ Passkey bound to this device — now tap “Login with passkey”"
+                                  : (r.data.detail || "Failed");
+    } catch (e) { $("err").textContent = String(e.message || e); }
+  };
+}
+
+/* ───────────────────────────── 2. HOME ───────────────────────────── */
+function Home() {
+  $("body").innerHTML = `
+    <div class="bal">
+      <div class="lbl">Available balance</div>
+      <div class="amt">${money(USER.balance ?? 0)}</div>
+      <div class="who">${USER.name} · ${USER.vpa}</div>
+    </div>
+    <button class="primary" id="p">Send money</button>
+    <button id="d">Device & security</button>
+    <button class="ghost" id="o">Log out</button>`;
+  $("p").onclick = () => go("pay");
+  $("d").onclick = () => go("device");
+  $("o").onclick = () => { TOKEN = null; USER = null; stack.length = 0; go("login"); };
+}
+
+/* ───────────────────────────── 3. PAY ───────────────────────────── */
+function Pay() {
+  $("body").innerHTML = `
+    <label>Pay to (UPI ID)</label>
+    <input id="to" value="sunita.sawant@oksbi" />
+    <button class="ghost" id="chk" style="text-align:left">Check this payee →</button>
+    <div id="risk"></div>
+    <label>Amount</label><input id="amt" value="700" />
+    <label>UPI PIN (6-digit)</label><input id="upin" type="password" value="123456" />
+    <button class="primary" id="go">Pay</button>
+    <button class="ghost" id="mule">Try paying a known mule →</button>
+    <div class="err" id="err"></div>`;
+
+  const check = async () => {
+    const r = await api("/precheck", { sender_vpa: USER.vpa, receiver_vpa: $("to").value });
+    if (!r.ok) return $("risk").innerHTML = "";
+    const d = r.data;
+    $("risk").innerHTML = d.warn
+      ? `<div class="tile warn"><div class="t">⚠️ ${d.risk_level} risk — ${d.receiver_name}</div>
+         <ul>${d.reasons.map(x => `<li>${x}</li>`).join("")}</ul></div>`
+      : `<div class="tile"><div class="t">✅ ${d.receiver_name} <span class="pill green">looks clean</span></div>
+         <div class="kv"><div>account age</div><div>${d.receiver_age_days} days</div></div></div>`;
+  };
+  $("chk").onclick = check;
+  $("to").onblur = check;
+  check();
+
+  const pay = async (to) => {
+    $("err").textContent = "Running fraud engine…";
+    const r = await api("/pay", { sender_vpa: USER.vpa, receiver_vpa: to,
+      amount: Number($("amt").value), pin: $("upin").value,
+      device_id: "authlab", type: "PAY", channel: "MANUAL" }, true);
+    if (!r.ok && !r.data.label) return $("err").textContent = r.data.detail || "Payment failed";
+    LAST = { ...r.data, to, amount: Number($("amt").value) };
+    if (r.data.sender_balance != null) USER.balance = r.data.sender_balance;
+    go("result");
+  };
+  $("go").onclick = () => pay($("to").value);
+  $("mule").onclick = () => pay("cash.quick777@paytm");   // L1 collector, fresh + blacklisted
+}
+
+/* ───────────────────────────── 4. RESULT ───────────────────────────── */
+function Result() {
+  const l = LAST.label;
+  const skin = l === "BLOCK"  ? { i:"🛑", c:"#ff6b8a", p:"red",   h:"Blocked" }
+             : l === "REVIEW" ? { i:"⏳", c:"#ffb454", p:"amber", h:"Needs verification" }
+             : LAST.post_review ? { i:"⚠️", c:"#ffb454", p:"amber", h:"Paid — but flagged" }
+             :                  { i:"✅", c:"#63e089", p:"green", h:"Paid" };
+  $("body").innerHTML = `
+    <div class="res">
+      <div class="ico">${skin.i}</div>
+      <div class="big" style="color:${skin.c}">${skin.h} ${money(LAST.amount)}</div>
+      <div class="who2">to ${LAST.to}</div>
+      <div class="msg" style="color:${skin.c}">${LAST.post_message || LAST.message || ""}</div>
+    </div>
+    <div class="tile">
+      <div class="t">Fraud engine <span class="pill ${skin.p}">${l} · ${LAST.score}/100</span></div>
+      ${(LAST.reasons || []).slice(0,5).map(r => `<div class="rsn">• ${r}</div>`).join("") || `<div class="rsn">• no risk signals fired</div>`}
+      <div class="step" style="margin-top:9px">
+        <b>&lt;35</b> safe <b>·</b> <b>35–59</b> verify <b>·</b> <b>60+</b> block
+      </div>
+    </div>
+    ${l === "BLOCK" ? `<div class="tile"><div class="t">Your money</div>
+        <div class="rsn">• Not deducted — the debit never ran</div>
+        <div class="rsn">• Alert raised to the bank's fraud team</div></div>` : ""}
+    ${LAST.post_review ? `<button class="primary" id="rc">Recall this payment</button>` : ""}
+    <button id="h">Back to home</button>
+    <div class="err" id="err"></div>`;
+  $("h").onclick = () => { stack.length = 0; go("home"); };
+  if ($("rc")) $("rc").onclick = async () => {
+    const r = await api(`/pay/recall/${LAST.transaction_id}`, {}, true);
+    if (r.ok) { USER.balance = r.data.sender_balance; $("err").textContent = "✅ " + r.data.message; }
+    else $("err").textContent = r.data.detail || "Recall failed";
+  };
+}
+
+/* ═════════════════ ONBOARDING — the real UPI shape ═════════════════
+   Real UPI proves the SIM is physically in the device via an automated outbound
+   encrypted SMS (the "first factor", and the PSP's sole liability). A web app
+   cannot touch the SIM, so we substitute an inbound OTP: that proves you own the
+   NUMBER, not that the SIM is in THIS device — weaker, and we say so out loud.
+   The device factor is then done properly by the passkey (hardware-backed).   */
+
+/* ── A. phone ── */
+function Phone() {
+  $("body").innerHTML = `
+    <h2>Enter your mobile</h2>
+    <div class="sub">We'll send a 6-digit code to verify it's you.</div>
+    <label>Mobile number</label><input id="ph" placeholder="9876543210" maxlength="10" />
+    <button class="primary" id="n">Send code</button>
+    <div class="tile" style="margin-top:14px">
+      <div class="t">Step 1 of 4 — number</div>
+      <div class="step">Real UPI sends an <b>outbound SMS from your SIM</b> to prove the SIM sits in this
+        phone. The web can't read the SIM, so we verify the number by OTP instead — and bind the
+        <b>device</b> separately with a passkey.</div>
+    </div>
+    <div class="err" id="err"></div>`;
+  $("n").onclick = async () => {
+    const p = $("ph").value.replace(/\D/g, "");
+    if (p.length !== 10) return $("err").textContent = "Enter a 10-digit mobile number";
+    $("err").textContent = "Generating code…";
+    const r = await api("/auth/send-otp", { phone: p });
+    if (!r.ok) return $("err").textContent = r.data.detail || "Failed to send";
+    NEW.phone = p; NEW.otpDemo = r.data.otp_demo;
+    go("otp");
+  };
+}
+
+/* ── B. otp ── */
+function Otp() {
+  $("body").innerHTML = `
+    <h2>Verify your number</h2>
+    <div class="sub">Code generated for +91 ****${NEW.phone.slice(-4)} — <b>not sent by SMS</b></div>
+    <label>6-digit code</label><input id="c" maxlength="6" inputmode="numeric" />
+    ${NEW.otpDemo ? `<div class="tile warn" style="margin-top:10px">
+      <div class="t">demo code: ${NEW.otpDemo}</div>
+      <div class="step"><b>No SMS was sent.</b> Delivering an OTP to an Indian number needs TRAI
+        <b>DLT registration</b> of the sender and the template, which needs a registered business —
+        so the code is shown here and printed to the server log instead. Everything else on this
+        screen (code generation, expiry, attempt limits) is real; only delivery is stubbed.</div></div>` : ""}
+    <button class="primary" id="n">Verify</button>
+    <div class="err" id="err"></div>`;
+  $("n").onclick = async () => {
+    $("err").textContent = "Checking…";
+    const r = await api("/auth/verify-otp", { phone: NEW.phone, code: $("c").value });
+    if (!r.ok) return $("err").textContent = r.data.detail || "Wrong code";
+    go("details");
+  };
+}
+
+/* ── C. name + bank + vpa ── */
+async function Details() {
+  $("body").innerHTML = `
+    <h2>Your account</h2>
+    <div class="sub">Pick your bank and claim a UPI ID.</div>
+    <label>Full name</label><input id="nm" placeholder="Om Sawant" />
+    <label>Bank</label>
+    <select id="bk" style="width:100%;padding:11px 13px;border-radius:10px;background:#141418;
+            border:1px solid #2e2e36;color:#fff;font-size:15px"></select>
+    <label>UPI ID</label>
+    <div style="display:flex;align-items:center;gap:6px">
+      <input id="vp" placeholder="yourname" style="flex:1" />
+      <span id="hd" style="color:#8a8a90;font-size:14px">@—</span>
+    </div>
+    <button class="primary" id="n">Continue</button>
+    <div class="err" id="err"></div>`;
+  const r = await fetch(API + "/banks").then(x => x.json()).catch(() => []);
+  NEW.banks = r;
+  $("bk").innerHTML = r.map(b => `<option value="${b.id}" data-h="${b.upi_handle}">${b.name}</option>`).join("");
+  const setH = () => $("hd").textContent = "@" + $("bk").selectedOptions[0].dataset.h;
+  $("bk").onchange = setH; setH();
+  $("n").onclick = () => {
+    const local = $("vp").value.trim().toLowerCase().replace(/[^a-z0-9.]/g, "");
+    if (!$("nm").value.trim()) return $("err").textContent = "Enter your name";
+    if (local.length < 3) return $("err").textContent = "UPI ID must be at least 3 characters";
+    NEW.name = $("nm").value.trim();
+    NEW.bank_id = Number($("bk").value);
+    NEW.vpa = local + "@" + $("bk").selectedOptions[0].dataset.h;
+    go("pins");
+  };
+}
+
+/* ── D. pins ── */
+function Pins() {
+  $("body").innerHTML = `
+    <h2>Set your PINs</h2>
+    <div class="sub">${NEW.vpa}</div>
+    <label>App login PIN (4-digit)</label><input id="lp" type="password" maxlength="4" inputmode="numeric" />
+    <label>UPI payment PIN (6-digit)</label><input id="up" type="password" maxlength="6" inputmode="numeric" />
+    <div class="tile" style="margin-top:12px">
+      <div class="t">Step 4 of 4 — how these are stored</div>
+      <div class="step">Both are hashed with <b>Argon2id</b> and a server-side <b>pepper</b> kept out of the
+        database, then rate-limited to 3 attempts. In real UPI the UPI-PIN never reaches the app at
+        all (NPCI's Common Library captures it) — so this is a <b>simulated</b> app PIN, not a UPI PIN.</div>
+    </div>
+    <button class="primary" id="n">Create account</button>
+    <div class="err" id="err"></div>`;
+  $("n").onclick = async () => {
+    if ($("lp").value.length !== 4) return $("err").textContent = "App PIN must be 4 digits";
+    if ($("up").value.length !== 6) return $("err").textContent = "UPI PIN must be 6 digits";
+    $("err").textContent = "Creating…";
+    const r = await api("/auth/register", {
+      phone: NEW.phone, name: NEW.name, vpa: NEW.vpa, bank_id: NEW.bank_id,
+      upi_pin: $("up").value, login_pin: $("lp").value, device_id: "authlab",
+    });
+    if (!r.ok) return $("err").textContent = r.data.detail || "Registration failed";
+    TOKEN = r.data.token;
+    USER = { ...r.data, proof: "PIN" };
+    stack.length = 0;
+    go("home");
+  };
+}
+
+/* ───────────────────────────── 5. DEVICE ───────────────────────────── */
+function Device() {
+  const fp = fingerprint();
+  $("body").innerHTML = `
+    <div class="tile">
+      <div class="t">Identity — how you were proved</div>
+      <div class="kv"><div>method</div><div>${USER.proof}
+        <span class="pill ${USER.proof === "Passkey" ? "green" : "amber"}">
+          ${USER.proof === "Passkey" ? "hardware-backed" : "knowledge factor"}</span></div>
+        <div>drift</div><div>${USER.fingerprint_drift ? USER.fingerprint_drift.drift_score + "/100" : "—"}</div></div>
+      <div class="step">A passkey's private key lives in this device's secure hardware and never leaves it, so the device <b>proves</b> itself by signature.</div>
+    </div>
+    <div class="tile">
+      <div class="t">Fingerprint <span class="pill amber">signal, not proof</span></div>
+      <div class="kv">${Object.entries(fp).map(([k,v]) =>
+        `<div>${k}</div><div>${String(v).slice(0,44)}</div>`).join("")}</div>
+      <div class="step">Recomputed every call — never cached. Only used to score <b>drift</b> against the baseline saved with your passkey.</div>
+    </div>
+    <button id="h">Back</button>`;
+  $("h").onclick = back;
+}
+
+go("login");
+</script>

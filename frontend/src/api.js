@@ -39,10 +39,26 @@ export function saveSession(vpa) { localStorage.setItem("payit_session_vpa", vpa
 export function getSession() { return localStorage.getItem("payit_session_vpa") || ""; }
 export function clearSession() { localStorage.removeItem("payit_session_vpa"); }
 
+// ---- session token ----
+// The backend protects /pay, /balance, /transactions, /pay/verify-otp,
+// /pay/recall and /auth/set-pin with a Bearer token. Without this header those
+// all return 401 "Not authenticated" — i.e. the app cannot pay at all.
+let TOKEN = localStorage.getItem("payit_token") || null;
+export function setToken(t) {
+  TOKEN = t || null;
+  if (t) localStorage.setItem("payit_token", t);
+  else localStorage.removeItem("payit_token");
+}
+export function getToken() { return TOKEN; }
+
+function authHeaders() {
+  return TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {};
+}
+
 async function post(path, body) {
   const res = await fetch(BASE + path, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify(body),
   });
   const data = await res.json().catch(() => ({}));
@@ -50,8 +66,20 @@ async function post(path, body) {
 }
 
 async function get(path) {
-  const res = await fetch(BASE + path);
+  const res = await fetch(BASE + path, { headers: authHeaders() });
   return { ok: res.ok, data: await res.json().catch(() => ({})) };
+}
+
+// ---- idempotency key ----
+// Must be created ONCE per payment attempt and stay the SAME across every retry
+// of that attempt, otherwise it cannot dedupe anything. Generating it inside
+// pay() would hand out a fresh key per call and repeat the exact mistake the
+// backend's old RRN made (random.randint per request, so a double-tap produced
+// two ids and nothing ever collided). Call this when the user opens the confirm
+// screen; pass the same value to every retry.
+export function newIdempotencyKey() {
+  return (crypto.randomUUID?.() ??
+          `k-${Date.now()}-${Math.random().toString(36).slice(2)}`);
 }
 
 export const api = {
@@ -80,11 +108,13 @@ export const api = {
   // Payments — RASP fields (rooted, screen_share) are forwarded to fraud engine
   pay: ({ sender_vpa, receiver_vpa, amount, pin,
           type = "PAY", channel = "MANUAL",
-          rooted = 0, screen_share = 0, sim_mismatch = 0 }) =>
+          rooted = 0, screen_share = 0, sim_mismatch = 0,
+          idempotency_key = "" }) =>
     post("/pay", {
       sender_vpa, receiver_vpa, amount, pin,
       device_id: getDeviceId(),
       type, channel,
+      idempotency_key, // same value on every retry of ONE attempt, else no dedupe
       rooted,       // 1 = rooted/Xposed/emulator detected by app RASP
       screen_share, // 1 = AnyDesk/TeamViewer screen sharing active
       sim_mismatch, // 1 = SIM number ≠ carrier records

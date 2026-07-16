@@ -3,423 +3,610 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Fraud Shield · Score Analyser</title>
+<title>UPI Fraud Shield · App & Control Room</title>
 <style>
-  /* ---- control-room theme (deliberately dark) ---------------------------- */
   :root{
-    --plane:#0d0d0d; --surface:#1a1a19; --surface-2:#222220;
-    --ink:#ffffff; --ink-2:#c3c2b7; --muted:#898781;
-    --grid:#2c2c2a; --line:#383835; --border:rgba(255,255,255,.10);
-    /* status (fixed, never themed) */
-    --good:#0ca30c; --warn:#fab219; --serious:#ec835a; --crit:#d03b3b;
-    /* categorical layer accents */
-    --app:#3987e5; --backend:#199e70; --engine:#9085e9; --decision:#d95926;
-    --shadow:0 1px 0 rgba(255,255,255,.03), 0 8px 30px rgba(0,0,0,.45);
+    --plane:#0a0a0c; --surface:#131316; --surface-2:#1c1c21;
+    --ink:#ffffff; --ink-2:#b5b6bc; --muted:#76777e;
+    --grid:#282930; --line:#33343d; --border:rgba(255,255,255,.08);
+    --app:#2f80ed; --engine:#9b51e0; --decision:#eb5757;
+    --good:#27ae60; --warn:#f2994a; --crit:#eb5757;
+    --shadow:0 8px 32px rgba(0,0,0,.5);
   }
   *{box-sizing:border-box}
-  html,body{margin:0;height:100%}
-  body{
-    background:
-      radial-gradient(1200px 600px at 80% -10%, rgba(57,135,229,.10), transparent 60%),
-      var(--plane);
-    color:var(--ink);
-    font-family:system-ui,-apple-system,"Segoe UI",sans-serif;
-    font-size:14px; line-height:1.45; -webkit-font-smoothing:antialiased;
-  }
+  html,body{margin:0;height:100%;background:var(--plane);color:var(--ink);font-family:system-ui,-apple-system,sans-serif;font-size:14px}
   .tnum{font-variant-numeric:tabular-nums}
-  h1,h2,h3{margin:0;font-weight:650;letter-spacing:-.01em}
   a{color:var(--app);text-decoration:none}
-
-  /* ---- top bar ----------------------------------------------------------- */
+  
+  /* Tabs */
   header{
-    display:flex;align-items:center;gap:14px;
-    padding:14px 22px;border-bottom:1px solid var(--border);
-    background:linear-gradient(180deg,rgba(255,255,255,.02),transparent);
-    position:sticky;top:0;z-index:20;backdrop-filter:blur(8px);
+    display:flex;align-items:center;justify-content:space-between;
+    padding:12px 24px;border-bottom:1px solid var(--border);
+    background:rgba(19,19,22,.8);backdrop-filter:blur(8px);
+    position:sticky;top:0;z-index:100;
   }
-  .brand{display:flex;align-items:center;gap:11px}
-  .shield{
-    width:34px;height:34px;border-radius:9px;display:grid;place-items:center;
-    background:linear-gradient(140deg,var(--app),var(--engine));
-    box-shadow:0 4px 14px rgba(57,135,229,.4);font-size:18px;
-  }
-  .brand small{display:block;color:var(--muted);font-size:11px;letter-spacing:.08em;text-transform:uppercase}
-  .brand strong{font-size:15px}
-  .livepill{
-    margin-left:auto;display:flex;align-items:center;gap:7px;color:var(--ink-2);
-    font-size:12px;border:1px solid var(--border);border-radius:999px;padding:5px 12px;
-    background:var(--surface);
-  }
-  .dot{width:8px;height:8px;border-radius:50%;background:var(--good);box-shadow:0 0 0 0 rgba(12,163,12,.6);animation:pulse 1.8s infinite}
-  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(12,163,12,.5)}70%{box-shadow:0 0 0 7px rgba(12,163,12,0)}100%{box-shadow:0 0 0 0 rgba(12,163,12,0)}}
-
-  /* ---- count tiles ------------------------------------------------------- */
-  .tiles{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;padding:16px 22px 4px}
-  .tile{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:13px 15px;box-shadow:var(--shadow)}
-  .tile .k{color:var(--muted);font-size:11px;letter-spacing:.06em;text-transform:uppercase}
-  .tile .v{font-size:26px;font-weight:680;margin-top:4px}
-  .tile .v small{font-size:13px;color:var(--muted);font-weight:500}
-  .tile.good .v{color:var(--good)} .tile.warn .v{color:var(--warn)} .tile.crit .v{color:var(--crit)}
-
-  /* ---- layout ------------------------------------------------------------ */
-  main{display:grid;grid-template-columns:340px 1fr 320px;gap:16px;padding:16px 22px 40px;align-items:start}
-  .panel{background:var(--surface);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow)}
-  .panel h2{font-size:13px;letter-spacing:.04em;color:var(--ink-2);padding:14px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px}
-  .panel .body{padding:15px 16px}
-
-  /* ---- form -------------------------------------------------------------- */
-  label.f{display:block;margin:0 0 12px}
-  label.f span{display:block;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px}
+  .brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:16px}
+  .brand i{background:linear-gradient(135deg,var(--app),var(--engine));width:28px;height:28px;border-radius:8px;display:grid;place-items:center;font-style:normal}
+  .tabs{display:flex;gap:6px;background:var(--surface-2);padding:4px;border-radius:9px;border:1px solid var(--border)}
+  .tab-btn{border:0;background:none;color:var(--muted);padding:6px 14px;border-radius:6px;font-weight:600;cursor:pointer;transition:all .15s}
+  .tab-btn.active{background:var(--surface);color:var(--ink);box-shadow:0 2px 8px rgba(0,0,0,.3)}
+  
+  /* Container layout */
+  .container{max-width:1200px;margin:24px auto;padding:0 24px;display:none}
+  .container.active{display:block}
+  
+  /* App view split layout */
+  .app-grid{display:grid;grid-template-columns:420px 1fr;gap:24px;align-items:start}
+  
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:20px;box-shadow:var(--shadow);margin-bottom:20px}
+  .card h2{font-size:15px;margin:0 0 16px;color:var(--ink);display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--border);padding-bottom:10px}
+  
+  /* Forms */
+  label.field{display:block;margin-bottom:14px}
+  label.field span{display:block;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px;font-weight:600}
   input,select{
     width:100%;background:var(--surface-2);border:1px solid var(--border);color:var(--ink);
-    border-radius:9px;padding:9px 11px;font:inherit;outline:none;transition:border-color .15s,box-shadow .15s;
+    border-radius:8px;padding:10px 12px;font:inherit;outline:none;transition:border-color .15s;
   }
-  input:focus,select:focus{border-color:var(--app);box-shadow:0 0 0 3px rgba(57,135,229,.18)}
-  .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-  .toggles{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:2px 0 14px}
-  .tog{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ink-2);background:var(--surface-2);border:1px solid var(--border);border-radius:9px;padding:8px 10px;cursor:pointer;user-select:none}
-  .tog input{width:auto;accent-color:var(--crit)}
-  .run{
-    width:100%;border:0;border-radius:10px;padding:12px;font:inherit;font-weight:650;cursor:pointer;
-    color:#fff;background:linear-gradient(135deg,var(--app),var(--engine));box-shadow:0 6px 18px rgba(57,135,229,.35);
-    transition:transform .08s, filter .15s;
+  input:focus,select:focus{border-color:var(--app)}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  
+  .btn{
+    width:100%;border:0;border-radius:8px;padding:12px;font:inherit;font-weight:700;cursor:pointer;
+    color:#fff;background:linear-gradient(135deg,var(--app),var(--engine));transition:filter .1s;
   }
-  .run:hover{filter:brightness(1.07)} .run:active{transform:translateY(1px)}
-  .run[disabled]{opacity:.6;cursor:progress}
-  .presets{display:flex;flex-wrap:wrap;gap:7px;margin-top:13px}
-  .presets button{
-    font:inherit;font-size:11.5px;color:var(--ink-2);background:var(--surface-2);
-    border:1px solid var(--border);border-radius:999px;padding:6px 11px;cursor:pointer;transition:all .12s;
-  }
-  .presets button:hover{border-color:var(--app);color:var(--ink)}
+  .btn:hover{filter:brightness(1.15)}
+  .btn.sec{background:var(--surface-2);border:1px solid var(--border);color:var(--ink-2)}
+  .btn[disabled]{opacity:.5;cursor:progress}
+  
+  .toggles{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0}
+  .tog{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ink-2);background:var(--surface-2);border:1px solid var(--border);border-radius:8px;padding:8px 10px;cursor:pointer;user-select:none}
+  .tog input{width:auto}
+  
+  /* History list */
+  .history-item{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-radius:10px;background:var(--surface-2);border:1px solid var(--border);margin-bottom:8px}
+  .history-item .details b{display:block;font-size:13px;color:var(--ink)}
+  .history-item .details span{font-size:11px;color:var(--muted)}
+  .history-item .right-side{text-align:right}
+  .history-item .amt{font-weight:700;font-size:14px}
+  .history-item .status-badge{font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;display:inline-block;margin-top:2px;text-transform:uppercase}
+  .status-badge.success{background:rgba(39,174,96,.15);color:var(--good)}
+  .status-badge.pending{background:rgba(242,153,74,.15);color:var(--warn)}
+  .status-badge.rejected{background:rgba(235,87,87,.15);color:var(--crit)}
+  .status-badge.recalled{background:rgba(155,81,224,.15);color:var(--engine)}
+  
+  .recall-btn{background:rgba(235,87,87,.12);border:1px solid var(--crit);color:var(--crit);font-size:11px;padding:3px 8px;border-radius:4px;cursor:pointer;margin-top:4px}
+  .recall-btn:hover{background:var(--crit);color:#fff}
+  
+  /* Monitor tiles */
+  .tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:20px}
+  .tile{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px;box-shadow:var(--shadow)}
+  .tile .lbl{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.05em}
+  .tile .val{font-size:24px;font-weight:700;margin-top:4px}
+  .tile.good .val{color:var(--good)} .tile.warn .val{color:var(--warn)} .tile.crit .val{color:var(--crit)}
 
-  /* ---- pipeline / gauge -------------------------------------------------- */
-  .stage-head{display:flex;align-items:center;gap:16px;padding:16px 18px;border-bottom:1px solid var(--border)}
-  .gauge{position:relative;width:132px;height:132px;flex:0 0 auto}
+  /* Gauge */
+  .gauge-box{display:flex;align-items:center;gap:20px;margin-bottom:20px}
+  .gauge{position:relative;width:100px;height:100px}
   .gauge svg{transform:rotate(-90deg)}
   .gauge .num{position:absolute;inset:0;display:grid;place-content:center;text-align:center}
-  .gauge .num b{font-size:34px;font-weight:720;line-height:1}
-  .gauge .num em{font-style:normal;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;display:block;margin-top:3px}
-  .verdict{flex:1}
-  .verdict .label{display:inline-flex;align-items:center;gap:8px;font-size:22px;font-weight:720;letter-spacing:-.01em}
-  .verdict .sub{color:var(--muted);font-size:12.5px;margin-top:6px}
-  .chip{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;padding:3px 9px;border-radius:999px;border:1px solid var(--border)}
-
-  .flow{padding:8px 10px 16px}
-  .layer{margin:14px 8px 0}
-  .layer-title{display:flex;align-items:center;gap:9px;font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);margin:0 0 8px 4px}
-  .layer-title .tag{width:9px;height:9px;border-radius:3px}
-  .stage{
-    display:flex;gap:12px;align-items:flex-start;padding:11px 13px;margin-bottom:8px;border-radius:11px;
-    background:var(--surface-2);border:1px solid var(--border);border-left:3px solid var(--line);
-    opacity:0;transform:translateY(8px);transition:opacity .35s, transform .35s;
-  }
-  .stage.show{opacity:1;transform:none}
-  .stage .ic{width:26px;height:26px;border-radius:8px;display:grid;place-items:center;flex:0 0 auto;font-size:14px;font-weight:700}
-  .stage .st-t{font-weight:600;font-size:13.5px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-  .stage .st-d{color:var(--ink-2);font-size:12.5px;margin-top:3px}
-  .pts{margin-left:auto;font-weight:680;font-size:14px;flex:0 0 auto;padding-left:12px}
-  .stage.pass{border-left-color:var(--good)} .stage.pass .ic{background:rgba(12,163,12,.15);color:var(--good)}
-  .stage.warn{border-left-color:var(--warn)} .stage.warn .ic{background:rgba(250,178,25,.15);color:var(--warn)}
-  .stage.fail{border-left-color:var(--crit)} .stage.fail .ic{background:rgba(208,59,59,.18);color:var(--crit)}
+  .gauge .num b{font-size:26px;font-weight:800}
+  
+  /* Trace stages */
+  .stage{display:flex;gap:12px;padding:10px 12px;background:var(--surface-2);border:1px solid var(--border);border-radius:10px;margin-bottom:8px;border-left:3px solid var(--line)}
+  .stage.pass{border-left-color:var(--good)}
+  .stage.warn{border-left-color:var(--warn)}
+  .stage.fail{border-left-color:var(--crit)}
+  .stage .st-title{font-weight:700;font-size:13px}
+  .stage .st-desc{font-size:12px;color:var(--ink-2);margin-top:2px}
+  .stage .pts{margin-left:auto;font-weight:700;font-size:13px}
   .pts.pos{color:var(--warn)} .pts.neg{color:var(--good)} .pts.hi{color:var(--crit)}
+  
+  .reasons{margin-top:12px;padding:12px;border-radius:10px;background:rgba(235,87,87,.06);border:1px solid rgba(235,87,87,.2)}
+  .reasons h4{font-size:11px;color:var(--warn);margin:0 0 6px;text-transform:uppercase}
+  .reasons li{font-size:12px;color:var(--ink-2)}
 
-  .reasons{margin:6px 8px 0;padding:12px 14px;border-radius:11px;background:rgba(208,59,59,.06);border:1px solid rgba(208,59,59,.25)}
-  .reasons h3{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--serious);margin-bottom:8px}
-  .reasons li{color:var(--ink-2);font-size:12.5px;margin-left:4px;padding:2px 0}
-  .ring{margin:10px 8px 0;padding:12px 14px;border-radius:11px;background:rgba(208,59,59,.09);border:1px solid rgba(208,59,59,.35);display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-  .ring .node{background:var(--crit);color:#fff;font-weight:600;font-size:12px;padding:4px 10px;border-radius:8px}
-  .ring .arrow{color:var(--crit);font-weight:700}
-
-  .placeholder{padding:60px 24px;text-align:center;color:var(--muted)}
-  .placeholder .big{font-size:40px;margin-bottom:10px;opacity:.5}
-
-  /* component bars */
-  .comps{display:grid;gap:9px;padding:6px 18px 16px}
-  .comp{display:grid;grid-template-columns:82px 1fr 40px;align-items:center;gap:10px;font-size:12px}
-  .comp .bar{height:8px;border-radius:6px;background:var(--surface-2);overflow:hidden}
-  .comp .bar i{display:block;height:100%;width:0;border-radius:6px;transition:width .6s ease}
-  .comp .lab{color:var(--muted)} .comp .val{text-align:right;font-weight:640}
-
-  /* ---- feed -------------------------------------------------------------- */
-  .feed{max-height:640px;overflow:auto}
-  .fitem{display:flex;gap:11px;align-items:center;padding:11px 15px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s}
-  .fitem:hover{background:var(--surface-2)}
-  .fitem .bd{min-width:0;flex:1}
-  .fitem .vpas{font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .fitem .vpas b{color:var(--ink)} .fitem .vpas span{color:var(--muted)}
-  .fitem .meta{color:var(--muted);font-size:11px;margin-top:2px}
-  .score-badge{flex:0 0 auto;width:38px;height:38px;border-radius:10px;display:grid;place-items:center;font-weight:700;font-size:14px;border:1px solid var(--border)}
-  .amt{flex:0 0 auto;font-weight:640;font-size:12.5px;color:var(--ink-2)}
-
-  @media (max-width:1140px){ main{grid-template-columns:1fr} .tiles{grid-template-columns:repeat(3,1fr)} }
+  .device-banner{background:var(--surface-2);border:1px solid var(--border);border-radius:8px;padding:8px 12px;font-size:12px;display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
 </style>
 </head>
 <body>
+
   <header>
-    <div class="brand">
-      <div class="shield">🛡️</div>
-      <div><strong>UPI Fraud Shield</strong><small>Transaction Score Analyser</small></div>
+    <div class="brand"><i>🛡️</i> UPI Fraud Shield</div>
+    <div class="tabs">
+      <button class="tab-btn active" onclick="switchTab('app')">📱 Customer App</button>
+      <button class="tab-btn" onclick="switchTab('monitor')">🔬 Risk Monitor</button>
     </div>
-    <div class="livepill"><span class="dot"></span> Live · engine online</div>
   </header>
 
-  <section class="tiles" id="tiles"></section>
+  <!-- ==================== TAB 1: CUSTOMER APP ==================== -->
+  <div class="container active" id="tab-app">
+    <div class="app-grid">
+      <!-- Left side: User details & Onboarding/Login -->
+      <div>
+        <!-- Profile / Auth Card -->
+        <div class="card" id="profile-card">
+          <h2>👤 User Profile</h2>
+          <div id="auth-unlogged">
+            <label class="field"><span>Enter VPA (UPI ID)</span>
+              <input id="login-vpa" placeholder="e.g. ravi2@okpnb" value="ravi2@okpnb"></label>
+            <label class="field"><span>PIN</span>
+              <input id="login-pin" type="password" placeholder="4-Digit Pin" value="1234" maxlength="4"></label>
+            <button class="btn" onclick="login()">Access Account</button>
+          </div>
+          <div id="auth-logged" style="display:none">
+            <div style="font-weight:700;font-size:16px" id="user-vpa-display">VPA: ---</div>
+            <div style="font-size:12px;color:var(--muted);margin-top:2px" id="user-name-display">Name: ---</div>
+            <div style="font-size:24px;font-weight:800;color:var(--good);margin-top:8px" id="user-bal-display">₹0.00</div>
+            
+            <div class="device-banner" style="margin-top:14px">
+              <div>Device ID: <code id="device-id-display" class="tnum">---</code></div>
+              <button onclick="simulateNewDevice()" style="background:none;border:0;color:var(--app);cursor:pointer;font-size:11px;font-weight:700">Simulate New</button>
+            </div>
+            <button class="btn sec" onclick="logout()" style="margin-top:8px">Switch Account (Logout)</button>
+          </div>
+        </div>
 
-  <main>
-    <!-- ---------------- left: input ---------------- -->
-    <section class="panel">
-      <h2>▶ Simulate / Replay a Transaction</h2>
-      <div class="body">
-        <div class="row2">
-          <label class="f"><span>Sender VPA</span><input id="sender" value="isha1@oksbi"></label>
-          <label class="f"><span>UPI PIN</span><input id="pin" value="1234" maxlength="6"></label>
-        </div>
-        <label class="f"><span>Receiver VPA</span><input id="receiver" value="simran3@ybl"></label>
-        <div class="row2">
-          <label class="f"><span>Amount (₹)</span><input id="amount" type="number" value="1500"></label>
-          <label class="f"><span>Device ID</span><input id="device" value="dev_0001"></label>
-        </div>
-        <div class="row2">
-          <label class="f"><span>Type</span>
-            <select id="type"><option>PAY</option><option>COLLECT</option><option>MANDATE</option></select></label>
-          <label class="f"><span>Channel</span>
-            <select id="channel"><option>MANUAL</option><option>QR</option><option>INTENT</option><option>CONTACT</option></select></label>
-        </div>
-        <div class="toggles">
-          <label class="tog"><input type="checkbox" id="rooted"> Rooted device</label>
-          <label class="tog"><input type="checkbox" id="screen_share"> Screen-share</label>
-          <label class="tog"><input type="checkbox" id="reverse"> Reverse pay</label>
-          <label class="tog"><input type="checkbox" id="sim_mismatch"> SIM mismatch</label>
-        </div>
-        <button class="run" id="run">Run Score Analysis</button>
-        <div class="presets">
-          <button data-preset="safe">✅ Normal pay</button>
-          <button data-preset="spike">📈 Amount spike</button>
-          <button data-preset="mule">🚫 Blacklisted payee</button>
-          <button data-preset="ghost">👻 Unknown account</button>
-          <button data-preset="brand">🎣 Brand-impersonation</button>
-        </div>
-      </div>
-    </section>
-
-    <!-- ---------------- center: pipeline ---------------- -->
-    <section class="panel">
-      <h2>🧮 Scoring Pipeline · App → Backend → Engine → Verdict</h2>
-      <div class="stage-head">
-        <div class="gauge">
-          <svg width="132" height="132" viewBox="0 0 132 132">
-            <circle cx="66" cy="66" r="56" fill="none" stroke="var(--grid)" stroke-width="11"/>
-            <circle id="arc" cx="66" cy="66" r="56" fill="none" stroke="var(--good)" stroke-width="11"
-                    stroke-linecap="round" stroke-dasharray="351.9" stroke-dashoffset="351.9"
-                    style="transition:stroke-dashoffset .7s ease, stroke .5s"/>
-          </svg>
-          <div class="num"><b id="scoreNum" class="tnum">0</b><em>Risk score</em></div>
-        </div>
-        <div class="verdict">
-          <div class="label" id="verdictLabel" style="color:var(--muted)">Awaiting run</div>
-          <div class="sub" id="verdictSub">Enter a transaction and press <b>Run Score Analysis</b> — every layer is replayed and scored below without moving money.</div>
+        <!-- Quick Register Card (If account not found) -->
+        <div class="card" id="register-card" style="display:none">
+          <h2>🆕 Register New Account</h2>
+          <label class="field"><span>Full Name</span><input id="reg-name" value="Rajesh Kumar"></label>
+          <label class="field"><span>Phone Number</span><input id="reg-phone" value="9876543210" maxlength="10"></label>
+          <label class="field"><span>Create VPA</span><input id="reg-vpa" value="rajesh@payit"></label>
+          <div class="row2">
+            <label class="field"><span>Login PIN (4-digit)</span><input id="reg-lpin" value="1234" maxlength="4"></label>
+            <label class="field"><span>UPI PIN (6-digit)</span><input id="reg-upin" value="123456" maxlength="6"></label>
+          </div>
+          <button class="btn" onclick="registerUser()">Register & Bind Device</button>
+          <button class="btn sec" onclick="showLogin()" style="margin-top:8px">Cancel</button>
         </div>
       </div>
-      <div class="comps" id="comps" style="display:none">
-        <div class="comp"><span class="lab">ML model</span><span class="bar"><i id="c-model" style="background:var(--engine)"></i></span><span class="val tnum" id="v-model">0</span></div>
-        <div class="comp"><span class="lab">Rules</span><span class="bar"><i id="c-rules" style="background:var(--app)"></i></span><span class="val tnum" id="v-rules">0</span></div>
-        <div class="comp"><span class="lab">Graph</span><span class="bar"><i id="c-graph" style="background:var(--decision)"></i></span><span class="val tnum" id="v-graph">0</span></div>
-      </div>
-      <div class="flow" id="flow">
-        <div class="placeholder"><div class="big">🛰️</div>The pipeline trace will stream here, stage by stage.</div>
-      </div>
-    </section>
 
-    <!-- ---------------- right: live feed ---------------- -->
-    <section class="panel">
-      <h2>📡 Live Transaction Feed</h2>
-      <div class="feed" id="feed"><div class="placeholder" style="padding:30px">Loading…</div></div>
-    </section>
-  </main>
+      <!-- Right side: Transfer form & history -->
+      <div>
+        <div class="card">
+          <h2>💸 Send Money (UPI Transfer)</h2>
+          <div id="transfer-not-logged" style="padding:10px;text-align:center;color:var(--muted)">
+            Please access your account first to make payments.
+          </div>
+          <div id="transfer-form-box" style="display:none">
+            <div class="row2">
+              <label class="field"><span>Receiver VPA</span>
+                <input id="pay-receiver" placeholder="e.g. simran3@ybl" value="simran3@ybl"></label>
+              <label class="field"><span>Amount (₹)</span>
+                <input id="pay-amount" type="number" placeholder="Enter amount" value="1500"></label>
+            </div>
+            <div class="row2">
+              <label class="field"><span>Transaction UPI PIN</span>
+                <input id="pay-pin" type="password" placeholder="6-digit UPI PIN" value="123456" maxlength="6"></label>
+              <label class="field"><span>Channel</span>
+                <select id="pay-channel"><option>MANUAL</option><option>QR</option><option>INTENT</option></select></label>
+            </div>
+            
+            <div class="toggles">
+              <label class="tog"><input type="checkbox" id="pay-rooted"> Rooted/Emulator</label>
+              <label class="tog"><input type="checkbox" id="pay-screen"> Screen Mirroring</label>
+              <label class="tog"><input type="checkbox" id="pay-sim"> SIM mismatch</label>
+            </div>
 
-<script>
-const API = (()=>{
-  // Local dev  → backend on localhost:8000
-  // Vercel / any hosted URL → production Render backend
-  if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') return 'http://localhost:8000';
-  return 'https://payit-ru7o.onrender.com';
-})();
-const $ = id => document.getElementById(id);
+            <button class="btn" id="pay-btn" onclick="sendPayment()">Send Payment</button>
 
-/* ---- status helpers ---------------------------------------------------- */
-const bandColor = s => s >= 60 ? 'var(--crit)' : s >= 35 ? 'var(--warn)' : 'var(--good)';
-const labelMeta = l => ({
-  SAFE:  {c:'var(--good)', ic:'✓', txt:'SAFE — allow'},
-  REVIEW:{c:'var(--warn)', ic:'⚠', txt:'REVIEW — step-up auth'},
-  BLOCK: {c:'var(--crit)', ic:'⛔', txt:'BLOCK — reject payment'},
-}[l] || {c:'var(--muted)', ic:'', txt:l});
-const statusIcon = s => ({pass:'✓', warn:'!', fail:'✕'}[s] || '·');
-const layerMeta = {
-  APP:     {tag:'var(--app)',      name:'App level · auth'},
-  BACKEND: {tag:'var(--backend)',  name:'Backend level · checks'},
-  ENGINE:  {tag:'var(--engine)',   name:'Fraud engine · scoring'},
-  DECISION:{tag:'var(--decision)', name:'Decision'},
-};
-const CIRC = 2 * Math.PI * 56;
-
-/* ---- header count tiles ------------------------------------------------ */
-async function loadCounts(){
-  try{
-    const c = await (await fetch(API+'/analyzer/counts')).json();
-    $('tiles').innerHTML = `
-      <div class="tile"><div class="k">Transactions</div><div class="v tnum">${c.total}</div></div>
-      <div class="tile good"><div class="k">Safe</div><div class="v tnum">${c.safe}</div></div>
-      <div class="tile warn"><div class="k">Review</div><div class="v tnum">${c.review}</div></div>
-      <div class="tile crit"><div class="k">Blocked</div><div class="v tnum">${c.block}</div></div>
-      <div class="tile crit"><div class="k">₹ Blocked</div><div class="v tnum">₹${Number(c.blocked_amount).toLocaleString('en-IN',{maximumFractionDigits:0})}</div></div>
-      <div class="tile"><div class="k">Avg score</div><div class="v tnum">${c.avg_score}<small>/100</small></div></div>`;
-  }catch(e){ $('tiles').innerHTML = `<div class="tile" style="grid-column:1/-1;color:var(--crit)">⚠ Backend offline — start it with <b>uvicorn server.app:app --port 3000</b></div>`; }
-}
-
-/* ---- live feed --------------------------------------------------------- */
-async function loadFeed(){
-  try{
-    const rows = await (await fetch(API+'/analyzer/feed?limit=25')).json();
-    if(!rows.length){ $('feed').innerHTML = `<div class="placeholder" style="padding:30px">No transactions yet.</div>`; return; }
-    $('feed').innerHTML = rows.map(r=>{
-      const col = bandColor(r.score||0);
-      return `<div class="fitem" data-s="${r.sender}" data-r="${r.receiver}" data-a="${r.amount}">
-        <div class="score-badge" style="color:${col};border-color:${col}">${r.score??'–'}</div>
-        <div class="bd">
-          <div class="vpas"><b>${r.sender}</b> <span>→ ${r.receiver}</span></div>
-          <div class="meta">${(r.label||'').toUpperCase()} · ${r.status} · ${r.type}</div>
+            <!-- Inline OTP Challenge Block -->
+            <div id="pay-otp-box" style="display:none;margin-top:16px;padding:16px;border-radius:10px;background:rgba(242,153,74,.08);border:1px solid rgba(242,153,74,.3)">
+              <label class="field"><span style="color:var(--warn)">⚠️ Step-up Verification Required</span>
+                <input id="pay-otp-input" placeholder="Enter 6-digit OTP code" style="text-align:center;font-weight:700;font-size:16px" maxlength="6"></label>
+              <button class="btn" id="pay-otp-btn" onclick="verifyPayOtp()" style="background:var(--warn)">Verify OTP Code</button>
+            </div>
+          </div>
         </div>
-        <div class="amt tnum">₹${Number(r.amount).toLocaleString('en-IN',{maximumFractionDigits:0})}</div>
-      </div>`;
-    }).join('');
-    document.querySelectorAll('.fitem').forEach(el=>el.onclick=()=>{
-      $('sender').value=el.dataset.s; $('receiver').value=el.dataset.r; $('amount').value=Math.round(el.dataset.a);
-      run();
-    });
-  }catch(e){ /* header already shows offline */ }
-}
 
-/* ---- presets ----------------------------------------------------------- */
-const PRESETS = {
-  safe:  {sender:'isha1@oksbi', receiver:'simran3@ybl', amount:1500,  device:'dev_0001', flags:{}},
-  spike: {sender:'isha1@oksbi', receiver:'simran3@ybl', amount:96000, device:'dev_0001', flags:{}},
-  mule:  {sender:'isha1@oksbi', receiver:'aarti29@okpnb', amount:49500, device:'dev_new_x9', flags:{rooted:true}},
-  ghost: {sender:'isha1@oksbi', receiver:'quickcash999@ybl', amount:25000, device:'dev_new_x9', flags:{}},
-  brand: {sender:'isha1@oksbi', receiver:'sbi.refund@ybl', amount:9999, device:'dev_new_x9', flags:{screen_share:true}},
-};
-document.querySelectorAll('.presets button').forEach(b=>b.onclick=()=>{
-  const p = PRESETS[b.dataset.preset]; if(!p) return;
-  $('sender').value=p.sender; $('receiver').value=p.receiver; $('amount').value=p.amount; $('device').value=p.device;
-  ['rooted','screen_share','reverse','sim_mismatch'].forEach(f=>$(f).checked=!!p.flags[f]);
-  run();
-});
+        <div class="card">
+          <h2>📜 Transaction History</h2>
+          <div id="history-box">
+            <div style="padding:10px;text-align:center;color:var(--muted)">No transactions loaded.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
 
-/* ---- animate helpers --------------------------------------------------- */
-function setGauge(score){
-  const arc = $('arc');
-  arc.style.stroke = bandColor(score);
-  arc.style.strokeDashoffset = CIRC * (1 - Math.min(score,100)/100);
-  // count up
-  const el = $('scoreNum'); const from = +el.textContent || 0; const t0 = performance.now();
-  (function tick(now){
-    const p = Math.min((now-t0)/700, 1);
-    el.textContent = Math.round(from + (score-from)*p);
-    if(p<1) requestAnimationFrame(tick);
-  })(performance.now());
-}
-const sleep = ms => new Promise(r=>setTimeout(r,ms));
+  <!-- ==================== TAB 2: RISK MONITOR ==================== -->
+  <div class="container" id="tab-monitor">
+    <div class="tiles">
+      <div class="tile"><div class="lbl">Total Txns</div><div class="val tnum" id="tile-total">0</div></div>
+      <div class="tile good"><div class="lbl">Safe</div><div class="val tnum" id="tile-safe">0</div></div>
+      <div class="tile warn"><div class="lbl">Reviews</div><div class="val tnum" id="tile-reviews">0</div></div>
+      <div class="tile crit"><div class="lbl">Blocked</div><div class="val tnum" id="tile-blocks">0</div></div>
+    </div>
 
-/* ---- the main run ------------------------------------------------------ */
-let running = false;
-async function run(){
-  if(running) return; running = true;
-  const btn = $('run'); btn.disabled = true; btn.textContent = 'Analysing…';
-  const body = {
-    sender_vpa: $('sender').value.trim(),
-    receiver_vpa: $('receiver').value.trim(),
-    amount: parseFloat($('amount').value) || 1,
-    pin: $('pin').value.trim(),
-    device_id: $('device').value.trim(),
-    type: $('type').value, channel: $('channel').value,
-    rooted: $('rooted').checked?1:0, screen_share: $('screen_share').checked?1:0,
-    reverse: $('reverse').checked?1:0, sim_mismatch: $('sim_mismatch').checked?1:0,
-  };
-  // reset view
-  $('flow').innerHTML=''; $('comps').style.display='none';
-  $('verdictLabel').textContent='Scoring…'; $('verdictLabel').style.color='var(--muted)';
-  $('verdictSub').textContent='Replaying '+body.sender_vpa+' → '+body.receiver_vpa;
-  setGauge(0);
+    <div class="app-grid">
+      <!-- Trace Panel -->
+      <div class="card" style="grid-column: 1 / -1">
+        <h2>🔬 Fraud Engine Trace (Latest Result)</h2>
+        <div class="gauge-box">
+          <div class="gauge">
+            <svg width="100" height="100" viewBox="0 0 100 100">
+              <circle cx="50" cy="50" r="42" fill="none" stroke="var(--grid)" stroke-width="8"/>
+              <circle id="mon-arc" cx="50" cy="50" r="42" fill="none" stroke="var(--good)" stroke-width="8"
+                      stroke-dasharray="263.8" stroke-dashoffset="263.8" style="transition:stroke-dashoffset .5s ease"/>
+            </svg>
+            <div class="num"><b id="mon-score">0</b></div>
+          </div>
+          <div>
+            <div style="font-size:18px;font-weight:800" id="mon-label">Awaiting scoring</div>
+            <div style="color:var(--ink-2);font-size:12.5px;margin-top:4px" id="mon-summary">Make a payment or lookup an account to trigger the real-time scorer analysis trace.</div>
+          </div>
+        </div>
+        
+        <div id="mon-trace-flow">
+          <div style="text-align:center;padding:40px;color:var(--muted)">Run a transaction to view trace.</div>
+        </div>
+      </div>
+    </div>
+  </div>
 
-  let data;
-  try{ data = await (await fetch(API+'/analyzer/trace',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json(); }
-  catch(e){ $('verdictLabel').textContent='⚠ Request failed'; $('verdictLabel').style.color='var(--crit)'; btn.disabled=false; btn.textContent='Run Score Analysis'; running=false; return; }
-  if(data.detail){ $('verdictSub').textContent = 'Error: '+data.detail; btn.disabled=false; btn.textContent='Run Score Analysis'; running=false; return; }
+  <script>
+    const API = window.location.origin;
+    const $ = id => document.getElementById(id);
+    let currentUser = null;
+    let pendingTxnId = null;
 
-  // group stages by layer preserving order
-  const order = ['APP','BACKEND','ENGINE','DECISION'];
-  const groups = {}; data.stages.forEach(s=>{(groups[s.layer]=groups[s.layer]||[]).push(s);});
-  const flow = $('flow');
-
-  for(const L of order){
-    if(!groups[L]) continue;
-    const lm = layerMeta[L];
-    const wrap = document.createElement('div'); wrap.className='layer';
-    wrap.innerHTML = `<div class="layer-title"><span class="tag" style="background:${lm.tag}"></span>${lm.name}</div>`;
-    flow.appendChild(wrap);
-    for(const s of groups[L]){
-      const div = document.createElement('div'); div.className='stage '+s.status;
-      let ptsHtml='';
-      if(s.points!=null && s.points!==0){
-        const cls = s.points>=40?'hi':'pos';
-        ptsHtml = `<span class="pts ${cls}">+${Math.round(s.points)}</span>`;
-      } else if(s.points===0 && s.status==='pass'){
-        ptsHtml = `<span class="pts neg">✓</span>`;
+    async function fetchSecure(path, options = {}) {
+      const token = localStorage.getItem("payit_token");
+      options.headers = options.headers || {};
+      if (token) {
+        options.headers["Authorization"] = `Bearer ${token}`;
       }
-      div.innerHTML = `<div class="ic">${statusIcon(s.status)}</div>
-        <div style="flex:1;min-width:0"><div class="st-t">${s.title}</div><div class="st-d">${s.detail}</div></div>${ptsHtml}`;
-      wrap.appendChild(div);
-      requestAnimationFrame(()=>div.classList.add('show'));
-      // when engine stages land, grow the component bars + tick the gauge
-      if(L==='ENGINE' && s.meta && s.meta.component){
-        const k=s.meta.component, v=Math.round(s.points||0);
-        $('comps').style.display='grid';
-        $('c-'+k).style.width=Math.min(v,100)+'%'; $('v-'+k).textContent=v;
-      }
-      await sleep(420);
+      return fetch(API + path, options);
     }
-  }
 
-  // reasons
-  if(data.reasons && data.reasons.length){
-    const r=document.createElement('div'); r.className='reasons';
-    r.innerHTML=`<h3>Why · reason codes</h3><ul>${data.reasons.map(x=>`<li>${x}</li>`).join('')}</ul>`;
-    flow.appendChild(r);
-  }
-  if(data.ring && data.ring.length){
-    const rg=document.createElement('div'); rg.className='ring';
-    rg.innerHTML = `<span style="color:var(--crit);font-weight:700;margin-right:4px">🕸️ Mule chain</span>` +
-      data.ring.map((n,i)=>`<span class="node">${n}</span>${i<data.ring.length-1?'<span class="arrow">→</span>':''}`).join('');
-    flow.appendChild(rg);
-  }
+    // LocalStorage Device ID helper
+    function getDeviceId() {
+      let id = localStorage.getItem("payit_dev_id");
+      if (!id) {
+        id = "dev_" + Math.random().toString(36).substr(2, 9);
+        localStorage.setItem("payit_dev_id", id);
+      }
+      return id;
+    }
+    
+    function simulateNewDevice() {
+      const newId = "dev_" + Math.random().toString(36).substr(2, 9);
+      localStorage.setItem("payit_dev_id", newId);
+      $('device-id-display').textContent = newId;
+      alert("Simulated a device change! Browser device identifier reset to: " + newId);
+    }
 
-  // verdict + gauge
-  const m = labelMeta(data.label);
-  setGauge(data.cumulative_score);
-  $('verdictLabel').innerHTML = `<span style="color:${m.c}">${m.ic} ${data.label}</span>`;
-  $('verdictSub').innerHTML =
-    `${m.txt} · fraud probability <b>${(data.fraud_probability*100).toFixed(1)}%</b> · scored in <b>${data.latency_ms} ms</b>` +
-    (!data.receiver_found ? ` · <span style="color:var(--warn)">receiver VPA not on file — treated as unknown, went forward</span>` : '') +
-    (!data.sender_found ? ` · <span style="color:var(--crit)">sender VPA not on file</span>` : '');
+    function switchTab(t) {
+      document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+      document.querySelectorAll('.container').forEach(c => c.classList.remove('active'));
+      
+      if (t === 'app') {
+        $('tab-app').classList.add('active');
+        document.querySelectorAll('.tab-btn')[0].classList.add('active');
+      } else {
+        $('tab-monitor').classList.add('active');
+        document.querySelectorAll('.tab-btn')[1].classList.add('active');
+        loadMonitorStats();
+      }
+    }
 
-  btn.disabled=false; btn.textContent='Run Score Analysis'; running=false;
-  loadCounts(); loadFeed();
-}
-$('run').onclick = run;
+    // Onboarding forms toggle
+    function showRegister() {
+      $('auth-unlogged').style.display = 'none';
+      $('register-card').style.display = 'block';
+    }
+    function showLogin() {
+      $('register-card').style.display = 'none';
+      $('auth-unlogged').style.display = 'block';
+    }
 
-/* ---- boot -------------------------------------------------------------- */
-loadCounts(); loadFeed();
-setInterval(()=>{ if(!running){ loadCounts(); loadFeed(); } }, 6000);
-</script>
+    // ---------------- AUTHENTICATION
+    async function login() {
+      const vpa = $('login-vpa').value.trim();
+      const pin = $('login-pin').value.trim();
+      if (!vpa || !pin) return alert("VPA and login PIN are required.");
+
+      try {
+        const res = await fetch(API + "/auth/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ vpa, pin, device_id: getDeviceId() })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          if (res.status === 404) {
+            if (confirm("Account not found. Would you like to register a new account?")) {
+              showRegister();
+              $('reg-vpa').value = vpa;
+            }
+          } else {
+            throw new Error(data.detail || "Authentication failed");
+          }
+          return;
+        }
+        
+        currentUser = data; // { token, vpa, name, balance }
+        localStorage.setItem("payit_token", data.token);
+        localStorage.setItem("payit_user_vpa", data.vpa);
+        renderLoggedInState();
+      } catch (e) {
+        alert(e.message);
+      }
+    }
+
+    async function registerUser() {
+      const name = $('reg-name').value.trim();
+      const phone = $('reg-phone').value.trim();
+      const vpa = $('reg-vpa').value.trim();
+      const login_pin = $('reg-lpin').value.trim();
+      const upi_pin = $('reg-upin').value.trim();
+
+      if (!name || !phone || !vpa || !login_pin || !upi_pin) return alert("All fields are required.");
+
+      try {
+        const res = await fetch(API + "/auth/register", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ phone, name, vpa, bank_id: 1, upi_pin, login_pin, device_id: getDeviceId() })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "Registration failed");
+
+        currentUser = data;
+        localStorage.setItem("payit_token", data.token);
+        localStorage.setItem("payit_user_vpa", data.vpa);
+        showLogin();
+        renderLoggedInState();
+        alert("Account registered and device bound successfully!");
+      } catch (e) {
+        alert(e.message);
+      }
+    }
+
+    function renderLoggedInState() {
+      if (!currentUser) return;
+      $('auth-unlogged').style.display = 'none';
+      $('register-card').style.display = 'none';
+      $('auth-logged').style.display = 'block';
+      $('user-vpa-display').textContent = currentUser.vpa;
+      $('user-name-display').textContent = "Name: " + currentUser.name;
+      $('user-bal-display').textContent = "₹" + Number(currentUser.balance).toLocaleString('en-IN', { minimumFractionDigits: 2 });
+      $('device-id-display').textContent = getDeviceId();
+      
+      $('transfer-not-logged').style.display = 'none';
+      $('transfer-form-box').style.display = 'block';
+      loadUserHistory();
+    }
+
+    function logout() {
+      currentUser = null;
+      localStorage.removeItem("payit_token");
+      localStorage.removeItem("payit_user_vpa");
+      $('auth-logged').style.display = 'none';
+      $('auth-unlogged').style.display = 'block';
+      $('transfer-form-box').style.display = 'none';
+      $('transfer-not-logged').style.display = 'block';
+      $('history-box').innerHTML = `<div style="padding:10px;text-align:center;color:var(--muted)">No transactions loaded.</div>`;
+    }
+
+    // ---------------- LOADS
+    async function loadUserHistory() {
+      if (!currentUser) return;
+      try {
+        const res = await fetchSecure("/transactions/" + encodeURIComponent(currentUser.vpa));
+        const data = await res.json();
+        if (!res.ok) return;
+
+        if (!data.length) {
+          $('history-box').innerHTML = `<div style="padding:10px;text-align:center;color:var(--muted)">No transactions yet.</div>`;
+          return;
+        }
+
+        $('history-box').innerHTML = data.map(tx => {
+          const isSender = tx.sender === currentUser.vpa;
+          const labelText = isSender ? `Paid to: ${tx.receiver}` : `Received from: ${tx.sender}`;
+          const balanceSign = isSender ? "-" : "+";
+          const balanceColor = isSender ? "var(--crit)" : "var(--good)";
+          const dateStr = new Date(tx.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          
+          let recallBtn = '';
+          if (isSender && (tx.status === 'success' || tx.status === 'flagged')) {
+            recallBtn = `<button class="recall-btn" onclick="recallPayment(${tx.id})">Recall Funds</button>`;
+          }
+
+          return `
+            <div class="history-item">
+              <div class="details">
+                <b>${labelText}</b>
+                <span>${dateStr} · Status: <i class="status-badge ${tx.status}">${tx.status}</i></span>
+                ${recallBtn}
+              </div>
+              <div class="right-side">
+                <span class="amt" style="color:${balanceColor}">${balanceSign} ₹${Number(tx.amount).toLocaleString('en-IN')}</span>
+              </div>
+            </div>
+          `;
+        }).join('');
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    // ---------------- PAYMENTS
+    async function sendPayment() {
+      const receiver_vpa = $('pay-receiver').value.trim();
+      const amount = parseFloat($('pay-amount').value) || 0;
+      const pin = $('pay-pin').value.trim();
+      const channel = $('pay-channel').value;
+      const rooted = $('pay-rooted').checked ? 1 : 0;
+      const screen_share = $('pay-screen').checked ? 1 : 0;
+      const sim_mismatch = $('pay-sim').checked ? 1 : 0;
+
+      if (!receiver_vpa || amount <= 0 || !pin) return alert("Receiver, valid amount, and UPI PIN are required.");
+
+      const btn = $('pay-btn');
+      btn.disabled = true;
+      btn.textContent = "Processing Transaction…";
+      $('pay-otp-box').style.display = 'none';
+
+      try {
+        const res = await fetchSecure("/pay", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sender_vpa: currentUser.vpa,
+            receiver_vpa,
+            amount,
+            pin,
+            device_id: getDeviceId(),
+            channel,
+            rooted,
+            screen_share,
+            sim_mismatch
+          })
+        });
+        const data = await res.json();
+        
+        // Show Monitor metrics trace in tab 2 context
+        renderMonitorTrace(data);
+
+        if (!res.ok) throw new Error(data.detail || "Transaction failed");
+
+        if (data.result === 'REVIEW') {
+          pendingTxnId = data.transaction_id;
+          $('pay-otp-box').style.display = 'block';
+          $('pay-otp-input').value = '';
+          $('pay-otp-input').focus();
+          alert("Safety Review! Check server console log for verification OTP.");
+        } else if (data.result === 'SUCCESS') {
+          alert("Payment Successful! ₹" + amount + " sent to " + receiver_vpa);
+          currentUser.balance = data.sender_balance || (currentUser.balance - amount);
+          renderLoggedInState();
+        } else if (data.result === 'BLOCKED') {
+          alert("Transaction BLOCKED by Fraud Shield! Safety reasons:\n- " + (data.reasons || []).join("\n- "));
+          loadUserHistory();
+        }
+      } catch (e) {
+        alert(e.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Send Payment";
+      }
+    }
+
+    async function verifyPayOtp() {
+      const otp = $('pay-otp-input').value.trim();
+      if (!otp) return alert("Please enter the OTP.");
+
+      const btn = $('pay-otp-btn');
+      btn.disabled = true;
+      btn.textContent = "Verifying…";
+
+      try {
+        const res = await fetchSecure("/pay/verify-otp", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ pending_txn_id: pendingTxnId, otp })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "Verification failed");
+
+        $('pay-otp-box').style.display = 'none';
+        alert("OTP Verified! Payment completed successfully.");
+        currentUser.balance = data.sender_balance || currentUser.balance;
+        renderLoggedInState();
+      } catch (e) {
+        alert(e.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Verify OTP Code";
+      }
+    }
+
+    async function recallPayment(txid) {
+      if (!confirm("Are you sure you want to recall this transaction?")) return;
+      try {
+        const res = await fetchSecure("/pay/recall/" + txid, { method: "POST" });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "Recall failed");
+        
+        alert("Transaction Recalled! Money returned to your account.");
+        currentUser.balance = data.sender_balance || currentUser.balance;
+        renderLoggedInState();
+      } catch (e) {
+        alert(e.message);
+      }
+    }
+
+    // ---------------- MONITOR DETAILS
+    async function loadMonitorStats() {
+      try {
+        const res = await fetch(API + "/analyzer/counts");
+        const data = await res.json();
+        if (!res.ok) return;
+
+        $('tile-total').textContent = data.total;
+        $('tile-safe').textContent = data.safe;
+        $('tile-reviews').textContent = data.review;
+        $('tile-blocks').textContent = data.block;
+      } catch (e) {}
+    }
+
+    function renderMonitorTrace(data) {
+      const score = data.score || data.cumulative_score || 0;
+      $('mon-score').textContent = score;
+      
+      const arc = $('mon-arc');
+      const circ = 2 * Math.PI * 42;
+      arc.style.strokeDashoffset = circ * (1 - Math.min(score, 100)/100);
+      arc.style.stroke = score >= 60 ? 'var(--crit)' : score >= 35 ? 'var(--warn)' : 'var(--good)';
+      
+      $('mon-label').textContent = data.label || (data.result === 'BLOCKED' ? 'BLOCK' : 'SAFE');
+      $('mon-label').style.color = score >= 60 ? 'var(--crit)' : score >= 35 ? 'var(--warn)' : 'var(--good)';
+      
+      const detailsText = data.message || `Scored in ${data.latency_ms || 0} ms with probability ${((data.fraud_probability || 0)*100).toFixed(1)}%`;
+      $('mon-summary').textContent = detailsText;
+
+      // Render dummy traces
+      const reasons = data.reasons || [];
+      const reasonsHtml = reasons.length 
+        ? `<div class="reasons"><h4>Scorer Flag Reasons:</h4><ul>${reasons.map(r => `<li>${r}</li>`).join('')}</ul></div>`
+        : `<div style="color:var(--good);font-weight:700;margin-top:10px">✓ No risk alert flags triggered</div>`;
+
+      $('mon-trace-flow').innerHTML = `
+        <div class="stage pass">
+          <div class="st-title">Identity check</div>
+          <div class="st-desc">Checked VPA account records and registered session.</div>
+        </div>
+        <div class="stage ${reasons.length ? 'warn' : 'pass'}">
+          <div class="st-title">ML Fraud Engine check</div>
+          <div class="st-desc">XGBoost model completed scoring. Score: ${score}/100.</div>
+        </div>
+        ${reasonsHtml}
+      `;
+    }
+
+    // Auto-login if session exists
+    window.onload = async () => {
+      const cachedVpa = localStorage.getItem("payit_user_vpa");
+      const cachedToken = localStorage.getItem("payit_token");
+      if (cachedVpa && cachedToken) {
+        currentUser = { vpa: cachedVpa, token: cachedToken, name: "Active Session User" };
+        try {
+          const res = await fetchSecure("/balance/" + encodeURIComponent(cachedVpa));
+          const data = await res.json();
+          if (res.ok) {
+            currentUser.balance = data.balance;
+            renderLoggedInState();
+          } else {
+            logout();
+          }
+        } catch {
+          logout();
+        }
+      }
+    };
+  </script>
 </body>
 </html>

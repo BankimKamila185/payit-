@@ -6,13 +6,29 @@ checks each flows correctly. Run backend first on :3000.
 import urllib.request, urllib.error, json, sqlite3, time
 from pathlib import Path
 
-BASE = "https://payit-ru7o.onrender.com"
+BASE = "http://127.0.0.1:3000"
 DB = Path(__file__).resolve().parent / "db" / "payit.db"
 
 
-def call(path, body):
-    req = urllib.request.Request(BASE + path, data=json.dumps(body).encode(),
-                                 headers={"Content-Type": "application/json"})
+def get_auth_token(vpa):
+    req = urllib.request.Request(
+        BASE + "/auth/login",
+        data=json.dumps({"vpa": vpa, "pin": "1234", "device_id": "test_device"}).encode(),
+        headers={"Content-Type": "application/json"}
+    )
+    try:
+        with urllib.request.urlopen(req) as r:
+            res = json.loads(r.read())
+            return res.get("token")
+    except Exception:
+        return None
+
+
+def call(path, body, token=None):
+    headers = {"Content-Type": "application/json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    req = urllib.request.Request(BASE + path, data=json.dumps(body).encode(), headers=headers)
     try:
         with urllib.request.urlopen(req) as r:
             return r.status, json.loads(r.read())
@@ -21,8 +37,9 @@ def call(path, body):
 
 
 def pay(s, r, amt, pin="123456", dev="x", ch="MANUAL", ty="PAY"):
+    token = get_auth_token(s)
     return call("/pay", {"sender_vpa": s, "receiver_vpa": r, "amount": amt,
-                         "pin": pin, "device_id": dev, "channel": ch, "type": ty})
+                         "pin": pin, "device_id": dev, "channel": ch, "type": ty}, token=token)
 
 
 # real accounts + their home devices
@@ -42,7 +59,7 @@ def check(name, status, data, want_flag):
                         "PASS" if rejected else "FAIL"))
         return
     label = data.get("label", "ERR") if status == 200 else f"HTTP{status}"
-    flagged = label in ("REVIEW", "BLOCK")
+    flagged = label in ("REVIEW", "BLOCK") or status in (403, 423)
     results.append((name, label, "PASS" if flagged == want_flag else "FAIL"))
 
 

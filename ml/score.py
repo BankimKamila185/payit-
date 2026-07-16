@@ -55,6 +55,14 @@ def combine(model_score: float, rule_pts: float, graph_score: float,
         final = max(final, 70)          # very strong rule stack -> BLOCK
     elif rule_pts >= 55:
         final = max(final, 50)          # hard rule stack -> REVIEW
+    elif rule_pts >= 35:
+        # A rule score in 35-54 used to be able to land SAFE: the 0.3 weight
+        # shrinks 40 pts to 12, and a near-zero model score then drags the blend
+        # under 35. Measured: receiver_blacklisted alone (rules=40) scored 13 =
+        # SAFE. The rule layer had said "this receiver is on the fraud blacklist"
+        # and the blend buried it. A rule that fires this hard must at minimum
+        # reach REVIEW on its own — a detector may add confidence, never cancel it.
+        final = max(final, SAFE_MAX)    # single hard rule -> REVIEW floor
     if model_score >= 75:
         final = max(final, 60)          # model very confident -> BLOCK
     return int(round(min(final, 100)))
@@ -67,10 +75,29 @@ class FraudEngine:
         self.explainer = Explainer()          # loads XGBoost + SHAP
         self.graph = GraphAnalyzer()
 
-    def score(self, txn: dict) -> dict:
+    def observe(self, txn: dict) -> None:
+        """Record that money ACTUALLY moved along this edge.
+
+        Call this only once the transfer is committed. The graph is evidence of
+        real money flow: an edge here means "this account really did receive from
+        that one", which is what makes a CHAIN mean anything.
+        """
+        self.graph.add(txn["sender_vpa"], txn["receiver_vpa"],
+                       txn["amount"], txn["ts"])
+
+    def score(self, txn: dict, observe: bool = True) -> dict:
         """
         txn = feature dict (dataset columns) + sender_vpa/receiver_vpa/amount/ts.
         Returns the full decision object.
+
+        observe=True also records the edge in the graph, which is what offline
+        replay (eval_combined, verify) wants: it is streaming a ledger of
+        transactions that already happened.
+
+        LIVE CALLERS MUST PASS observe=False. At /pay the verdict is not known
+        yet — recording the edge here would enter BLOCKED transfers (money that
+        never moved) into the graph and manufacture phantom mule chains for the
+        next hop. /pay calls observe() itself after the transfer commits.
         """
         # ---- 1. model + SHAP reasons ----
         drop = {"ts", "sender_vpa", "receiver_vpa", "fraud_type", "is_fraud"}
@@ -84,8 +111,8 @@ class FraudEngine:
         # ---- 3. graph (mule ring) ----
         gr = self.graph.score(txn["sender_vpa"], txn["receiver_vpa"],
                               txn["amount"], txn["ts"])
-        self.graph.add(txn["sender_vpa"], txn["receiver_vpa"],
-                       txn["amount"], txn["ts"])
+        if observe:
+            self.observe(txn)
 
         # ---- combine (blend + strong-signal escalation) ----
         final = combine(model_score, rl["score"], gr["score"], gr["motif"])

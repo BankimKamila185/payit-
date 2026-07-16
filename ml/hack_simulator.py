@@ -9,11 +9,17 @@ Hits the live backend: https://payit-ru7o.onrender.com
 import urllib.request
 import urllib.error
 import json
-import sqlite3
-from pathlib import Path
+import os
 
-BASE = "https://payit-ru7o.onrender.com"
-DB = Path(__file__).resolve().parent.parent / "db" / "payit.db"
+import psycopg2
+from dotenv import load_dotenv
+
+load_dotenv()
+
+BASE = os.environ.get("PAYIT_BASE_URL", "https://payit-ru7o.onrender.com")
+# Accounts come from PostgreSQL now — the SQLite payit.db this used to read is gone
+# (PostgreSQL is the only database; see db/build_db.py).
+DSN = os.environ.get("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/payit")
 
 def call(path, body):
     req = urllib.request.Request(BASE + path, data=json.dumps(body).encode(),
@@ -28,13 +34,16 @@ def pay(body):
     return call("/pay", body)
 
 # ------------------------------------------------------------- 1. Setup Accounts
-c = sqlite3.connect(DB).cursor()
+c = psycopg2.connect(DSN).cursor()
 # Find safe user
-user_vpa = c.execute("SELECT vpa FROM accounts WHERE is_merchant=0 AND blacklisted=0 AND balance > 50000 LIMIT 1").fetchone()[0]
+c.execute("SELECT vpa FROM accounts WHERE is_merchant=0 AND blacklisted=0 AND balance > 50000 LIMIT 1")
+user_vpa = c.fetchone()[0]
 # Find another normal user
-peer_vpa = c.execute("SELECT vpa FROM accounts WHERE is_merchant=0 AND blacklisted=0 AND vpa != ? LIMIT 1", (user_vpa,)).fetchone()[0]
+c.execute("SELECT vpa FROM accounts WHERE is_merchant=0 AND blacklisted=0 AND vpa <> %s LIMIT 1", (user_vpa,))
+peer_vpa = c.fetchone()[0]
 # Find blacklisted mule
-mule_vpa = c.execute("SELECT vpa FROM accounts WHERE blacklisted=1 LIMIT 1").fetchone()[0]
+c.execute("SELECT vpa FROM accounts WHERE blacklisted=1 LIMIT 1")
+mule_vpa = c.fetchone()[0]
 
 print("=" * 70)
 print("     🚨 UPI FRAUD SHIELD — ATTACK & HACK SIMULATOR 🚨")

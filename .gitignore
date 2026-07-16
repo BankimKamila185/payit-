@@ -16,3 +16,11 @@ db/*.db
 db/*.db-journal
 db/*.db-wal
 db/*.db-shm
+
+# secrets — never commit
+.env
+.env.*
+!.env.example
+
+# DB backups — account data, never commit
+db/backups/

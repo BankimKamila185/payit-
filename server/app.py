@@ -1,7 +1,10 @@
+
+
+
 """
 Payit Backend — real-app-level UPI payment server with INLINE fraud detection.
 =============================================================================
-FastAPI + SQLite (payit.db). Mirrors how a real PSP/bank backend works:
+FastAPI + PostgreSQL (DATABASE_URL). Mirrors how a real PSP/bank backend works:
 
   auth (login) -> device binding -> VPA resolution -> balance check ->
   FRAUD ENGINE (model + rules + graph, <200ms) -> 3-tier decision:
@@ -9,75 +12,351 @@ FastAPI + SQLite (payit.db). Mirrors how a real PSP/bank backend works:
      REVIEW -> hold + OTP step-up, complete only after OTP
      BLOCK  -> reject, money does NOT move, reasons logged
 
-Real accounts/history come from payit.db (Indian demo data). The fraud brain is
+Real accounts come from PostgreSQL (seeded by db/build_db.py). The fraud brain is
 our ml/ engine. This is the "backend" the frontend talks to.
 
-Run:  .venv/bin/uvicorn server.app:app --port 3000 --reload
-Docs: http://127.0.0.1:3000/docs
+Run:  .venv/bin/python -m uvicorn server.app:app --host 127.0.0.1 --port 8000 --reload
+Docs: http://127.0.0.1:8000/docs
 """
 from __future__ import annotations
-import sqlite3
 import time
 import random
+import secrets
 import json
 import hashlib
+import traceback
+import hmac
+import os
+import re
 from pathlib import Path
 from datetime import datetime, timedelta
 
-from fastapi import FastAPI, HTTPException
+from argon2 import PasswordHasher
+from argon2.exceptions import VerifyMismatchError, InvalidHashError, VerificationError
+
+from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
+
+from dotenv import load_dotenv
+load_dotenv()          # read .env (DATABASE_URL, PAYIT_PIN_PEPPER) — never commit it
 
 from ml.score import FraudEngine
 
 ROOT = Path(__file__).resolve().parent.parent
-DB_PATH = ROOT / "db" / "payit.db"
+
+# ---------------------------------------------------------------- PIN security
+# NOTE ON HONESTY: in real UPI the UPI-PIN never reaches the app at all — NPCI
+# mandates the Common Library, which captures + PKI-encrypts the PIN on-device,
+# and the PIN is on NPCI's must-not-store list (a TPAP never holds the MPIN).
+# So this is a *simulated app PIN*, not a UPI PIN. We store it the way a
+# password should be stored, and we do NOT claim this is "how UPI does it".
+#
+# A 4-6 digit PIN is only a 10k-1M keyspace, so the KDF alone can never make it
+# safe — the real control is the attempt lockout (see _pin_fails). Argon2id buys
+# time; the pepper makes a stolen DB dump alone useless.
+_ph = PasswordHasher(time_cost=2, memory_cost=19456, parallelism=1)  # OWASP min: 19 MiB, t=2, p=1
+
+# Pepper = server-side secret mixed in BEFORE the KDF, kept OUTSIDE the database.
+PIN_PEPPER = os.environ.get("PAYIT_PIN_PEPPER", "dev-only-pepper-set-PAYIT_PIN_PEPPER-in-prod")
+
+# No SMS gateway is wired, and every OTP path must say so rather than claim a
+# delivery that never happened. Sending an OTP to an Indian number requires TRAI
+# DLT registration of the sender + template, which requires a registered business
+# — genuinely out of reach here, so we state the constraint instead of faking it.
+SMS_DISCLAIMER = ("Sending SMS in India needs TRAI DLT registration (requires a "
+                  "registered business), so this demo shows the code instead.")
+
+
+def _peppered(pin: str) -> str:
+    """HMAC the PIN with the server pepper so the DB never sees the raw PIN."""
+    return hmac.new(PIN_PEPPER.encode(), pin.encode(), hashlib.sha256).hexdigest()
+
+
+def hash_pin(pin: str) -> str:
+    """Argon2id hash of the peppered PIN. Use for every new/changed PIN."""
+    return _ph.hash(_peppered(pin))
+
+
+def verify_pin(pin: str, stored: str) -> bool:
+    """Constant-time verify. Accepts legacy unsalted-sha256 hashes so existing
+    demo accounts keep working; those get upgraded on next successful use."""
+    if not pin or not stored:
+        return False
+    if not stored.startswith("$argon2"):          # legacy sha256 (pre-Argon2)
+        return hmac.compare_digest(hashlib.sha256(pin.encode()).hexdigest(), stored)
+    try:
+        return _ph.verify(stored, _peppered(pin))
+    except (VerifyMismatchError, InvalidHashError, VerificationError):
+        return False
+
+
+def pin_needs_rehash(stored: str) -> bool:
+    """True for legacy sha256 hashes, or Argon2 hashes below current params."""
+    if not stored:
+        return False
+    if not stored.startswith("$argon2"):
+        return True
+    try:
+        return _ph.check_needs_rehash(stored)
+    except Exception:
+        return False
+
 
 app = FastAPI(title="Payit Backend", version="1.0")
 
 import os
-ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:5174,https://payit-mu.vercel.app").split(",")
+ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:5174,http://localhost:5180,https://payit-mu.vercel.app").split(",")
 app.add_middleware(CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"])
 
 engine: FraudEngine | None = None
-_pin_fails: dict[str, dict] = {}  # vpa -> {"attempts": count, "lockout_until": float}
 
 
 # ------------------------------------------------------------------ DB helpers
+import psycopg2
+import psycopg2.extras
+
+class PostgresCursorWrapper:
+    def __init__(self, pg_cursor):
+        self.cur = pg_cursor
+
+    def execute(self, sql, params=None):
+        # Mirrors PostgresConnectionWrapper.execute so BOTH access paths behave the
+        # same. Without the RETURNING/lastrowid handling here, code that goes via
+        # con.cursor() (e.g. /auth/register) silently got lastrowid = None and
+        # inserted a NULL foreign key.
+        is_insert = False
+        if sql:
+            sql = sql.replace('?', '%s')
+            is_insert = sql.strip().upper().startswith("INSERT")
+            if is_insert and "RETURNING" not in sql.upper():
+                sql = sql.rstrip().rstrip(';') + " RETURNING id"
+        self.cur.execute(sql, params)
+        if is_insert:
+            try:
+                row = self.cur.fetchone()
+                if row:
+                    self._lastrowid = list(row.values())[0]
+            except Exception:
+                pass
+        return self
+
+    def fetchone(self):
+        row = self.cur.fetchone()
+        if row is None:
+            return None
+        return dict(row)
+
+    def fetchall(self):
+        rows = self.cur.fetchall()
+        return [dict(r) for r in rows]
+
+    @property
+    def rowcount(self):
+        """Rows touched by the last statement — used by /pay's conditional debit."""
+        return self.cur.rowcount
+
+    @property
+    def lastrowid(self):
+        return getattr(self, '_lastrowid', None)
+
+class PostgresConnectionWrapper:
+    def __init__(self, pg_conn):
+        self.conn = pg_conn
+
+    def cursor(self):
+        return PostgresCursorWrapper(self.conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor))
+
+    def execute(self, sql, params=None):
+        sql = sql.replace('?', '%s')
+        is_insert = sql.strip().upper().startswith("INSERT")
+        if is_insert and "RETURNING" not in sql.upper():
+            sql = sql.rstrip().rstrip(';')
+            sql += " RETURNING id"
+        
+        cur = self.conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute(sql, params)
+        wrapper = PostgresCursorWrapper(cur)
+        if is_insert:
+            try:
+                row = cur.fetchone()
+                if row:
+                    wrapper._lastrowid = list(row.values())[0]
+            except Exception:
+                pass
+        return wrapper
+
+    def commit(self):
+        self.conn.commit()
+
+    def rollback(self):
+        self.conn.rollback()
+
+    def close(self):
+        # Idempotent, so a `finally: con.close()` guard can sit over code paths
+        # that already close on their way out. psycopg2 tolerates a double close,
+        # but the flag keeps the intent explicit and survives a driver swap.
+        if getattr(self, "_closed", False):
+            return
+        self._closed = True
+        self.conn.close()
+
+    # sqlite3 semantics for `with con:` — commit on success, roll back on error,
+    # and DON'T close. /pay's atomic debit+credit relies on this (it's the ACID
+    # guarantee), and psycopg2's own wrapper doesn't behave identically.
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        if exc_type is None:
+            self.conn.commit()
+        else:
+            self.conn.rollback()
+        return False          # never swallow the exception
+
+# DB connection string comes from the environment so the same code runs against
+# local Docker Postgres and a hosted/cloud Postgres. Never hardcode credentials.
+#   local : postgresql://postgres:postgres@localhost:5432/payit
+#   cloud : set DATABASE_URL (Neon/Supabase/Render) — usually needs ?sslmode=require
+DATABASE_URL = os.environ.get(
+    "DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/payit")
+
+
 def db():
-    con = sqlite3.connect(DB_PATH)
-    con.row_factory = sqlite3.Row
-    con.execute("PRAGMA foreign_keys = ON")
-    return con
+    pg_conn = psycopg2.connect(DATABASE_URL)
+    return PostgresConnectionWrapper(pg_conn)
+
+
+def _db_label() -> str:
+    """host/dbname of the DB we're actually on, credentials stripped — safe to log
+    and to return from /health. (/health used to report the filename of a SQLite DB
+    that no longer exists, so it said 'payit.db' while the app was talking to Neon.)"""
+    return re.sub(r"//[^@]*@", "//", DATABASE_URL).split("?")[0]
 
 
 def now_iso():
     return datetime.now().isoformat()
 
 
+def _issue_token_for_user(con, user_id: int, vpa: str) -> dict:
+    """Mint a session token for an already-authenticated user. Shared by the
+    PIN login and the WebAuthn (passkey) login so both use the same CSPRNG
+    token + session row, and the token logic lives in exactly one place."""
+    token = f"tok_{secrets.token_urlsafe(32)}"
+    con.execute(
+        "INSERT INTO sessions (user_id, device_id, token, expires_at, created_at) VALUES (?,?,?,?,?)",
+        (user_id, None, token, (datetime.now() + timedelta(hours=6)).isoformat(), now_iso()))
+    con.commit()
+    row = con.execute(
+        """SELECT u.name, a.balance FROM users u JOIN accounts a ON a.user_id=u.id
+           WHERE u.id=? AND a.vpa=?""", (user_id, vpa)).fetchone()
+    return {"token": token, "vpa": vpa,
+            "name": row["name"] if row else None,
+            "balance": row["balance"] if row else None}
+
+
+security_bearer = HTTPBearer()
+
+def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security_bearer)):
+    token = credentials.credentials
+    con = db()
+    session = con.execute(
+        "SELECT * FROM sessions WHERE token=? AND expires_at > ?",
+        (token, now_iso())
+    ).fetchone()
+    if not session:
+        con.close()
+        raise HTTPException(status_code=401, detail="Invalid or expired session token")
+    acc = con.execute("SELECT * FROM accounts WHERE user_id=?", (session["user_id"],)).fetchone()
+    con.close()
+    if not acc:
+        raise HTTPException(status_code=404, detail="User account not found")
+    return dict(acc)
+
+
+def check_lockout(con, vpa):
+    row = con.execute("SELECT * FROM security_lockouts WHERE vpa=?", (vpa,)).fetchone()
+    if not row:
+        return 0
+    if row["locked_until"]:
+        locked_until_dt = datetime.fromisoformat(row["locked_until"])
+        if datetime.now() < locked_until_dt:
+            remaining = int(round((locked_until_dt - datetime.now()).total_seconds()))
+            if remaining > 0:
+                con.close()
+                raise HTTPException(423, f"Too many wrong PIN attempts. Locked out. Try again in {remaining}s.")
+    return row["attempts"]
+
+def record_failed_pin(con, vpa, current_attempts=None):
+    """Count this failure and lock the account if it was the third.
+
+    The counter is incremented INSIDE the statement, and the DB — not Python —
+    decides whether that increment crosses the threshold. The old version read
+    `attempts` earlier in the handler, spent ~50ms verifying the PIN with Argon2,
+    then wrote back an absolute `current_attempts + 1`. Ten parallel wrong PINs
+    all read 0 and all wrote 1: measured counter = 1, locked_until = None, nobody
+    locked out. A 4-digit PIN is a 10,000-key space, so unmetered parallel
+    guessing walks it — and this lockout is the ONLY control that stops that
+    (Argon2 buys time per guess, it doesn't bound the number of guesses).
+
+    ON CONFLICT DO UPDATE takes a row lock, so concurrent callers serialise here
+    and each one sees the previous increment.
+
+    `current_attempts` is accepted but ignored — kept so the existing call sites
+    don't need to change, and precisely because trusting a stale read was the bug.
+    """
+    now_s = datetime.now().isoformat()
+    lock_s = (datetime.now() + timedelta(seconds=60)).isoformat()
+    # locked_until is ISO TEXT, so a plain string compare is chronological.
+    con.execute("""INSERT INTO security_lockouts (vpa, attempts, locked_until) VALUES (?, 1, NULL)
+                   ON CONFLICT (vpa) DO UPDATE SET
+                     attempts = CASE
+                         -- a lock that has already expired starts a fresh window
+                         WHEN security_lockouts.locked_until IS NOT NULL
+                              AND security_lockouts.locked_until <= ? THEN 1
+                         ELSE security_lockouts.attempts + 1
+                     END,
+                     locked_until = CASE
+                         WHEN security_lockouts.locked_until IS NOT NULL
+                              AND security_lockouts.locked_until <= ? THEN NULL
+                         WHEN security_lockouts.attempts + 1 >= 3 THEN ?
+                         -- NEVER clear a live lock. Setting NULL here let a racing
+                         -- request that had already passed check_lockout wipe a
+                         -- lock another request had just set (measured: 3 requests
+                         -- got 423, then the lock was erased and counter fell to 1).
+                         ELSE security_lockouts.locked_until
+                     END""",
+                (vpa, now_s, now_s, lock_s))
+    # Read back our own write (same transaction, row still locked) to find out
+    # what the DB decided.
+    row = con.execute("SELECT attempts, locked_until FROM security_lockouts WHERE vpa=?",
+                      (vpa,)).fetchone()
+    con.commit()
+    con.close()
+    if row["locked_until"]:
+        raise HTTPException(423, "Too many wrong PIN attempts. Locked out for 60s.")
+    left = max(0, 3 - row["attempts"])
+    raise HTTPException(401, f"Incorrect PIN. {left} attempt(s) remaining.")
+
+def reset_lockout(con, vpa):
+    con.execute("DELETE FROM security_lockouts WHERE vpa=?", (vpa,))
+    con.commit()
+
+
 @app.on_event("startup")
 def _startup():
     global engine
     engine = FraudEngine()
-    
-    # Auto-initialize SQLite DB if missing or empty
-    if not DB_PATH.exists() or DB_PATH.stat().st_size == 0:
-        print(f"Database at {DB_PATH} is missing or empty. Auto-building it...")
-        # Add project root to sys.path if not present, so we can import from db
-        import sys
-        if str(ROOT) not in sys.path:
-            sys.path.append(str(ROOT))
-        from db.build_db import build
-        try:
-            build()
-            print("Database built and seeded successfully.")
-        except Exception as e:
-            print(f"Error auto-building database: {e}")
-            
-    print(f"Payit backend up. DB: {DB_PATH}")
+    # Deliberately NO auto-seed here. This used to call db.build_db.build() whenever
+    # the SQLite file was missing, which was harmless when build() wrote a local
+    # payit.db — but build() now DROPs and reseeds PostgreSQL, so on a Postgres-only
+    # setup that hook would wipe the real database on every boot. Seeding is an
+    # explicit, guarded command: PYTHONPATH=. .venv/bin/python db/build_db.py
+    print(f"Payit backend up. DB: {_db_label()}")
 
 
 # ------------------------------------------------------------ feature enrichment
@@ -96,9 +375,13 @@ def enrich_from_db(con, sender, receiver, t) -> dict:
     except Exception:
         usual = set(range(6, 22))
 
-    win = "-60 seconds"
-    win_10m = "-10 minutes"
-    win_24h = "-24 hours"
+    # Rolling-window cutoffs computed in Python as ISO strings. created_at is ISO
+    # TEXT, so a plain string compare is chronological AND database-agnostic —
+    # SQLite's datetime('now', ...) does not exist in PostgreSQL.
+    _now_dt = datetime.now()
+    win = (_now_dt - timedelta(seconds=60)).isoformat()
+    win_10m = (_now_dt - timedelta(minutes=10)).isoformat()
+    win_24h = (_now_dt - timedelta(hours=24)).isoformat()
 
     # first-time payee: has sender EVER paid this receiver?
     prior = con.execute(
@@ -108,40 +391,40 @@ def enrich_from_db(con, sender, receiver, t) -> dict:
 
     # velocity: sender's txns in last 60s / 10m / 24h
     velocity = con.execute(
-        "SELECT COUNT(*) c FROM transactions WHERE sender_account_id=? AND created_at > datetime('now', ?)",
+        "SELECT COUNT(*) c FROM transactions WHERE sender_account_id=? AND created_at > ?",
         (s["id"], win)).fetchone()["c"]
     velocity_10m = con.execute(
-        "SELECT COUNT(*) c FROM transactions WHERE sender_account_id=? AND created_at > datetime('now', ?)",
+        "SELECT COUNT(*) c FROM transactions WHERE sender_account_id=? AND created_at > ?",
         (s["id"], win_10m)).fetchone()["c"]
     velocity_24h = con.execute(
-        "SELECT COUNT(*) c FROM transactions WHERE sender_account_id=? AND created_at > datetime('now', ?)",
+        "SELECT COUNT(*) c FROM transactions WHERE sender_account_id=? AND created_at > ?",
         (s["id"], win_24h)).fetchone()["c"]
 
     # fan-in: distinct senders to receiver in last 60s / 10m / 24h
     fan_in = con.execute(
-        "SELECT COUNT(DISTINCT sender_account_id) c FROM transactions WHERE receiver_account_id=? AND created_at > datetime('now', ?)",
+        "SELECT COUNT(DISTINCT sender_account_id) c FROM transactions WHERE receiver_account_id=? AND created_at > ?",
         (r["id"], win)).fetchone()["c"]
     fan_in_10m = con.execute(
-        "SELECT COUNT(DISTINCT sender_account_id) c FROM transactions WHERE receiver_account_id=? AND created_at > datetime('now', ?)",
+        "SELECT COUNT(DISTINCT sender_account_id) c FROM transactions WHERE receiver_account_id=? AND created_at > ?",
         (r["id"], win_10m)).fetchone()["c"]
     fan_in_24h = con.execute(
-        "SELECT COUNT(DISTINCT sender_account_id) c FROM transactions WHERE receiver_account_id=? AND created_at > datetime('now', ?)",
+        "SELECT COUNT(DISTINCT sender_account_id) c FROM transactions WHERE receiver_account_id=? AND created_at > ?",
         (r["id"], win_24h)).fetchone()["c"]
 
     # fan-out: distinct receivers from sender in last 60s / 10m / 24h
     fan_out = con.execute(
-        "SELECT COUNT(DISTINCT receiver_account_id) c FROM transactions WHERE sender_account_id=? AND created_at > datetime('now', ?)",
+        "SELECT COUNT(DISTINCT receiver_account_id) c FROM transactions WHERE sender_account_id=? AND created_at > ?",
         (s["id"], win)).fetchone()["c"]
     fan_out_10m = con.execute(
-        "SELECT COUNT(DISTINCT receiver_account_id) c FROM transactions WHERE sender_account_id=? AND created_at > datetime('now', ?)",
+        "SELECT COUNT(DISTINCT receiver_account_id) c FROM transactions WHERE sender_account_id=? AND created_at > ?",
         (s["id"], win_10m)).fetchone()["c"]
     fan_out_24h = con.execute(
-        "SELECT COUNT(DISTINCT receiver_account_id) c FROM transactions WHERE sender_account_id=? AND created_at > datetime('now', ?)",
+        "SELECT COUNT(DISTINCT receiver_account_id) c FROM transactions WHERE sender_account_id=? AND created_at > ?",
         (s["id"], win_24h)).fetchone()["c"]
 
     # in_mule_chain: did sender RECEIVE a similar amount in last 60s (now forwarding)?
     inc = con.execute(
-        "SELECT amount FROM transactions WHERE receiver_account_id=? AND created_at > datetime('now', ?)",
+        "SELECT amount FROM transactions WHERE receiver_account_id=? AND created_at > ?",
         (s["id"], win)).fetchall()
     in_chain = int(any(abs(row["amount"] - amount) <= 0.25 * max(amount, 1) for row in inc))
     # jumped-deposit: did sender receive a TINY credit (<Rs 100) recently?
@@ -149,7 +432,7 @@ def enrich_from_db(con, sender, receiver, t) -> dict:
 
     # forwards: did receiver send out in last 60s?
     fwd = con.execute(
-        "SELECT COUNT(*) c FROM transactions WHERE sender_account_id=? AND created_at > datetime('now', ?)",
+        "SELECT COUNT(*) c FROM transactions WHERE sender_account_id=? AND created_at > ?",
         (r["id"], win)).fetchone()["c"]
 
     # device: known for this user?
@@ -224,6 +507,11 @@ class PayReq(BaseModel):
     receiver_vpa: str
     amount: float = Field(gt=0)
     pin: str = ""               # UPI PIN (2nd factor)
+    # Client-generated UUID, IDENTICAL across every retry of one payment attempt
+    # (a new attempt gets a new one). Optional only so the existing frontend keeps
+    # working; a request without it gets NO duplicate protection, which is
+    # exactly the state NPCI's spec forbids. See _claim_idempotency.
+    idempotency_key: str = ""
     device_id: str = ""
     type: str = "PAY"
     channel: str = "MANUAL"
@@ -258,26 +546,7 @@ class ResetPinReq(BaseModel):
     otp: str
     new_pin: str
 
-# ----- WebAuthn / Passkey models -----
-class WebAuthnRegisterOptionsReq(BaseModel):
-    vpa: str                       # logged-in user
 
-class WebAuthnRegisterReq(BaseModel):
-    vpa: str
-    credential_id: str             # base64url
-    public_key: str                # base64url SPKI DER
-    client_data_json: str          # base64url (for origin check)
-    attestation_object: str        # base64url (stored but not deeply verified in demo)
-
-class WebAuthnLoginOptionsReq(BaseModel):
-    vpa: str
-
-class WebAuthnLoginReq(BaseModel):
-    vpa: str
-    credential_id: str
-    authenticator_data: str        # base64url
-    client_data_json: str          # base64url
-    signature: str                 # base64url
 
 
 # ------------------------------------------------------------------ auth
@@ -288,11 +557,24 @@ def login(req: LoginReq):
     if not acc:
         con.close()
         raise HTTPException(404, "account not found")
+    
+    # Check persistent lockout status
+    attempts = check_lockout(con, req.vpa)
+
     stored_hash = acc["login_pin_hash"] if ("login_pin_hash" in acc.keys() and acc["login_pin_hash"]) else acc["upi_pin_hash"]
-    if req.pin and stored_hash and \
-            hashlib.sha256(req.pin.encode()).hexdigest() != stored_hash:
+    if not req.pin:
         con.close()
-        raise HTTPException(401, "invalid Login PIN")
+        raise HTTPException(401, "Login PIN is required")
+    if stored_hash and not verify_pin(req.pin, stored_hash):
+        record_failed_pin(con, req.vpa, attempts)
+
+    # Success -> reset lockout
+    reset_lockout(con, req.vpa)
+    # transparently upgrade a legacy/weak hash now that we have the plaintext
+    if stored_hash and pin_needs_rehash(stored_hash):
+        col = "login_pin_hash" if ("login_pin_hash" in acc.keys() and acc["login_pin_hash"]) else "upi_pin_hash"
+        con.execute(f"UPDATE accounts SET {col}=? WHERE vpa=?", (hash_pin(req.pin), req.vpa))
+        con.commit()
     # device binding: register device as known if new
     if req.device_id:
         known = con.execute("SELECT COUNT(*) c FROM devices WHERE user_id=? AND device_fingerprint=?",
@@ -300,7 +582,7 @@ def login(req: LoginReq):
         if not known:
             con.execute("INSERT INTO devices (user_id, device_fingerprint, status, binding_age_days, is_rooted, created_at) VALUES (?,?,?,?,?,?)",
                         (acc["user_id"], req.device_id, "active", 0, 0, now_iso()))
-    token = f"tok_{random.randint(10**9, 10**10)}"
+    token = f"tok_{secrets.token_urlsafe(32)}"      # CSPRNG: session token is an auth credential
     con.execute("INSERT INTO sessions (user_id, device_id, token, expires_at, created_at) VALUES (?,?,?,?,?)",
                 (acc["user_id"], None, token, (datetime.now()+timedelta(hours=6)).isoformat(), now_iso()))
     con.commit()
@@ -363,8 +645,8 @@ def register(req: RegisterReq):
         if len(req.upi_pin) != 6 or not req.upi_pin.isdigit():
             raise HTTPException(400, "UPI Transaction PIN must be a 6-digit number")
             
-        upi_pin_hash = hashlib.sha256(req.upi_pin.encode()).hexdigest()
-        login_pin_hash = hashlib.sha256(req.login_pin.encode()).hexdigest()
+        upi_pin_hash = hash_pin(req.upi_pin)          # Argon2id + pepper
+        login_pin_hash = hash_pin(req.login_pin)
         account_number = f"ACC{random.randint(10**10, 10**11)}"
         con.execute("""
             INSERT INTO accounts (
@@ -374,7 +656,7 @@ def register(req: RegisterReq):
             ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """, (user_id, req.bank_id, req.vpa, account_number, 5000.0, 1, "BASIC", 0, 0, 1500.0, "7-22", req.device_id, 0, 0, now_iso(), upi_pin_hash, login_pin_hash))
         
-        token = f"tok_{random.randint(10**9, 10**10)}"
+        token = f"tok_{secrets.token_urlsafe(32)}"      # CSPRNG: session token is an auth credential
         con.execute("INSERT INTO sessions (user_id, device_id, token, expires_at, created_at) VALUES (?,?,?,?,?)",
                     (user_id, None, token, (datetime.now()+timedelta(hours=6)).isoformat(), now_iso()))
         
@@ -384,7 +666,7 @@ def register(req: RegisterReq):
             
         con.commit()
         return {"token": token, "vpa": req.vpa, "name": req.name, "balance": 5000.0}
-    except sqlite3.IntegrityError as e:
+    except psycopg2.IntegrityError as e:
         con.rollback()
         raise HTTPException(400, f"Database error: {str(e)}")
     finally:
@@ -395,30 +677,45 @@ def register(req: RegisterReq):
 def verify_upi_pin(req: VerifyUpiPinReq):
     con = db()
     acc = con.execute("SELECT upi_pin_hash FROM accounts WHERE vpa=?", (req.vpa,)).fetchone()
-    con.close()
     if not acc:
+        con.close()
         raise HTTPException(404, "account not found")
     if not acc["upi_pin_hash"]:
+        con.close()
         raise HTTPException(400, "UPI PIN not set")
-    pin_hash = hashlib.sha256(req.upi_pin.encode()).hexdigest()
-    if pin_hash != acc["upi_pin_hash"]:
-        raise HTTPException(401, "invalid UPI PIN")
+    # Share the lockout ledger with /pay and /auth/login. Without it this route was
+    # an unmetered PIN oracle: 6 digits is a 1M keyspace, and Argon2 only makes a
+    # guesser slow, not stopped — the attempt cap is the control that actually works.
+    # (Both helpers close `con` and raise on the failure paths.)
+    attempts = check_lockout(con, req.vpa)
+    if not verify_pin(req.upi_pin, acc["upi_pin_hash"]):
+        record_failed_pin(con, req.vpa, attempts)
+    reset_lockout(con, req.vpa)
+    con.close()
     return {"status": "success", "message": "UPI PIN is correct"}
 
 
 @app.post("/auth/set-pin")
-def set_pin(req: SetPinReq):
+def set_pin(req: SetPinReq, current_user: dict = Depends(get_current_user)):
+    # Setting the UPI PIN IS the account-takeover primitive — whoever can set it can
+    # move the money. So it is bound to the caller's own session; the VPA in the body
+    # is never trusted on its own (this route used to take one with no auth at all).
+    # Note this authorises a change with the LOGIN pin only (that is what minted the
+    # session). A step-up — old UPI PIN, or the /auth/forgot-pin OTP — would be the
+    # stronger design; see the note in the handover.
+    if current_user["vpa"] != req.vpa:
+        raise HTTPException(403, "Unauthorized to set the PIN for this VPA")
     con = db()
     acc = con.execute("SELECT * FROM accounts WHERE vpa=?", (req.vpa,)).fetchone()
     if not acc:
         con.close()
         raise HTTPException(404, "VPA not found")
-    
+
     if len(req.upi_pin) != 6 or not req.upi_pin.isdigit():
         con.close()
         raise HTTPException(400, "UPI PIN must be a 6-digit number")
     
-    pin_hash = hashlib.sha256(req.upi_pin.encode()).hexdigest()
+    pin_hash = hash_pin(req.upi_pin)                  # Argon2id + pepper
     con.execute("UPDATE accounts SET upi_pin_hash=? WHERE vpa=?", (pin_hash, req.vpa))
     con.commit()
     con.close()
@@ -436,11 +733,14 @@ def forgot_pin(req: ForgotPinReq):
     if not acc:
         con.close()
         raise HTTPException(404, "Account not found")
-    otp_code = f"{random.randint(100000, 999999)}"
+    otp_code = f"{secrets.randbelow(900000) + 100000}"
     # Expire any existing reset OTPs for this user
+    # The LIKE pattern MUST travel as a parameter, not inline in the SQL. The wrapper
+    # rewrites ? -> %s, after which psycopg2 reads a literal % in the query as the
+    # start of a placeholder and dies with "tuple index out of range".
     con.execute(
-        "UPDATE otp_verifications SET status='expired' WHERE user_id=? AND code LIKE 'pin_reset:%' AND status='pending'",
-        (acc["user_id"],)
+        "UPDATE otp_verifications SET status='expired' WHERE user_id=? AND code LIKE ? AND status='pending'",
+        (acc["user_id"], "pin_reset:%")
     )
     con.execute(
         "INSERT INTO otp_verifications (user_id, code, status, attempts, expires_at, created_at) VALUES (?,?,?,?,?,?)",
@@ -451,23 +751,33 @@ def forgot_pin(req: ForgotPinReq):
     phone = acc["phone"] or ""
     masked = f"****{phone[-4:]}" if len(phone) >= 4 else "****"
     print(f"[Forgot PIN OTP] vpa={req.vpa} → OTP: {otp_code}  (check server logs)")
-    return {"result": "sent", "message": f"OTP sent to your registered mobile +91 {masked}", "otp_demo": otp_code}
+    # Say what actually happened. No SMS leaves this box: sending one in India needs
+    # TRAI DLT registration, which needs a registered business. Claiming "OTP sent"
+    # would be a lie the demo can't back up.
+    return {"result": "sent",
+            "message": f"Demo mode — no SMS sent to +91 {masked}. {SMS_DISCLAIMER}",
+            "delivery": "server_log"}
 
 
 @app.post("/auth/reset-pin")
 def reset_pin(req: ResetPinReq):
     """Verify the forgot-PIN OTP and set a new UPI PIN."""
-    if len(req.new_pin) != 4 or not req.new_pin.isdigit():
-        raise HTTPException(400, "new_pin must be exactly 4 digits")
+    # 6 digits, matching /auth/register and /auth/set-pin — the UPI PIN is 6 digits
+    # everywhere (the 4-digit one is the separate app LOGIN pin). This check used to
+    # demand 4 here and 6 again after the OTP step, which no input could satisfy, so
+    # the route could never succeed. Validated up front so a wrong length doesn't
+    # burn one of the caller's three OTP attempts.
+    if len(req.new_pin) != 6 or not req.new_pin.isdigit():
+        raise HTTPException(400, "UPI PIN must be a 6-digit number")
     con = db()
     acc = con.execute("SELECT * FROM accounts WHERE vpa=?", (req.vpa,)).fetchone()
     if not acc:
         con.close(); raise HTTPException(404, "Account not found")
     otp_row = con.execute(
         """SELECT * FROM otp_verifications
-           WHERE user_id=? AND status='pending' AND code LIKE 'pin_reset:%' AND expires_at > ?
+           WHERE user_id=? AND status='pending' AND code LIKE ? AND expires_at > ?
            ORDER BY id DESC LIMIT 1""",
-        (acc["user_id"], datetime.now().isoformat())
+        (acc["user_id"], "pin_reset:%", datetime.now().isoformat())
     ).fetchone()
     if not otp_row:
         con.close(); raise HTTPException(400, "OTP expired or not found. Please request a new one.")
@@ -482,16 +792,12 @@ def reset_pin(req: ResetPinReq):
         con.commit(); con.close()
         left = 3 - new_attempts
         raise HTTPException(400, f"Incorrect OTP. {left} attempt(s) remaining.")
-    # OTP verified → set new PIN
-    if len(req.new_pin) != 6 or not req.new_pin.isdigit():
-        con.close()
-        raise HTTPException(400, "UPI PIN must be a 6-digit number")
-    pin_hash = hashlib.sha256(req.new_pin.encode()).hexdigest()
+    # OTP verified → set new PIN (length already validated up front)
+    pin_hash = hash_pin(req.new_pin)                  # Argon2id + pepper
     con.execute("UPDATE accounts SET upi_pin_hash=? WHERE vpa=?", (pin_hash, req.vpa))
     con.execute("UPDATE otp_verifications SET status='verified' WHERE id=?", (otp_row["id"],))
     # Clear any PIN lockout for this VPA
-    if req.vpa in _pin_fails:
-        del _pin_fails[req.vpa]
+    reset_lockout(con, req.vpa)
     con.commit(); con.close()
     print(f"[Forgot PIN] UPI PIN reset successfully for {req.vpa}")
     return {"result": "success", "message": "UPI PIN reset successfully. You can now login with your new PIN."}
@@ -505,144 +811,7 @@ def get_banks():
     return [{"id": r["id"], "name": r["name"], "upi_handle": r["upi_handle"]} for r in rows]
 
 
-# ------------------------------------------------------------ WebAuthn / Passkeys
-import base64, os as _os
 
-def _b64url(data: bytes) -> str:
-    return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
-
-def _from_b64url(s: str) -> bytes:
-    s += "=" * (-len(s) % 4)
-    return base64.urlsafe_b64decode(s)
-
-
-@app.post("/auth/webauthn/register-options")
-def webauthn_register_options(req: WebAuthnRegisterOptionsReq):
-    """Return a fresh challenge so the browser can call navigator.credentials.create()."""
-    con = db()
-    acc = con.execute("SELECT * FROM accounts WHERE vpa=?", (req.vpa,)).fetchone()
-    con.close()
-    if not acc:
-        raise HTTPException(404, "account not found")
-    challenge = _b64url(_os.urandom(32))
-    # Store challenge temporarily in otp_verifications (re-used table, user_id=0 marker)
-    con = db()
-    con.execute(
-        "INSERT INTO otp_verifications (user_id, code, status, attempts, expires_at, created_at) VALUES (?,?,?,?,?,?)",
-        (acc["user_id"], f"wa_reg:{challenge}", "pending", 0,
-         (datetime.now() + timedelta(minutes=5)).isoformat(), now_iso())
-    )
-    con.commit(); con.close()
-    return {
-        "challenge": challenge,
-        "rp": {"name": "Payit", "id": "payit-mu.vercel.app"},
-        "user": {"id": _b64url(str(acc["user_id"]).encode()), "name": req.vpa, "displayName": req.vpa},
-        "pubKeyCredParams": [{"type": "public-key", "alg": -7}, {"type": "public-key", "alg": -257}],
-        "timeout": 60000,
-        "authenticatorSelection": {
-            "authenticatorAttachment": "platform",
-            "userVerification": "required",
-            "residentKey": "preferred",
-        },
-        "attestation": "none",
-    }
-
-
-@app.post("/auth/webauthn/register")
-def webauthn_register(req: WebAuthnRegisterReq):
-    """Store the new passkey credential returned by the browser."""
-    con = db()
-    acc = con.execute("SELECT * FROM accounts WHERE vpa=?", (req.vpa,)).fetchone()
-    if not acc:
-        con.close(); raise HTTPException(404, "account not found")
-    # Verify challenge was issued
-    row = con.execute(
-        "SELECT * FROM otp_verifications WHERE user_id=? AND status='pending' AND code LIKE 'wa_reg:%' ORDER BY id DESC LIMIT 1",
-        (acc["user_id"],)
-    ).fetchone()
-    if not row:
-        con.close(); raise HTTPException(400, "no pending registration challenge")
-    # Mark challenge used
-    con.execute("UPDATE otp_verifications SET status='verified' WHERE id=?", (row["id"],))
-    # Ensure webauthn_credentials table exists (idempotent)
-    con.execute("""CREATE TABLE IF NOT EXISTS webauthn_credentials (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, vpa TEXT NOT NULL,
-        credential_id TEXT UNIQUE NOT NULL, public_key TEXT NOT NULL,
-        sign_count INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL)""")
-    # Upsert credential (allow re-enrollment)
-    con.execute(
-        "INSERT OR REPLACE INTO webauthn_credentials (user_id, vpa, credential_id, public_key, sign_count, created_at) VALUES (?,?,?,?,?,?)",
-        (acc["user_id"], req.vpa, req.credential_id, req.public_key, 0, now_iso())
-    )
-    con.commit(); con.close()
-    print(f"[WebAuthn] Passkey registered for {req.vpa} (credId={req.credential_id[:16]}…)")
-    return {"result": "registered", "message": "Fingerprint / passkey enrolled successfully."}
-
-
-@app.post("/auth/webauthn/login-options")
-def webauthn_login_options(req: WebAuthnLoginOptionsReq):
-    """Return challenge + allowed credentials so browser calls navigator.credentials.get()."""
-    con = db()
-    acc = con.execute("SELECT * FROM accounts WHERE vpa=?", (req.vpa,)).fetchone()
-    if not acc:
-        con.close(); raise HTTPException(404, "account not found")
-    # Find all registered passkeys for this user
-    con.execute("CREATE TABLE IF NOT EXISTS webauthn_credentials (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, vpa TEXT NOT NULL, credential_id TEXT UNIQUE NOT NULL, public_key TEXT NOT NULL, sign_count INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL)")
-    creds = con.execute(
-        "SELECT credential_id FROM webauthn_credentials WHERE user_id=?", (acc["user_id"],)
-    ).fetchall()
-    if not creds:
-        con.close(); raise HTTPException(404, "no passkey registered for this account")
-    challenge = _b64url(_os.urandom(32))
-    con.execute(
-        "INSERT INTO otp_verifications (user_id, code, status, attempts, expires_at, created_at) VALUES (?,?,?,?,?,?)",
-        (acc["user_id"], f"wa_auth:{challenge}", "pending", 0,
-         (datetime.now() + timedelta(minutes=5)).isoformat(), now_iso())
-    )
-    con.commit(); con.close()
-    return {
-        "challenge": challenge,
-        "timeout": 60000,
-        "rpId": "payit-mu.vercel.app",
-        "userVerification": "required",
-        "allowCredentials": [{"type": "public-key", "id": r["credential_id"]} for r in creds],
-    }
-
-
-@app.post("/auth/webauthn/login")
-def webauthn_login(req: WebAuthnLoginReq):
-    """Verify the browser assertion and log the user in."""
-    con = db()
-    acc = con.execute("SELECT * FROM accounts WHERE vpa=?", (req.vpa,)).fetchone()
-    if not acc:
-        con.close(); raise HTTPException(404, "account not found")
-    # Check credential is registered for this user
-    cred = con.execute(
-        "SELECT * FROM webauthn_credentials WHERE user_id=? AND credential_id=?",
-        (acc["user_id"], req.credential_id)
-    ).fetchone()
-    if not cred:
-        con.close(); raise HTTPException(401, "passkey not registered for this account")
-    # Verify a pending auth challenge was issued
-    row = con.execute(
-        "SELECT * FROM otp_verifications WHERE user_id=? AND status='pending' AND code LIKE 'wa_auth:%' ORDER BY id DESC LIMIT 1",
-        (acc["user_id"],)
-    ).fetchone()
-    if not row:
-        con.close(); raise HTTPException(400, "no pending authentication challenge")
-    # Mark challenge used (prevent replay)
-    con.execute("UPDATE otp_verifications SET status='verified' WHERE id=?", (row["id"],))
-    # Update sign count
-    con.execute("UPDATE webauthn_credentials SET sign_count = sign_count + 1 WHERE id=?", (cred["id"],))
-    # Issue session token (same as normal login)
-    token = f"tok_{random.randint(10**9, 10**10)}"
-    con.execute("INSERT INTO sessions (user_id, device_id, token, expires_at, created_at) VALUES (?,?,?,?,?)",
-                (acc["user_id"], None, token, (datetime.now()+timedelta(hours=6)).isoformat(), now_iso()))
-    con.commit()
-    user = con.execute("SELECT name FROM users WHERE id=?", (acc["user_id"],)).fetchone()
-    con.close()
-    print(f"[WebAuthn] Passkey login successful for {req.vpa}")
-    return {"token": token, "vpa": req.vpa, "name": user["name"], "balance": acc["balance"]}
 
 
 
@@ -660,13 +829,10 @@ def resolve_vpa(vpa: str):
 
 
 @app.get("/balance/{vpa}")
-def balance(vpa: str):
-    con = db()
-    acc = con.execute("SELECT balance FROM accounts WHERE vpa=?", (vpa,)).fetchone()
-    con.close()
-    if not acc:
-        raise HTTPException(404, "account not found")
-    return {"vpa": vpa, "balance": acc["balance"]}
+def balance(vpa: str, current_user: dict = Depends(get_current_user)):
+    if current_user["vpa"] != vpa:
+        raise HTTPException(403, "Unauthorized to view balance for this VPA")
+    return {"vpa": vpa, "balance": current_user["balance"]}
 
 
 class PrecheckReq(BaseModel):
@@ -716,6 +882,85 @@ def precheck(req: PrecheckReq):
 
 
 # ------------------------------------------------------------------ pay (core)
+def get_db():
+    """Per-request connection that is ALWAYS returned, even when the handler
+    raises. /pay used to do a bare `con = db()`; every HTTPException raised past
+    it (unknown receiver_vpa, a scoring error) leaked the connection, so anyone
+    could exhaust the pool by POSTing /pay with a bogus VPA in a loop.
+
+    close() is idempotent, so the handler's own con.close() calls stay valid."""
+    con = db()
+    try:
+        yield con
+    finally:
+        con.close()
+
+
+def _req_fingerprint(user_id: int, req) -> str:
+    """Hash of the parameters that define this payment.
+
+    Reusing one key for a *different* payment is a client bug, not a retry.
+    Without this we would happily replay the response for "₹500 to Arpit" at
+    someone who then asked for "₹50,000 to Ramesh".
+    """
+    raw = f"{user_id}|{req.sender_vpa}|{req.receiver_vpa}|{req.amount}|{req.type}|{req.channel}"
+    return hashlib.sha256(raw.encode()).hexdigest()
+
+
+def _claim_idempotency(con, user_id: int, key: str, fingerprint: str):
+    """Try to claim this key. Returns None if WE own it and should do the work,
+    or the original response dict to replay if this is a retry.
+
+    The UNIQUE index — not an `if` in Python — decides the winner. A
+    SELECT-then-INSERT here would be the same TOCTOU that the recall bug was:
+    both requests would see "no such key" and both would insert.
+
+    Known limit: the claim commits before the payment runs, so if the process
+    dies in between, the key stays claimed with no response and retries get 409
+    forever. That is the safe direction to fail (never a double charge), and the
+    real fix is Brandur's `locked_at` lease, which we have not built.
+    """
+    if not key:
+        return None                       # no key -> no protection (see PayReq)
+    try:
+        con.execute("""INSERT INTO idempotency_keys
+                         (user_id, idempotency_key, request_fingerprint, created_at)
+                       VALUES (?,?,?,?)""", (user_id, key, fingerprint, now_iso()))
+        con.commit()
+        return None                       # claimed: we do the work
+    except psycopg2.IntegrityError:
+        con.rollback()                    # somebody else has it
+
+    row = con.execute("SELECT * FROM idempotency_keys WHERE user_id=? AND idempotency_key=?",
+                      (user_id, key)).fetchone()
+    if not row:
+        return None                       # vanished (expiry job); treat as fresh
+
+    if row["request_fingerprint"] != fingerprint:
+        raise HTTPException(400,
+            "This idempotency key was already used for a different payment. "
+            "Use a new key for a new payment.")
+
+    if row["response_code"] is None:
+        # Claimed but no response yet: the first attempt is still in flight.
+        # Returning a fresh payment here is exactly the double-charge we are
+        # preventing, so the honest answer is "ask again".
+        raise HTTPException(409, "This payment is already being processed. Please wait.")
+
+    print(f"[IDEMPOTENT REPLAY] user={user_id} key={key} -> replaying original response")
+    return json.loads(row["response_body"])
+
+
+def _store_idempotent(con, user_id: int, key: str, code: int, body: dict) -> None:
+    """Record the outcome so a retry replays it instead of paying again."""
+    if not key:
+        return
+    con.execute("""UPDATE idempotency_keys SET response_code=?, response_body=?
+                   WHERE user_id=? AND idempotency_key=?""",
+                (code, json.dumps(body, default=str), user_id, key))
+    con.commit()
+
+
 def _log_fraud(con, txid, out):
     con.execute("INSERT INTO fraud_scores (transaction_id, cumulative_score, label, created_at) VALUES (?,?,?,?)",
                 (txid, out["score"], out["label"], now_iso()))
@@ -725,9 +970,11 @@ def _log_fraud(con, txid, out):
 
 
 @app.post("/pay")
-def pay(req: PayReq):
+def pay(req: PayReq, current_user: dict = Depends(get_current_user),
+        con=Depends(get_db)):
+    if current_user["vpa"] != req.sender_vpa:
+        raise HTTPException(403, "Unauthorized to initiate payment from this VPA")
     t0 = time.perf_counter()
-    con = db()
 
     # ---- 2nd factor: verify UPI PIN (device is the 1st factor) ----
     if not req.pin or req.pin.strip() == "":
@@ -743,51 +990,46 @@ def pay(req: PayReq):
         con.close(); raise HTTPException(404, "sender not found")
 
     # Check wrong PIN lockout
-    now_ts = time.time()
-    pf = _pin_fails.get(req.sender_vpa, {"attempts": 0, "lockout_until": 0.0})
-    if now_ts < pf["lockout_until"]:
-        con.close()
-        remaining = int(round(pf["lockout_until"] - now_ts))
-        raise HTTPException(423, f"Too many wrong PIN attempts. Locked out. Try again in {remaining}s.")
+    attempts = check_lockout(con, req.sender_vpa)
 
     if req.pin and srow["upi_pin_hash"]:
-        pin_hash = hashlib.sha256(req.pin.encode()).hexdigest()
-        if pin_hash != srow["upi_pin_hash"]:
-            pf["attempts"] += 1
-            if pf["attempts"] >= 3:
-                pf["lockout_until"] = now_ts + 60
-                pf["attempts"] = 0
-                _pin_fails[req.sender_vpa] = pf
-                con.close()
-                raise HTTPException(423, "Too many wrong PIN attempts. Locked out for 60s.")
-            else:
-                _pin_fails[req.sender_vpa] = pf
-                con.close()
-                left = 3 - pf["attempts"]
-                raise HTTPException(401, f"Incorrect UPI PIN. {left} attempt(s) remaining.")
+        if not verify_pin(req.pin, srow["upi_pin_hash"]):
+            record_failed_pin(con, req.sender_vpa, attempts)
 
     # Success -> reset PIN attempts
-    if req.sender_vpa in _pin_fails:
-        _pin_fails[req.sender_vpa] = {"attempts": 0, "lockout_until": 0.0}
+    reset_lockout(con, req.sender_vpa)
+
+    # Idempotency claim. Placed AFTER the PIN check so a wrong-PIN attempt can't
+    # burn the key, and BEFORE anything that moves money. If this is a retry of a
+    # payment we already made, _claim_idempotency returns that original response
+    # and we return it verbatim — same key in, same answer out, one debit total.
+    idem_fp = _req_fingerprint(current_user["id"], req)
+    replay = _claim_idempotency(con, current_user["id"], req.idempotency_key, idem_fp)
+    if replay is not None:
+        return replay
 
     feats = enrich_from_db(con, req.sender_vpa, req.receiver_vpa, req)
 
-    # F1: new / freshly-bound device -> ₹2000 cooling-off cap (blunts account-takeover drain)
-    if req.device_id:
-        drow = con.execute("""SELECT d.binding_age_days FROM devices d
-                              JOIN accounts a ON a.user_id = d.user_id
-                              WHERE a.vpa=? AND d.device_fingerprint=?""",
-                           (req.sender_vpa, req.device_id)).fetchone()
-        fresh_device = (drow is None) or (drow["binding_age_days"] is not None and drow["binding_age_days"] < 1)
-        if fresh_device and req.amount > 2000:
-            con.close()
-            raise HTTPException(403, "New device — ₹2,000 limit for 24h (security cooling-off). Use your usual device for higher amounts.")
+    # F1: an UNRECOGNISED device (never bound to this account via login/register)
+    # is capped to ₹2000/txn — a cooling-off that blunts account-takeover drain.
+    #
+    # NOTE: this deliberately keys off is_new_device (fingerprint not in `devices`),
+    # NOT binding_age_days. Nothing in the app ever ages binding_age_days, so a
+    # `binding_age_days < 1` check would cap the user's OWN device forever — every
+    # login binds with age 0 — and silently break all payments above ₹2000.
+    if feats.get("is_new_device") and req.amount > 2000:
+        con.close()
+        raise HTTPException(403, "New device — ₹2,000 limit for 24h (security cooling-off). Use your usual device for higher amounts.")
 
     if feats["_sender_bal"] < req.amount:
         con.close()
         raise HTTPException(400, "insufficient balance")
 
-    out = engine.score(feats)
+    # observe=False: the graph must only ever record money that actually moved.
+    # We do not know the verdict yet, so the edge is recorded after the transfer
+    # commits (see engine.observe below) — never for a BLOCK, and for a REVIEW
+    # only once the OTP passes.
+    out = engine.score(feats, observe=False)
     # blacklisted receiver = definitive auto-block (like real PSP/bank policy)
     if feats["receiver_blacklisted"] and out["label"] != "BLOCK":
         out["label"] = "BLOCK"; out["score"] = 100
@@ -809,21 +1051,29 @@ def pay(req: PayReq):
     _log_fraud(con, txid, out)
 
     if out["label"] == "BLOCK":
-        con.commit(); con.close()
-        return {"result": "BLOCKED", "transaction_id": txid, **out,
+        resp = {"result": "BLOCKED", "transaction_id": txid, **out,
                 "message": "Payment blocked by Fraud Shield — money not deducted."}
+        _store_idempotent(con, current_user["id"], req.idempotency_key, 200, resp)
+        con.commit(); con.close()
+        return resp
 
     if out["label"] == "REVIEW":
-        otp_code = f"{random.randint(100000, 999999)}"
+        otp_code = f"{secrets.randbelow(900000) + 100000}"
         con.execute("INSERT INTO otp_verifications (user_id, code, status, attempts, expires_at, created_at) VALUES (?,?,?,?,?,?)",
                     (feats["_user_id"], otp_code, "pending", 0, (datetime.now()+timedelta(minutes=5)).isoformat(), now_iso()))
+        # No SMS gateway is wired (see SMS_DISCLAIMER). The code is deliberately NOT
+        # returned in this response — a step-up challenge you hand back to the caller
+        # is not a second factor at all. Server logs only.
+        print(f"[OTP CHALLENGE] Transaction #{txid} → user_id={feats['_user_id']} → OTP: {otp_code}  (no SMS sent — read it here)")
+        resp = {"result": "REVIEW", "transaction_id": txid, **out,
+                "message": f"Extra verification needed — enter the OTP. Demo mode: no SMS sent, the code is in the server logs. {SMS_DISCLAIMER}",
+                "delivery": "server_log"}
+        # Replaying REVIEW matters as much as replaying SUCCESS: without it a
+        # retry would raise a SECOND pending transaction and a second OTP.
+        # Must run before the close — the connection is unusable afterwards.
+        _store_idempotent(con, current_user["id"], req.idempotency_key, 200, resp)
         con.commit(); con.close()
-        # In production this would be sent via Twilio/Fast2SMS.
-        # For Render demo: OTP is visible ONLY in server logs, never returned to client.
-        print(f"[OTP SMS] Transaction #{txid} → user_id={feats['_user_id']} → OTP: {otp_code}  (check Render logs)")
-        return {"result": "REVIEW", "transaction_id": txid, **out,
-                "message": "Extra verification needed — enter the OTP sent to your registered mobile.",
-                "otp_demo": otp_code}   # demo only: lets the local demo show the code (real app: SMS only)
+        return resp
 
     # SAFE -> atomic transfer
     try:
@@ -842,24 +1092,37 @@ def pay(req: PayReq):
                 post_msg = (f"Payment done, but our system flagged it right after. If confirmed fraud, "
                             f"₹{req.amount:.0f} will be returned to you. You can also recall it now.")
     except Exception as e:
+        # Log the REAL cause server-side; return a generic message to the client.
+        # (Swallowing this silently made a schema bug look like "insufficient balance".)
+        traceback.print_exc()
+        print(f"[PAY FAILED] txid={txid} sender={req.sender_vpa} -> {type(e).__name__}: {e}")
         con.execute("UPDATE transactions SET status='failed' WHERE id=?", (txid,))
         con.commit()
         con.close()
         raise HTTPException(400, "insufficient balance or transaction failed")
 
+    # Money moved: now the edge is real, so the graph may learn from it.
+    engine.observe(feats)
+
     new_bal = con.execute("SELECT balance FROM accounts WHERE id=?", (sid,)).fetchone()["balance"]
-    con.close()
-    return {"result": "SUCCESS", "transaction_id": txid, **out,
+    resp = {"result": "SUCCESS", "transaction_id": txid, **out,
             "message": "Payment successful.", "sender_balance": new_bal,
             "post_review": post_review, "post_message": post_msg}
+    # Store BEFORE closing: a retry that arrives after this point must replay
+    # this exact response rather than debit the sender a second time.
+    _store_idempotent(con, current_user["id"], req.idempotency_key, 200, resp)
+    con.close()
+    return resp
 
 
 @app.post("/pay/verify-otp")
-def verify_otp(req: OtpReq):
+def verify_otp(req: OtpReq, current_user: dict = Depends(get_current_user)):
     con = db()
     tx = con.execute("SELECT * FROM transactions WHERE id=? AND status='pending'", (req.pending_txn_id,)).fetchone()
     if not tx:
         con.close(); raise HTTPException(404, "pending transaction not found")
+    if tx["sender_account_id"] != current_user["id"]:
+        con.close(); raise HTTPException(403, "Unauthorized to verify OTP for this transaction")
     # Scope OTP lookup to the sender's user_id to prevent cross-user OTP use
     sender_acc = con.execute("SELECT user_id FROM accounts WHERE id=?", (tx["sender_account_id"],)).fetchone()
     if not sender_acc:
@@ -894,6 +1157,19 @@ def verify_otp(req: OtpReq):
     # OTP ok -> complete transfer via transaction
     try:
         with con:
+            # CAS, and it must be the FIRST statement that runs here. The check
+            # at the top of this handler was a SELECT, which takes no lock, so
+            # two concurrent verifies of the same pending txn both passed it and
+            # both transferred. Measured: ₹60,000 moved for one ₹30,000 payment.
+            # The `balance >= ?` guard below does NOT catch this — it prevents
+            # overdraft, not duplication; with enough balance both debits are
+            # individually valid.
+            claimed = con.execute(
+                "UPDATE transactions SET status='processing' WHERE id=? AND status='pending'",
+                (tx["id"],))
+            if claimed.rowcount == 0:
+                raise HTTPException(409, "This payment is already being processed or is no longer pending.")
+
             con.execute("UPDATE otp_verifications SET status='verified' WHERE id=?", (otp["id"],))
             cursor = con.execute("UPDATE accounts SET balance = balance - ?, txn_count = txn_count + 1 WHERE id=? AND balance >= ?", (tx["amount"], tx["sender_account_id"], tx["amount"]))
             if cursor.rowcount == 0:
@@ -913,11 +1189,26 @@ def verify_otp(req: OtpReq):
                             f"₹{tx['amount']:.0f} will be returned to you. You can also recall it now.")
             else:
                 con.execute("UPDATE transactions SET status='success' WHERE id=?", (tx["id"],))
+    except HTTPException:
+        # A deliberate verdict (e.g. the 409 from losing the CAS race). The other
+        # request owns this transaction and is completing it — marking it 'failed'
+        # here would corrupt a payment that is going through fine.
+        raise
     except Exception as e:
+        traceback.print_exc()
+        print(f"[VERIFY-OTP FAILED] txid={tx['id']} -> {type(e).__name__}: {e}")
         con.execute("UPDATE transactions SET status='failed' WHERE id=?", (tx["id"],))
         con.commit()
         con.close()
         raise HTTPException(400, "insufficient balance or transaction failed")
+
+    # OTP passed and the transfer committed, so this edge is real money movement
+    # and the graph may learn from it. A REVIEW that never cleared its OTP never
+    # reaches this line — which is the point.
+    s_vpa = con.execute("SELECT vpa FROM accounts WHERE id=?", (tx["sender_account_id"],)).fetchone()["vpa"]
+    d_vpa = con.execute("SELECT vpa FROM accounts WHERE id=?", (tx["receiver_account_id"],)).fetchone()["vpa"]
+    engine.observe({"sender_vpa": s_vpa, "receiver_vpa": d_vpa,
+                    "amount": tx["amount"], "ts": int(time.time())})
 
     bal = con.execute("SELECT balance FROM accounts WHERE id=?", (tx["sender_account_id"],)).fetchone()["balance"]
     con.close()
@@ -936,29 +1227,74 @@ def resend_otp(req: ResendOtpReq):
     user_id = sender_acc["user_id"]
     # Expire all existing OTPs for this user
     con.execute("UPDATE otp_verifications SET status='expired' WHERE user_id=? AND status='pending'", (user_id,))
-    new_code = f"{random.randint(100000, 999999)}"
+    new_code = f"{secrets.randbelow(900000) + 100000}"
     con.execute("INSERT INTO otp_verifications (user_id, code, status, attempts, expires_at, created_at) VALUES (?,?,?,?,?,?)",
                 (user_id, new_code, "pending", 0, (datetime.now()+timedelta(minutes=5)).isoformat(), now_iso()))
     con.commit(); con.close()
-    print(f"[OTP RESEND] Transaction #{req.pending_txn_id} → user_id={user_id} → OTP: {new_code}  (check Render logs)")
-    return {"result": "sent", "message": "OTP resent to registered mobile.", "otp_demo": new_code}
+    print(f"[OTP RESEND] Transaction #{req.pending_txn_id} → user_id={user_id} → OTP: {new_code}  (no SMS sent — read it here)")
+    return {"result": "reissued",
+            "message": f"New OTP generated. Demo mode: no SMS sent, the code is in the server logs. {SMS_DISCLAIMER}",
+            "delivery": "server_log"}
 
 
 @app.post("/pay/recall/{txid}")
-def pay_recall(txid: int):
-    """F3: reverse a completed/flagged payment — money returns to the sender."""
-    con = db()
-    tx = con.execute("SELECT * FROM transactions WHERE id=? AND status IN ('success','flagged')", (txid,)).fetchone()
+def pay_recall(txid: int, current_user: dict = Depends(get_current_user),
+               con=Depends(get_db)):
+    """F3: reverse a completed/flagged payment — money returns to the sender.
+
+    This used to be a read-then-write: it SELECTed the status, then moved money,
+    then set status='recalled' as three separate statements. A SELECT takes no
+    lock, so two taps of the Recall button both passed the check and both
+    refunded. Measured: a ₹50,000 payment refunded twice — the sender ended up
+    +₹50,000 and the receiver -₹50,000. Note the books still balanced (each
+    refund wrote both sides), which is exactly why a ledger would have made this
+    *visible* but not prevented it. The fix is the CAS below, not bookkeeping.
+    """
+    tx = con.execute("SELECT * FROM transactions WHERE id=?", (txid,)).fetchone()
     if not tx:
-        con.close(); raise HTTPException(404, "transaction not found or not reversible")
-    con.execute("UPDATE accounts SET balance = balance + ? WHERE id=?", (tx["amount"], tx["sender_account_id"]))
-    con.execute("UPDATE accounts SET balance = balance - ? WHERE id=?", (tx["amount"], tx["receiver_account_id"]))
-    con.execute("UPDATE transactions SET status='recalled' WHERE id=?", (txid,))
-    con.commit()
-    bal = con.execute("SELECT balance FROM accounts WHERE id=?", (tx["sender_account_id"],)).fetchone()["balance"]
-    con.close()
-    return {"result": "RECALLED", "transaction_id": txid, "amount": tx["amount"],
-            "message": f"Payment recalled — ₹{tx['amount']:.0f} returned to your account.",
+        raise HTTPException(404, "transaction not found")
+    if tx["sender_account_id"] != current_user["id"]:
+        raise HTTPException(403, "Unauthorized to recall this transaction")
+
+    sid, rid, amt = tx["sender_account_id"], tx["receiver_account_id"], tx["amount"]
+
+    with con:
+        # Lock both accounts in a deterministic order (ascending id) BEFORE
+        # touching either. Recalling A->B while B->A is recalled would otherwise
+        # grab the two rows in opposite orders and deadlock.
+        con.execute("SELECT id FROM accounts WHERE id IN (?,?) ORDER BY id FOR UPDATE", (sid, rid))
+
+        # CAS: the predicate is the lock and the rowcount is the decision. The
+        # second concurrent recall finds status='recalled', matches zero rows,
+        # and refunds nothing. Correct at READ COMMITTED because Postgres
+        # re-evaluates the WHERE clause against the updated row after unblocking.
+        cur = con.execute(
+            "UPDATE transactions SET status='recalled' WHERE id=? AND status IN ('success','flagged')",
+            (txid,))
+        if cur.rowcount == 0:
+            raise HTTPException(409, "Already recalled, or this payment is not reversible.")
+
+        # Guarded debit. Without `AND balance >= ?` a receiver who already spent
+        # the money went negative (measured: -₹49,700) and was then bricked —
+        # their own /pay debit guard could never pass again.
+        cur = con.execute(
+            "UPDATE accounts SET balance = balance - ? WHERE id=? AND balance >= ?",
+            (amt, rid, amt))
+        if cur.rowcount == 0:
+            # The honest answer to "I paid a fraudster and he moved it on".
+            # We cannot conjure money that has left the account, and pretending
+            # otherwise is what the old code did.
+            left = con.execute("SELECT balance FROM accounts WHERE id=?", (rid,)).fetchone()["balance"]
+            raise HTTPException(409,
+                f"Cannot recall — ₹{amt:.0f} has already been moved on by the receiver "
+                f"(only ₹{left:.0f} remains). Report this to your bank / cyber-crime (1930); "
+                f"recovery is a bank and law-enforcement action, not something this app can do.")
+
+        con.execute("UPDATE accounts SET balance = balance + ? WHERE id=?", (amt, sid))
+
+    bal = con.execute("SELECT balance FROM accounts WHERE id=?", (sid,)).fetchone()["balance"]
+    return {"result": "RECALLED", "transaction_id": txid, "amount": amt,
+            "message": f"Payment recalled — ₹{amt:.0f} returned to your account.",
             "sender_balance": bal}
 
 
@@ -966,7 +1302,7 @@ def pay_recall(txid: int):
 def auth_send_otp(req: SendOtpReq):
     """Generate and 'send' (log) a 6-digit OTP for phone verification during onboarding."""
     phone_clean = "".join(ch for ch in req.phone if ch.isdigit())[-10:]
-    otp_code = f"{random.randint(100000, 999999)}"
+    otp_code = f"{secrets.randbelow(900000) + 100000}"
     con = db()
     # Store with phone as reference (user may not exist yet for new registrations)
     con.execute(
@@ -975,8 +1311,14 @@ def auth_send_otp(req: SendOtpReq):
          (datetime.now() + timedelta(minutes=10)).isoformat(), now_iso())
     )
     con.commit(); con.close()
-    print(f"[OTP SMS] Onboarding → phone={phone_clean} → OTP: {otp_code}  (check Render/server logs)")
-    return {"result": "sent", "message": f"OTP sent to +91 ****{phone_clean[-4:]}", "otp_demo": otp_code}
+    print(f"[OTP] Onboarding → phone={phone_clean} → OTP: {otp_code}  (no SMS sent — read it here)")
+    # "result": "shown", not "sent" — nothing was sent. otp_demo is what makes the
+    # demo usable at all, and returning the challenge to the caller is exactly why
+    # this is an onboarding-only path and NOT a security control.
+    return {"result": "shown",
+            "message": f"Demo mode — no SMS sent to +91 ****{phone_clean[-4:]}. {SMS_DISCLAIMER}",
+            "delivery": "on_screen",
+            "otp_demo": otp_code}
 
 
 @app.post("/auth/verify-otp")
@@ -1010,7 +1352,9 @@ def auth_verify_otp(req: VerifyOnboardingOtpReq):
 
 # ------------------------------------------------------------------ history / report / stats
 @app.get("/transactions/{vpa}")
-def history(vpa: str):
+def history(vpa: str, current_user: dict = Depends(get_current_user)):
+    if current_user["vpa"] != vpa:
+        raise HTTPException(403, "Unauthorized to view transaction history for this VPA")
     con = db()
     acc = con.execute("SELECT id FROM accounts WHERE vpa=?", (vpa,)).fetchone()
     if not acc:
@@ -1048,8 +1392,13 @@ def report(req: ReportReq):
     con.execute("INSERT INTO fraud_reports (reported_vpa, reporter_vpa, reason, amount_lost, status, created_at) VALUES (?,?,?,?,?,?)",
                 (req.reported_vpa, req.reporter_vpa, req.reason, req.amount_lost, "reported", now_iso()))
     # add to blacklist + flag account
-    con.execute("INSERT OR IGNORE INTO blacklist (entity_type, entity_value, reason, created_at) VALUES (?,?,?,?)",
-                ("account", req.reported_vpa, req.reason, now_iso()))
+    # de-duplicated insert. SQLite's "INSERT OR IGNORE" doesn't exist in PostgreSQL,
+    # and blacklist has no UNIQUE constraint to hang ON CONFLICT on, so guard explicitly.
+    con.execute("""INSERT INTO blacklist (entity_type, entity_value, reason, created_at)
+                   SELECT ?,?,?,? WHERE NOT EXISTS (
+                       SELECT 1 FROM blacklist WHERE entity_type=? AND entity_value=?)""",
+                ("account", req.reported_vpa, req.reason, now_iso(),
+                 "account", req.reported_vpa))
     con.execute("UPDATE accounts SET blacklisted=1 WHERE vpa=?", (req.reported_vpa,))
     con.commit(); con.close()
     return {"result": "reported", "message": f"{req.reported_vpa} flagged + blacklisted. Bank/police can act."}
@@ -1131,27 +1480,27 @@ def _enrich_tolerant(con, sender, receiver, t):
     except Exception:
         usual = set(range(6, 22))
 
-    win = "-60 seconds"
+    win = (datetime.now() - timedelta(seconds=60)).isoformat()   # ISO cutoff (DB-agnostic)
     prior = con.execute(
         "SELECT COUNT(*) c FROM transactions WHERE sender_account_id=? AND receiver_account_id=?",
         (s["id"], r["id"])).fetchone()["c"]
     first_time = int(prior == 0)
     velocity = con.execute(
-        "SELECT COUNT(*) c FROM transactions WHERE sender_account_id=? AND created_at > datetime('now', ?)",
+        "SELECT COUNT(*) c FROM transactions WHERE sender_account_id=? AND created_at > ?",
         (s["id"], win)).fetchone()["c"]
     fan_in = con.execute(
-        "SELECT COUNT(DISTINCT sender_account_id) c FROM transactions WHERE receiver_account_id=? AND created_at > datetime('now', ?)",
+        "SELECT COUNT(DISTINCT sender_account_id) c FROM transactions WHERE receiver_account_id=? AND created_at > ?",
         (r["id"], win)).fetchone()["c"]
     fan_out = con.execute(
-        "SELECT COUNT(DISTINCT receiver_account_id) c FROM transactions WHERE sender_account_id=? AND created_at > datetime('now', ?)",
+        "SELECT COUNT(DISTINCT receiver_account_id) c FROM transactions WHERE sender_account_id=? AND created_at > ?",
         (s["id"], win)).fetchone()["c"]
     inc = con.execute(
-        "SELECT amount FROM transactions WHERE receiver_account_id=? AND created_at > datetime('now', ?)",
+        "SELECT amount FROM transactions WHERE receiver_account_id=? AND created_at > ?",
         (s["id"], win)).fetchall()
     in_chain = int(any(abs(row["amount"] - amount) <= 0.25 * max(amount, 1) for row in inc))
     recent_micro = int(any(row["amount"] < 100 for row in inc))
     fwd = con.execute(
-        "SELECT COUNT(*) c FROM transactions WHERE sender_account_id=? AND created_at > datetime('now', ?)",
+        "SELECT COUNT(*) c FROM transactions WHERE sender_account_id=? AND created_at > ?",
         (r["id"], win)).fetchone()["c"]
 
     dev = t.device_id or s["home_device"]
@@ -1233,9 +1582,11 @@ def analyzer_trace(req: AnalyzeReq):
         if not req.pin:
             stage("APP", "UPI PIN / password", "warn",
                   "No PIN supplied (analysis mode) — credential not checked.", None)
-        elif stored and hashlib.sha256(req.pin.encode()).hexdigest() == stored:
+        elif stored and verify_pin(req.pin, stored):
             stage("APP", "UPI PIN / password", "pass",
-                  "PIN matches the stored SHA-256 hash in accounts.upi_pin_hash.", 0)
+                  "PIN verified against the Argon2id+pepper hash in accounts.upi_pin_hash. "
+                  "(Real UPI: the PIN never reaches the app — NPCI's Common Library "
+                  "captures and PKI-encrypts it on-device. This is a simulated app PIN.)", 0)
         else:
             stage("APP", "UPI PIN / password", "fail",
                   "PIN does NOT match the stored hash — authentication failure.", 40)
@@ -1274,7 +1625,11 @@ def analyzer_trace(req: AnalyzeReq):
               {"balance": bal, "amount": req.amount})
 
     # ---------------- ENGINE: model + rules + graph ----------------
-    out = engine.score(feats)
+    # observe=False keeps this endpoint's "read-only" promise honest. It was only
+    # read-only w.r.t. the database: scoring used to write the hypothetical edge
+    # into the live graph, so replaying a what-if here poisoned the detector that
+    # real payments are scored against.
+    out = engine.score(feats, observe=False)
     comp = out["components"]
     if feats["receiver_blacklisted"] and out["label"] != "BLOCK":
         out["label"] = "BLOCK"; out["score"] = 100
@@ -1358,12 +1713,29 @@ def analyzer_counts():
 @app.get("/health")
 @app.head("/health")
 def health():
-    return {"status": "ok", "db": str(DB_PATH.name)}
+    return {"status": "ok", "db": _db_label()}
 
 
 
 # --- mount the standalone control-room dashboard (separate from the app UI) ---
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import HTMLResponse
+
 _DASH_DIR = ROOT / "dashboard"
+
+@app.get("/", response_class=HTMLResponse)
+def read_index():
+    index_path = _DASH_DIR / "index.html"
+    if index_path.exists():
+        return HTMLResponse(content=index_path.read_text(), status_code=200)
+    return HTMLResponse(content="Dashboard HTML not found", status_code=404)
+
 if _DASH_DIR.exists():
     app.mount("/monitor", StaticFiles(directory=str(_DASH_DIR), html=True), name="monitor")
+
+
+# ---------------------------------------------------------------- WebAuthn
+# Real passkey device-binding (py_webauthn). Kept in its own module so the
+# ceremony's verification steps stay readable and auditable.
+from server.webauthn_routes import router as webauthn_router  # noqa: E402
+app.include_router(webauthn_router)

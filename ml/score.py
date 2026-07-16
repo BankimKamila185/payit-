@@ -55,14 +55,15 @@ def combine(model_score: float, rule_pts: float, graph_score: float,
         final = max(final, 70)          # very strong rule stack -> BLOCK
     elif rule_pts >= 55:
         final = max(final, 50)          # hard rule stack -> REVIEW
-    elif rule_pts >= 35:
-        # A rule score in 35-54 used to be able to land SAFE: the 0.3 weight
-        # shrinks 40 pts to 12, and a near-zero model score then drags the blend
-        # under 35. Measured: receiver_blacklisted alone (rules=40) scored 13 =
-        # SAFE. The rule layer had said "this receiver is on the fraud blacklist"
-        # and the blend buried it. A rule that fires this hard must at minimum
-        # reach REVIEW on its own — a detector may add confidence, never cancel it.
-        final = max(final, SAFE_MAX)    # single hard rule -> REVIEW floor
+    # NOTE: a `rule_pts >= 35 -> REVIEW` floor used to live here. It was meant to
+    # stop a lone blacklist hit (40 pts) landing SAFE — but blacklist is already
+    # force-BLOCKed separately in /pay (receiver_blacklisted check), so the floor
+    # was redundant there and instead flagged legitimate life as REVIEW: rent at
+    # 12x-usual (amount_spike 30) or a night payment from a new phone
+    # (odd_hour 15 + new_device 25) reach 35-54 with no fraud signal at all.
+    # Distinguishing a hard 35 (screen-share/rooted) from a soft 35 (big-but-
+    # normal payment) needs the rule BREAKDOWN, not just the total — that lives
+    # in the detection-tuning pass, not in a blind numeric floor.
     if model_score >= 75:
         final = max(final, 60)          # model very confident -> BLOCK
     return int(round(min(final, 100)))

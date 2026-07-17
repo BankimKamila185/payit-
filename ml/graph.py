@@ -105,6 +105,24 @@ class GraphAnalyzer:
                 result["detail"] = (f"Sender paid {fan_out} different receivers "
                                     f"in <{FANIN_WINDOW}s (smurfing/distribution)")
 
+        # ---- GATHER-SCATTER: the classic collection-mule cash-out ----
+        # Fan-in ALONE is weak — a shop also receives from many. The mule
+        # signature is GATHER then SCATTER: this sender just collected from many
+        # distinct senders and is now forwarding it out. We detect it at the
+        # forward (scatter) step by asking how many paid INTO the sender recently.
+        # It is corroboration-gated in combine() (like CHAIN/CYCLE) so a legit
+        # "5 friends chip in, one person buys the group gift" — high fan-in but a
+        # known payee, no other risk — does not get escalated.
+        gathered = self._fan_in(sender, ts)
+        if gathered >= 5:                    # >=5 distinct senders collected, matches fan-in threshold
+            add = min(60 + (gathered - 5) * 5, 75)   # 5->60 so it can reach the corroboration gate
+            if add > result["score"]:
+                result["score"] = add
+                result["motif"] = "GATHER_SCATTER"
+                result["path"] = result["path"] or [sender, receiver]
+                result["detail"] = (f"Sender collected from {gathered} senders in "
+                                    f"<{FANIN_WINDOW}s then forwarded (collection-mule cash-out)")
+
         return result
 
     # ---------------------------------------------------------- internals
@@ -120,9 +138,16 @@ class GraphAnalyzer:
                 if ts - t > RING_WINDOW:
                     continue
                 if src in visited:
-                    # closing a cycle — record and stop
-                    path.insert(0, src)
-                    return path
+                    # Closing a loop. A 2-node reciprocal (A->B->A) is benign
+                    # RECIPROCITY — friends / family / roommates settling up — not
+                    # laundering, so it must not be flagged as a CYCLE. Only close
+                    # the loop when it spans >=3 distinct accounts AND this hop
+                    # conserves the amount (real layering preserves the sum through
+                    # the ring; two unrelated payments between two people don't).
+                    if len(set(path)) >= 3 and abs(amt - amount) <= AMOUNT_TOL * amount:
+                        path.insert(0, src)
+                        return path
+                    continue                 # reciprocal / non-conserved — keep scanning
                 if abs(amt - amount) <= AMOUNT_TOL * amount:
                     best = (src, t)
                     break
@@ -145,8 +170,12 @@ class GraphAnalyzer:
                 if ts - t > RING_WINDOW_LONG:
                     continue
                 if src in visited:
-                    path.insert(0, src)
-                    return path
+                    # See _trace_chain: reciprocal 2-cycles are benign; only a
+                    # >=3-account, amount-conserved loop is a laundering ring.
+                    if len(set(path)) >= 3 and abs(amt - amount) <= AMOUNT_TOL * amount:
+                        path.insert(0, src)
+                        return path
+                    continue
                 if abs(amt - amount) <= AMOUNT_TOL * amount:
                     best = (src, t)
                     break

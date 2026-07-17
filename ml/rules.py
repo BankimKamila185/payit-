@@ -159,7 +159,31 @@ def score(f: dict) -> dict:
         pts += W["jumped_deposit"]
         reasons.append("Micro-credit followed by a collect-request (jumped-deposit scam)")
 
-    return {"score": min(pts, 100), "reasons": reasons}
+    # Hard signals: real fraud stacks (Stripe Radar, Sift) keep a layer of
+    # DETERMINISTIC policy rules that override the ML blend instead of being
+    # averaged into it. A blend can bury a known-bad signal (a screen-share scam
+    # scored 30 got diluted to ~9 and landed SAFE). These fire regardless of the
+    # model, and are surfaced as `hard_action` for combine() to floor on.
+    #
+    #  block  -> screen-share during a payment. Step-up OTP does NOT help here:
+    #           the VICTIM is being coached and will enter the OTP themselves, so
+    #           the only real defence is to refuse the payment while sharing is on
+    #           (this is what GPay / banking apps actually do).
+    #  review -> device-integrity / scam-shaped signals (rooted, SIM-swap,
+    #           reverse-transfer, jumped-deposit). Each has a rare legitimate
+    #           cause (a power user's rooted phone, a genuine SIM port), so we
+    #           step up rather than hard-block; two of them together -> block.
+    review_hard = sum(bool(f.get(k)) for k in
+                      ("device_rooted", "sim_carrier_mismatch", "reverse_transfer")) \
+                  + int(bool(f.get("recent_micro_credit") and f.get("is_collect")))
+    if f.get("device_screen_share") or review_hard >= 2:
+        hard_action = "block"
+    elif review_hard >= 1:
+        hard_action = "review"
+    else:
+        hard_action = None
+
+    return {"score": min(pts, 100), "reasons": reasons, "hard_action": hard_action}
 
 
 def _demo():

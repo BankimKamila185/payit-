@@ -360,6 +360,26 @@ def _startup():
 
 
 # ------------------------------------------------------------ feature enrichment
+def _account_age_days(acc) -> int:
+    """Age DERIVED from created_at, not read from a stored column.
+
+    account_age_days was a static number nothing ever updated: an account seeded
+    (or registered) as "3 days old" stayed 3 days old forever, so the fraud engine
+    saw a frozen, eventually-wrong age. created_at is the real fact; age is a
+    projection of it — the same 'derive, don't store' principle as an account
+    balance. Falls back to the stored column only if created_at is missing/bad.
+    """
+    ca = acc["created_at"] if "created_at" in acc.keys() else None
+    if ca:
+        try:
+            days = (datetime.now() - datetime.fromisoformat(str(ca))).days
+            if days >= 0:
+                return days
+        except (ValueError, TypeError):
+            pass
+    return int(acc["account_age_days"] or 365)
+
+
 def enrich_from_db(con, sender, receiver, t) -> dict:
     """Build the model feature dict from real DB profiles + history."""
     s = con.execute("SELECT * FROM accounts WHERE vpa=?", (sender,)).fetchone()
@@ -435,10 +455,14 @@ def enrich_from_db(con, sender, receiver, t) -> dict:
         "SELECT COUNT(*) c FROM transactions WHERE sender_account_id=? AND created_at > ?",
         (r["id"], win)).fetchone()["c"]
 
-    # device: known for this user?
+    # device: known for this user? Only an ACTIVE (step-up-verified) device counts
+    # as known. A device that merely logged in is bound as 'pending' and still reads
+    # as new here — that is what makes the ₹2,000 new-device cap below actually fire.
+    # Before this, login bound every device 'active', so is_new_device was 0 by the
+    # time /pay ran and the cap was dead code.
     dev = t.device_id or s["home_device"]
     known = con.execute(
-        "SELECT COUNT(*) c FROM devices WHERE user_id=? AND device_fingerprint=?",
+        "SELECT COUNT(*) c FROM devices WHERE user_id=? AND device_fingerprint=? AND status='active'",
         (s["user_id"], dev)).fetchone()["c"]
     is_new_device = int(known == 0)
 
@@ -460,8 +484,8 @@ def enrich_from_db(con, sender, receiver, t) -> dict:
         "receiver_fan_in_10m": fan_in_10m, "receiver_fan_in_24h": fan_in_24h,
         "sender_fan_out_10m": fan_out_10m, "sender_fan_out_24h": fan_out_24h,
         "in_mule_chain": in_chain,
-        "sender_account_age_days": int(s["account_age_days"] or 365),
-        "receiver_account_age_days": int(r["account_age_days"] or 365),
+        "sender_account_age_days": _account_age_days(s),
+        "receiver_account_age_days": _account_age_days(r),
         "sender_txn_count": int(s["txn_count"] or 0),
         "receiver_txn_count": int(r["txn_count"] or 0),
         "sender_is_corporate": int(s["is_merchant"] or 0),  # corp proxy
@@ -527,6 +551,7 @@ class VerifyUpiPinReq(BaseModel):
 class OtpReq(BaseModel):
     pending_txn_id: int
     otp: str
+    device_id: str = ""        # the device completing the step-up -> promoted to 'active'
 
 class SendOtpReq(BaseModel):
     phone: str
@@ -575,13 +600,17 @@ def login(req: LoginReq):
         col = "login_pin_hash" if ("login_pin_hash" in acc.keys() and acc["login_pin_hash"]) else "upi_pin_hash"
         con.execute(f"UPDATE accounts SET {col}=? WHERE vpa=?", (hash_pin(req.pin), req.vpa))
         con.commit()
-    # device binding: register device as known if new
+    # device binding: bind a NEW device as 'pending', not 'active'. Logging in with a
+    # correct PIN proves the credential, not the device — so a fresh device is trusted
+    # only up to the ₹2,000 new-device cap until it is stepped up (an OTP-verified
+    # payment promotes it to 'active' in /pay/verify-otp). This is the cooling-off that
+    # blunts account-takeover drain; binding 'active' here is what used to defeat it.
     if req.device_id:
         known = con.execute("SELECT COUNT(*) c FROM devices WHERE user_id=? AND device_fingerprint=?",
                             (acc["user_id"], req.device_id)).fetchone()["c"]
         if not known:
             con.execute("INSERT INTO devices (user_id, device_fingerprint, status, binding_age_days, is_rooted, created_at) VALUES (?,?,?,?,?,?)",
-                        (acc["user_id"], req.device_id, "active", 0, 0, now_iso()))
+                        (acc["user_id"], req.device_id, "pending", 0, 0, now_iso()))
     token = f"tok_{secrets.token_urlsafe(32)}"      # CSPRNG: session token is an auth credential
     con.execute("INSERT INTO sessions (user_id, device_id, token, expires_at, created_at) VALUES (?,?,?,?,?)",
                 (acc["user_id"], None, token, (datetime.now()+timedelta(hours=6)).isoformat(), now_iso()))
@@ -1010,16 +1039,14 @@ def pay(req: PayReq, current_user: dict = Depends(get_current_user),
 
     feats = enrich_from_db(con, req.sender_vpa, req.receiver_vpa, req)
 
-    # F1: an UNRECOGNISED device (never bound to this account via login/register)
-    # is capped to ₹2000/txn — a cooling-off that blunts account-takeover drain.
-    #
-    # NOTE: this deliberately keys off is_new_device (fingerprint not in `devices`),
-    # NOT binding_age_days. Nothing in the app ever ages binding_age_days, so a
-    # `binding_age_days < 1` check would cap the user's OWN device forever — every
-    # login binds with age 0 — and silently break all payments above ₹2000.
+    # F1: an unverified device is capped to ₹2000/txn — a cooling-off that blunts
+    # account-takeover drain. is_new_device is now true until the device is stepped
+    # up (see enrich_from_db: only status='active' counts as known; login binds
+    # 'pending'; an OTP-verified payment promotes it). To lift the cap, complete one
+    # payment with OTP from this device.
     if feats.get("is_new_device") and req.amount > 2000:
         con.close()
-        raise HTTPException(403, "New device — ₹2,000 limit for 24h (security cooling-off). Use your usual device for higher amounts.")
+        raise HTTPException(403, "New device — ₹2,000 limit until you verify this device with an OTP. Use your usual device for higher amounts.")
 
     if feats["_sender_bal"] < req.amount:
         con.close()
@@ -1171,6 +1198,13 @@ def verify_otp(req: OtpReq, current_user: dict = Depends(get_current_user)):
                 raise HTTPException(409, "This payment is already being processed or is no longer pending.")
 
             con.execute("UPDATE otp_verifications SET status='verified' WHERE id=?", (otp["id"],))
+            # Step-up succeeded -> promote THIS device to 'active' so the ₹2,000
+            # new-device cap lifts for future payments. Only the fingerprint that
+            # just passed an OTP is trusted; a bare login never reaches here.
+            if req.device_id:
+                con.execute(
+                    "UPDATE devices SET status='active' WHERE user_id=? AND device_fingerprint=? AND status<>'active'",
+                    (user_id, req.device_id))
             cursor = con.execute("UPDATE accounts SET balance = balance - ?, txn_count = txn_count + 1 WHERE id=? AND balance >= ?", (tx["amount"], tx["sender_account_id"], tx["amount"]))
             if cursor.rowcount == 0:
                 raise ValueError("Insufficient balance")

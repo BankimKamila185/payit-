@@ -39,16 +39,21 @@ def decide(final_score: int) -> str:
 
 
 def combine(model_score: float, rule_pts: float, graph_score: float,
-            graph_motif: str | None) -> int:
+            graph_motif: str | None, hard_action: str | None = None) -> int:
     """Blend the 3 detectors, then let a STRONGLY-firing single detector escalate
     (real engines: any confident signal can trigger review, so the blend doesn't
-    bury a definite mule ring or a hard rule hit)."""
+    bury a definite mule ring or a hard rule hit).
+
+    hard_action ('block'/'review') is a POLICY override from the rule layer — a
+    deterministic floor applied on top of the blend, not averaged into it. This is
+    the two-layer design real fraud stacks use: the ML score handles the ambiguous
+    majority, hard rules handle the known-bad deterministically."""
     final = (BLEND["model"] * model_score + BLEND["rules"] * rule_pts +
              BLEND["graph"] * graph_score)
     # strong-signal escalation. Graph motif escalates ONLY with corroboration
     # (a lone chain can be legit father->son->hostel; a chain + risk signal is a
     # mule ring). This protects precision.
-    if (graph_motif in ("CHAIN", "CYCLE") and graph_score >= 60
+    if (graph_motif in ("CHAIN", "CYCLE", "GATHER_SCATTER") and graph_score >= 60
             and (rule_pts >= 25 or model_score >= 40)):
         final = max(final, 55)          # corroborated mule ring -> BLOCK edge
     if rule_pts >= 80:
@@ -66,6 +71,13 @@ def combine(model_score: float, rule_pts: float, graph_score: float,
     # in the detection-tuning pass, not in a blind numeric floor.
     if model_score >= 75:
         final = max(final, 60)          # model very confident -> BLOCK
+    # POLICY OVERRIDE (applied last, over the blend). A hard rule must not be
+    # dilutable by a low model/graph score: measured, screen-share (rules 30) blended
+    # to 14 and landed SAFE. 'block' floors to BLOCK, 'review' to at least REVIEW.
+    if hard_action == "block":
+        final = max(final, REVIEW_MAX)   # 60 -> BLOCK
+    elif hard_action == "review":
+        final = max(final, SAFE_MAX)     # 35 -> REVIEW
     return int(round(min(final, 100)))
 
 
@@ -115,8 +127,9 @@ class FraudEngine:
         if observe:
             self.observe(txn)
 
-        # ---- combine (blend + strong-signal escalation) ----
-        final = combine(model_score, rl["score"], gr["score"], gr["motif"])
+        # ---- combine (blend + strong-signal escalation + hard-rule override) ----
+        final = combine(model_score, rl["score"], gr["score"], gr["motif"],
+                        rl.get("hard_action"))
         label = decide(final)
 
         # ---- combine reasons (dedup, keep order: graph > rules > shap) ----

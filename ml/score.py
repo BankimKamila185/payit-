@@ -23,8 +23,14 @@ from .explain import Explainer
 from .rules import score as rule_score
 from .graph import GraphAnalyzer
 
-# blend weights: model + rules + graph
-BLEND = {"model": 0.5, "rules": 0.3, "graph": 0.2}
+# Blend weights: model + rules + graph.
+# The model carries the LEAST weight, deliberately. It was trained on synthetic,
+# circular data and measured erratic (it scored 95 on a legitimate rent payment).
+# An unvalidated model must be ADVISORY — the deterministic, explainable layers
+# (rules, graph) drive the decision; the model only nudges. A 216-case eval with
+# the model at 0.5 + a solo model>=75 block hard-blocked 38% of legitimate
+# payments (every rent, most salary/family transfers).
+BLEND = {"model": 0.25, "rules": 0.45, "graph": 0.30}
 
 SAFE_MAX = 35
 REVIEW_MAX = 60
@@ -39,45 +45,55 @@ def decide(final_score: int) -> str:
 
 
 def combine(model_score: float, rule_pts: float, graph_score: float,
-            graph_motif: str | None, hard_action: str | None = None) -> int:
-    """Blend the 3 detectors, then let a STRONGLY-firing single detector escalate
-    (real engines: any confident signal can trigger review, so the blend doesn't
-    bury a definite mule ring or a hard rule hit).
+            graph_motif: str | None, hard_action: str | None = None,
+            receiver_trusted: bool = False, mule_target: bool = False) -> int:
+    """Blend the 3 detectors into a decision, with policy overrides.
 
-    hard_action ('block'/'review') is a POLICY override from the rule layer — a
-    deterministic floor applied on top of the blend, not averaged into it. This is
-    the two-layer design real fraud stacks use: the ML score handles the ambiguous
-    majority, hard rules handle the known-bad deterministically."""
+    The hard problem this solves: a mule chain, a collection cash-out, and a
+    legitimate salary->rent or friends-chip-in-for-a-gift look almost identical
+    as raw patterns. What separates them is WHERE the money lands:
+      - mule_target      = a fresh, non-merchant account that then forwards on
+                           (the cash-out signature) -> a pattern here is a ring.
+      - receiver_trusted = an established / merchant, non-blacklisted payee
+                           (rent, fees, a shop) -> a big/unusual amount here is
+                           normal life, not fraud, and must not be blocked.
+
+    hard_action ('block'/'review') is a deterministic POLICY override from the
+    rule layer (screen-share, rooted, SIM-swap...), applied on top of the blend."""
     final = (BLEND["model"] * model_score + BLEND["rules"] * rule_pts +
              BLEND["graph"] * graph_score)
-    # strong-signal escalation. Graph motif escalates ONLY with corroboration
-    # (a lone chain can be legit father->son->hostel; a chain + risk signal is a
-    # mule ring). This protects precision.
+
+    # Mule-ring escalation — ONLY when the money is heading to a fresh
+    # non-merchant account (mule_target). A chain / gather-scatter into an
+    # established or merchant payee is legitimate flow (salary->rent,
+    # chanda->shop, reseller->wholesaler) and must not be escalated. Corroborated
+    # by any rule signal so a lone pattern doesn't fire on its own.
     if (graph_motif in ("CHAIN", "CYCLE", "GATHER_SCATTER") and graph_score >= 60
-            and (rule_pts >= 25 or model_score >= 40)):
-        final = max(final, 55)          # corroborated mule ring -> BLOCK edge
+            and mule_target and rule_pts >= 15):
+        final = max(final, REVIEW_MAX)   # corroborated mule ring -> BLOCK edge
+
+    # Deterministic rule floors (rules are trustworthy; the model is not).
     if rule_pts >= 80:
-        final = max(final, 70)          # very strong rule stack -> BLOCK
+        final = max(final, 70)           # very strong rule stack -> BLOCK
     elif rule_pts >= 55:
-        final = max(final, 50)          # hard rule stack -> REVIEW
-    # NOTE: a `rule_pts >= 35 -> REVIEW` floor used to live here. It was meant to
-    # stop a lone blacklist hit (40 pts) landing SAFE — but blacklist is already
-    # force-BLOCKed separately in /pay (receiver_blacklisted check), so the floor
-    # was redundant there and instead flagged legitimate life as REVIEW: rent at
-    # 12x-usual (amount_spike 30) or a night payment from a new phone
-    # (odd_hour 15 + new_device 25) reach 35-54 with no fraud signal at all.
-    # Distinguishing a hard 35 (screen-share/rooted) from a soft 35 (big-but-
-    # normal payment) needs the rule BREAKDOWN, not just the total — that lives
-    # in the detection-tuning pass, not in a blind numeric floor.
-    if model_score >= 75:
-        final = max(final, 60)          # model very confident -> BLOCK
-    # POLICY OVERRIDE (applied last, over the blend). A hard rule must not be
-    # dilutable by a low model/graph score: measured, screen-share (rules 30) blended
-    # to 14 and landed SAFE. 'block' floors to BLOCK, 'review' to at least REVIEW.
+        final = max(final, 50)           # hard rule stack -> REVIEW
+    # The model gets NO solo block floor — it is advisory only (see BLEND note).
+
+    # POLICY OVERRIDE — a hard rule must not be dilutable by a low blend.
     if hard_action == "block":
-        final = max(final, REVIEW_MAX)   # 60 -> BLOCK
+        final = max(final, REVIEW_MAX)   # -> BLOCK
     elif hard_action == "review":
-        final = max(final, SAFE_MAX)     # 35 -> REVIEW
+        final = max(final, SAFE_MAX)     # -> REVIEW
+
+    # RECEIVER TRUST — money to an established / merchant, non-blacklisted payee
+    # is a legitimate destination. Amount / velocity / drawdown soft signals must
+    # not block it (that is what blocked 38% of legit rent/salary payments). This
+    # caps ONLY the soft blend; it never overrides a hard_action (device
+    # compromise is sender-side) or a mule-ring escalation (mutually exclusive
+    # with trust anyway — a trusted receiver is not a mule_target).
+    if receiver_trusted and hard_action is None:
+        final = min(final, SAFE_MAX - 1)  # stays SAFE on soft signals alone
+
     return int(round(min(final, 100)))
 
 
@@ -127,9 +143,17 @@ class FraudEngine:
         if observe:
             self.observe(txn)
 
-        # ---- combine (blend + strong-signal escalation + hard-rule override) ----
+        # Where is the money landing? This is the discriminator between a mule
+        # ring and legitimate money flow that looks identical as a raw pattern.
+        r_age = txn.get("receiver_account_age_days", 400)
+        r_merchant = bool(txn.get("receiver_is_merchant"))
+        r_blacklisted = bool(txn.get("receiver_blacklisted"))
+        mule_target = (r_age < 10 and not r_merchant)          # fresh cash-out account
+        receiver_trusted = (not r_blacklisted) and (r_merchant or r_age > 180)
+
+        # ---- combine (blend + mule-ring + hard-rule + receiver-trust) ----
         final = combine(model_score, rl["score"], gr["score"], gr["motif"],
-                        rl.get("hard_action"))
+                        rl.get("hard_action"), receiver_trusted, mule_target)
         label = decide(final)
 
         # ---- combine reasons (dedup, keep order: graph > rules > shap) ----

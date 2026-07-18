@@ -68,6 +68,14 @@ PIN_PEPPER = os.environ.get("PAYIT_PIN_PEPPER", "dev-only-pepper-set-PAYIT_PIN_P
 SMS_DISCLAIMER = ("Sending SMS in India needs TRAI DLT registration (requires a "
                   "registered business), so this demo shows the code instead.")
 
+# Real UPI velocity limits (NPCI defaults for a normal P2P account). Some
+# categories (capital markets, insurance, education, medical) are allowed higher
+# per-txn ceilings, but the default account limits are ₹1 lakh/day and 20
+# transactions/day — enforced here as a hard control, the way a real PSP does.
+UPI_PER_TXN_CAP = 100_000        # ₹1,00,000 max in a single transfer (default)
+UPI_DAILY_AMOUNT_CAP = 100_000   # ₹1,00,000 total outgoing per 24h
+UPI_DAILY_COUNT_CAP = 20         # 20 outgoing transfers per 24h
+
 
 def _peppered(pin: str) -> str:
     """HMAC the PIN with the server pepper so the DB never sees the raw PIN."""
@@ -1055,22 +1063,19 @@ def pay(req: PayReq, current_user: dict = Depends(get_current_user),
     # Success -> reset PIN attempts
     reset_lockout(con, req.sender_vpa)
 
-    # Idempotency claim. Placed AFTER the PIN check so a wrong-PIN attempt can't
-    # burn the key, and BEFORE anything that moves money. If this is a retry of a
-    # payment we already made, _claim_idempotency returns that original response
-    # and we return it verbatim — same key in, same answer out, one debit total.
-    idem_fp = _req_fingerprint(current_user["id"], req)
-    replay = _claim_idempotency(con, current_user["id"], req.idempotency_key, idem_fp)
-    if replay is not None:
-        return replay
-
     feats = enrich_from_db(con, req.sender_vpa, req.receiver_vpa, req)
 
+    # ---- policy pre-conditions (deterministic rejects, BEFORE the idempotency
+    # claim and before any money moves). A rejected payment must not claim a key
+    # (else a legitimate retry gets a misleading 409). ----
+
+    # Per-transaction ceiling (NPCI default category).
+    if req.amount > UPI_PER_TXN_CAP:
+        con.close()
+        raise HTTPException(403, f"Amount exceeds the ₹{UPI_PER_TXN_CAP:,.0f} per-transaction UPI limit.")
+
     # F1: an unverified device is capped to ₹2000/txn — a cooling-off that blunts
-    # account-takeover drain. is_new_device is now true until the device is stepped
-    # up (see enrich_from_db: only status='active' counts as known; login binds
-    # 'pending'; an OTP-verified payment promotes it). To lift the cap, complete one
-    # payment with OTP from this device.
+    # account-takeover drain. To lift it, complete one OTP-verified payment.
     if feats.get("is_new_device") and req.amount > 2000:
         con.close()
         raise HTTPException(403, "New device — ₹2,000 limit until you verify this device with an OTP. Use your usual device for higher amounts.")
@@ -1078,6 +1083,30 @@ def pay(req: PayReq, current_user: dict = Depends(get_current_user),
     if feats["_sender_bal"] < req.amount:
         con.close()
         raise HTTPException(400, "insufficient balance")
+
+    # Daily velocity caps (₹1L + 20 txn per rolling 24h) — a real UPI control the
+    # fraud engine's blend can't provide, because it's a hard regulatory ceiling,
+    # not a risk score. Counts committed outgoing (success/flagged) in the window.
+    _day = (datetime.now() - timedelta(hours=24)).isoformat()
+    day_row = con.execute(
+        """SELECT COUNT(*) c, COALESCE(SUM(amount),0) s FROM transactions
+           WHERE sender_account_id=? AND status IN ('success','flagged') AND created_at > ?""",
+        (feats["_sender_id"], _day)).fetchone()
+    if day_row["c"] >= UPI_DAILY_COUNT_CAP:
+        con.close()
+        raise HTTPException(403, f"Daily UPI limit reached — {UPI_DAILY_COUNT_CAP} transactions in 24h. Try again tomorrow.")
+    if float(day_row["s"]) + req.amount > UPI_DAILY_AMOUNT_CAP:
+        spent = float(day_row["s"]); left = max(0, UPI_DAILY_AMOUNT_CAP - spent)
+        con.close()
+        raise HTTPException(403, f"Daily UPI limit exceeded — ₹{spent:,.0f} sent in 24h, ₹{left:,.0f} left of ₹{UPI_DAILY_AMOUNT_CAP:,.0f}.")
+
+    # Idempotency claim — AFTER the PIN check and all policy pre-conditions, so a
+    # wrong PIN or a rejected payment never burns the key, and BEFORE money moves.
+    # A retry of a real payment replays the stored response (one debit total).
+    idem_fp = _req_fingerprint(current_user["id"], req)
+    replay = _claim_idempotency(con, current_user["id"], req.idempotency_key, idem_fp)
+    if replay is not None:
+        return replay
 
     # observe=False: the graph must only ever record money that actually moved.
     # We do not know the verdict yet, so the edge is recorded after the transfer

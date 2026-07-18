@@ -83,9 +83,9 @@ BANKS = [
 BANK_ID = {handle: i for i, (_, _, handle) in enumerate(BANKS, 1)}
 
 SCHEMA = """
-DROP TABLE IF EXISTS idempotency_keys, webauthn_credentials, security_lockouts,
-    fraud_reports, otp_verifications, sessions, ip_reputation, blacklist, alerts,
-    fraud_scores, transactions, devices, accounts, users, banks CASCADE;
+DROP TABLE IF EXISTS ledger_entries, idempotency_keys, webauthn_credentials,
+    security_lockouts, fraud_reports, otp_verifications, sessions, ip_reputation,
+    blacklist, alerts, fraud_scores, transactions, devices, accounts, users, banks CASCADE;
 
 CREATE TABLE banks (
     id SERIAL PRIMARY KEY, name TEXT NOT NULL,
@@ -193,6 +193,27 @@ CREATE TABLE idempotency_keys (
 );
 -- Scoped to the user so two people may independently pick the same UUID.
 CREATE UNIQUE INDEX idempotency_keys_user_key ON idempotency_keys (user_id, idempotency_key);
+
+-- Double-entry ledger (append-only). Every money movement writes >=2 entries
+-- that SUM TO ZERO, so money can never be created or destroyed — the invariant
+-- Uber/Square/TigerBeetle build on. accounts.balance is a materialised cache
+-- (updated in the same transaction), reconciled against SUM(entries) here.
+-- A reversal is a NEW compensating pair, never an UPDATE/DELETE of the original
+-- (accountants don't use erasers). amount is NUMERIC (exact) — the SUM=0 check is
+-- untestable on binary floats. Opening balances come from a "@world" account
+-- (id 0), so every real balance already equals SUM(entries) from genesis.
+CREATE TABLE ledger_entries (
+    id SERIAL PRIMARY KEY,
+    transfer_id TEXT NOT NULL,            -- groups the legs of one movement
+    account_id INTEGER NOT NULL,          -- 0 = @world (external / genesis source)
+    amount NUMERIC(16,2) NOT NULL,        -- signed: negative = out, positive = in
+    balance_after NUMERIC(16,2),          -- account balance right after this entry
+    reverses_transfer_id TEXT,            -- set on the legs of a reversal
+    kind TEXT NOT NULL DEFAULT 'transfer',-- transfer | genesis | reversal
+    created_at TEXT NOT NULL
+);
+CREATE INDEX idx_ledger_account  ON ledger_entries(account_id);
+CREATE INDEX idx_ledger_transfer ON ledger_entries(transfer_id);
 
 CREATE INDEX idx_transactions_sender_created_at   ON transactions(sender_account_id, created_at);
 CREATE INDEX idx_transactions_receiver_created_at ON transactions(receiver_account_id, created_at);

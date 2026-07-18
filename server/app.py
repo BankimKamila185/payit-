@@ -990,6 +990,33 @@ def _store_idempotent(con, user_id: int, key: str, code: int, body: dict) -> Non
     con.commit()
 
 
+def _ledger_post(con, transfer_id, legs, kind="transfer", reverses=None):
+    """Append immutable double-entry rows for one money movement.
+
+    legs = [(account_id, signed_amount), ...] that MUST sum to zero. Called from
+    INSIDE the caller's DB transaction (the same `with con:` that moves the
+    balances), so the ledger and the money commit together or not at all — no
+    dual-write gap. Reads balance_after AFTER the caller has updated balances.
+
+    account_id 0 = @world (external source/sink). A reversal passes the original
+    transfer_id in `reverses` and writes NEW opposite legs — the original entries
+    are never touched.
+    """
+    total = round(sum(a for _, a in legs), 2)
+    if total != 0:                        # the invariant, enforced at write time
+        raise ValueError(f"ledger imbalance for {transfer_id}: {total}")
+    for acc_id, amt in legs:
+        bal_after = None
+        if acc_id != 0:
+            row = con.execute("SELECT balance FROM accounts WHERE id=?", (acc_id,)).fetchone()
+            bal_after = round(float(row["balance"]), 2) if row else None
+        con.execute("""INSERT INTO ledger_entries
+                       (transfer_id, account_id, amount, balance_after,
+                        reverses_transfer_id, kind, created_at)
+                       VALUES (?,?,?,?,?,?,?)""",
+                    (transfer_id, acc_id, round(amt, 2), bal_after, reverses, kind, now_iso()))
+
+
 def _log_fraud(con, txid, out):
     con.execute("INSERT INTO fraud_scores (transaction_id, cumulative_score, label, created_at) VALUES (?,?,?,?)",
                 (txid, out["score"], out["label"], now_iso()))
@@ -1109,6 +1136,9 @@ def pay(req: PayReq, current_user: dict = Depends(get_current_user),
             if cursor.rowcount == 0:
                 raise ValueError("Insufficient balance")
             con.execute("UPDATE accounts SET balance = balance + ?, txn_count = txn_count + 1 WHERE id=?", (req.amount, rid))
+            # Double-entry: record the movement immutably, IN this same transaction
+            # so the ledger and the balances commit together (no dual-write gap).
+            _ledger_post(con, rrn, [(sid, -req.amount), (rid, req.amount)])
             # F3: post-payment second look -> flag a completed payment to a newish receiver for recall
             post_review = feats["receiver_account_age_days"] < 90 and not req.receiver_vpa.endswith("@payit")
             post_msg = None
@@ -1209,6 +1239,8 @@ def verify_otp(req: OtpReq, current_user: dict = Depends(get_current_user)):
             if cursor.rowcount == 0:
                 raise ValueError("Insufficient balance")
             con.execute("UPDATE accounts SET balance = balance + ?, txn_count = txn_count + 1 WHERE id=?", (tx["amount"], tx["receiver_account_id"]))
+            _ledger_post(con, tx["txn_ref"] or f"tx:{tx['id']}",
+                         [(tx["sender_account_id"], -tx["amount"]), (tx["receiver_account_id"], tx["amount"])])
             # F3: post-payment second look (newish receiver -> flag for recall even after OTP)
             r_row = con.execute("SELECT account_age_days, vpa FROM accounts WHERE id=?", (tx["receiver_account_id"],)).fetchone()
             rage = r_row["account_age_days"]
@@ -1325,6 +1357,11 @@ def pay_recall(txid: int, current_user: dict = Depends(get_current_user),
                 f"recovery is a bank and law-enforcement action, not something this app can do.")
 
         con.execute("UPDATE accounts SET balance = balance + ? WHERE id=?", (amt, sid))
+        # Reversal = a NEW compensating pair (accountants don't use erasers). The
+        # original entries stay; these undo them and point back via reverses.
+        _ledger_post(con, f"rev:{tx['txn_ref'] or txid}",
+                     [(rid, -amt), (sid, amt)],
+                     kind="reversal", reverses=tx["txn_ref"] or f"tx:{txid}")
 
     bal = con.execute("SELECT balance FROM accounts WHERE id=?", (sid,)).fetchone()["balance"]
     return {"result": "RECALLED", "transaction_id": txid, "amount": amt,
@@ -1436,6 +1473,39 @@ def report(req: ReportReq):
     con.execute("UPDATE accounts SET blacklisted=1 WHERE vpa=?", (req.reported_vpa,))
     con.commit(); con.close()
     return {"result": "reported", "message": f"{req.reported_vpa} flagged + blacklisted. Bank/police can act."}
+
+
+@app.get("/ledger/verify")
+def ledger_verify(con=Depends(get_db)):
+    """Reconciliation: prove the ledger is internally consistent. Real PSPs run
+    this against the switch's files; we run it against our own two invariants:
+      1. every transfer's legs sum to zero (no money created/destroyed)
+      2. every account's balance == SUM of its ledger entries (cache matches truth)
+      3. SUM of ALL entries == 0 (the whole system conserves money)
+    """
+    # 1. transfers that don't net to zero
+    bad_transfers = con.execute(
+        """SELECT transfer_id, ROUND(SUM(amount),2) net FROM ledger_entries
+           GROUP BY transfer_id HAVING ROUND(SUM(amount),2) <> 0""").fetchall()
+    # 2. accounts whose cached balance != SUM(entries)
+    drift = con.execute(
+        """SELECT a.vpa, ROUND(a.balance::numeric,2) balance, COALESCE(SUM(l.amount),0) ledger
+           FROM accounts a LEFT JOIN ledger_entries l ON l.account_id=a.id
+           GROUP BY a.vpa, a.balance
+           HAVING ROUND(a.balance::numeric,2) <> COALESCE(SUM(l.amount),0)""").fetchall()
+    # 3. whole-system sum
+    total = con.execute("SELECT COALESCE(SUM(amount),0) s FROM ledger_entries").fetchone()["s"]
+    n = con.execute("SELECT COUNT(*) c FROM ledger_entries").fetchone()["c"]
+    ok = not bad_transfers and not drift and round(float(total), 2) == 0
+    return {
+        "consistent": ok,
+        "entries": n,
+        "system_sum": round(float(total), 2),          # must be 0
+        "unbalanced_transfers": [dict(r) for r in bad_transfers],
+        "balance_drift": [dict(r) for r in drift],
+        "message": "Ledger reconciles — money conserved, cache matches entries." if ok
+                   else "RECONCILIATION FAILED — investigate.",
+    }
 
 
 @app.get("/dashboard/stats")

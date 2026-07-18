@@ -404,14 +404,17 @@ def build_events(accounts):
             ts += 5
             lp = rng.choice(LEGIT_PATTERNS)
             events.extend(tag(lp(accounts, users, merchants, ts), "legit"))
-
-    n_needed = int(N_NORMAL_TX * FRAUD_TARGET / (1 - FRAUD_TARGET))
-    produced = 0
-    while produced < n_needed:
-        ts += int(rng.integers(1, 20))
-        planter = rng.choice(FRAUD_PLANTERS)
-        rows = tag(planter(accounts, users, ts), planter.__name__.replace("f_", ""))
-        events.extend(rows); produced += len(rows)
+        # Interleave fraud INTO the timeline, not appended after it. The old code
+        # generated ALL normal traffic first, THEN all fraud on the same rising ts
+        # counter — so fraud occupied a disjoint, later time range. A time-based
+        # split then put 100% of fraud in the test half and PR-AUC collapsed to
+        # ~0.05 (the model only "worked" because a random split reshuffled the
+        # fraud block into both halves). Sprinkling fraud here makes fraud share
+        # the full time range, so an honest time-ordered split is meaningful.
+        if rng.random() < FRAUD_TARGET:
+            ts += int(rng.integers(1, 10))
+            planter = rng.choice(FRAUD_PLANTERS)
+            events.extend(tag(planter(accounts, users, ts), planter.__name__.replace("f_", "")))
 
     events.sort(key=lambda e: e["ts"])
     return events
@@ -504,8 +507,15 @@ def main():
     events = build_events(accounts)
     df = compute_features(events, accounts)
 
-    noise = rng.random(len(df)) < LABEL_NOISE
-    df.loc[noise, "is_fraud"] = 1 - df.loc[noise, "is_fraud"]
+    # Tiny, realistic label noise — applied ONLY to positives. The old code
+    # flipped LABEL_NOISE of ALL rows; since legit outnumbers fraud ~65:1, that
+    # turned ~40% of positives into random-label noise and capped recall by
+    # arithmetic (measured recall 0.588 == the noise ceiling, not the model).
+    # Flipping a small share of the frauds instead keeps a touch of realism
+    # without manufacturing a huge pool of fake positives.
+    pos = df.index[df["is_fraud"] == 1]
+    flip = pos[rng.random(len(pos)) < LABEL_NOISE]
+    df.loc[flip, "is_fraud"] = 0
 
     df.to_csv(OUT_DIR / "upi_transactions.csv", index=False)
     acc_df = pd.DataFrame(accounts.values())

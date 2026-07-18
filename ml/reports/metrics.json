@@ -1,20 +1,20 @@
 {
   "model": "XGBoost",
-  "decision_threshold": 0.85,
-  "pr_auc": 0.6182,
-  "roc_auc": 0.8012,
-  "fraud_precision": 0.9434,
-  "fraud_recall": 0.5877,
-  "fraud_f1": 0.7242,
-  "false_positive_rate": 0.0009,
+  "decision_threshold": 0.92,
+  "pr_auc": 0.9852,
+  "roc_auc": 0.9996,
+  "fraud_precision": 0.977,
+  "fraud_recall": 0.9532,
+  "fraud_f1": 0.9649,
+  "false_positive_rate": 0.0007,
   "confusion_matrix": {
-    "tn": 50196,
-    "fp": 44,
-    "fn": 515,
-    "tp": 734
+    "tn": 50789,
+    "fp": 36,
+    "fn": 75,
+    "tp": 1527
   },
-  "n_train": 205956,
-  "n_test": 51489,
-  "fraud_rate": 0.0243,
+  "n_train": 209706,
+  "n_test": 52427,
+  "fraud_rate": 0.0306,
   "note": "Synthetic UPI demo data (leakage-free, planted fraud patterns). Metrics are workflow proof, not a real-world benchmark."
 }

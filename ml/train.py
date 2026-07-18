@@ -35,8 +35,13 @@ MODELS = HERE / "models"; MODELS.mkdir(exist_ok=True)
 REPORTS = HERE / "reports"; REPORTS.mkdir(exist_ok=True)
 
 TARGET = "is_fraud"
-# IDs / time / analysis-only — NOT model features (fraud_type would LEAK the answer)
-DROP = ["ts", "sender_vpa", "receiver_vpa", "fraud_type", TARGET]
+# IDs / time / analysis-only — NOT model features (fraud_type would LEAK the answer).
+# sender/receiver_txn_count dropped: they encode an account's POSITION in the
+# synthetic stream (bookkeeping), not fraud — the model learned them erratically
+# (non-monotonic, peaks mid-range) and they conflict with build_db's serve-time
+# values. Serving still sends them; the pipeline ignores unknown columns by name.
+DROP = ["ts", "sender_vpa", "receiver_vpa", "fraud_type", TARGET,
+        "sender_txn_count", "receiver_txn_count"]
 CATEGORICAL = ["type", "channel"]
 
 

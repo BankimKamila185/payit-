@@ -121,7 +121,7 @@ export const api = {
     }),
 
   // Step-up OTP verification (REVIEW transactions)
-  verifyOtp:   (pending_txn_id, otp) => post("/pay/verify-otp", { pending_txn_id, otp }),
+  verifyOtp:   (pending_txn_id, otp) => post("/pay/verify-otp", { pending_txn_id, otp, device_id: getDeviceId() }),
   resendOtp:   (pending_txn_id) => post("/pay/resend-otp", { pending_txn_id }),
 
   // F2: pre-payment beneficiary risk (at payee-select) | F3: recall a completed payment
@@ -132,6 +132,15 @@ export const api = {
   report:      (reported_vpa, reporter_vpa, reason) =>
     post("/report", { reported_vpa, reporter_vpa, reason }),
   getStats:    () => get("/dashboard/stats"),
+
+  // ---- Fraud Ops Console (advanced backend layers surfaced in the UI) ----
+  // Post-payment monitor: re-scans COMMITTED transfers in the last `window_min`
+  // minutes and flags mule patterns (collection fan-in / pass-through). This is
+  // the "second line" — it raises ALERTS, it never moves money.
+  monitor:     (window_min = 120) => get(`/fraud/monitor?window_min=${window_min}`),
+  // Double-entry ledger reconcile: proves every transfer's legs sum to zero,
+  // each balance == SUM(its ledger entries), and the whole system nets to zero.
+  verifyLedger: () => get("/ledger/verify"),
 };
 
 // -------- WebAuthn / Passkey helpers (browser-side ceremony) --------

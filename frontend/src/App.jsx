@@ -697,6 +697,7 @@ triggerNotification("Identity verified. Account unlocked.", "info");
             setIsDeviceRooted={setIsDeviceRooted}
             isActiveScreenShare={isActiveScreenShare}
             setIsActiveScreenShare={setIsActiveScreenShare}
+            myVpa={currentUser}
           />
         );
       case 'activity':

@@ -102,11 +102,27 @@ async function api(path, body, auth) {
   const r = await fetch(API + path, { method: "POST", headers: h, body: JSON.stringify(body) });
   return { ok: r.ok, status: r.status, data: await r.json().catch(() => ({})) };
 }
+async function apiGet(path, auth) {
+  const h = {};
+  if (auth && TOKEN) h["Authorization"] = `Bearer ${TOKEN}`;
+  const r = await fetch(API + path, { headers: h });
+  return { ok: r.ok, status: r.status, data: await r.json().catch(() => ({})) };
+}
 const money = (n) => "₹" + Number(n).toLocaleString("en-IN");
 
 /* ───────────────────────────── router ───────────────────────────── */
 const stack = [];
 const NEW = {};                 // in-progress signup (phone, name, bank, vpa…)
+
+/* ── idempotency: ONE stable key per (payee, amount) attempt, reused across every
+      retry of that attempt (double-tap, slow network) so the backend dedupes and
+      never debits twice. Cleared once the attempt resolves so a genuine repeat pay
+      later gets a fresh key. ─────────────────────────────────────────────────── */
+const payKeys = {};
+function idemKey(sig) {
+  if (!payKeys[sig]) payKeys[sig] = (crypto.randomUUID?.() ?? `k-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  return payKeys[sig];
+}
 function go(screen, replace) {
   if (replace) stack.pop();
   stack.push(screen);
@@ -121,11 +137,13 @@ function render() {
   $("title").textContent = { login:"payit", home:"Home", pay:"Send money",
                              result:"Payment", device:"Device security",
                              phone:"Create account", otp:"Verify number",
-                             details:"Your account", pins:"Set your PINs" }[s] || "payit";
+                             details:"Your account", pins:"Set your PINs",
+                             ops:"Fraud Ops Console", payotp:"Verify payment" }[s] || "payit";
   $("devPill").textContent = USER ? "device: bound" : "device: —";
   $("devPill").className = "pill " + (USER ? "green" : "grey");
   ({ login: Login, home: Home, pay: Pay, result: Result, device: Device,
-     phone: Phone, otp: Otp, details: Details, pins: Pins }[s] || Login)();
+     phone: Phone, otp: Otp, details: Details, pins: Pins, ops: Ops,
+     payotp: PayOtp }[s] || Login)();
 }
 
 /* ───────────────────────────── 1. LOGIN ───────────────────────────── */
@@ -196,9 +214,11 @@ function Home() {
     </div>
     <button class="primary" id="p">Send money</button>
     <button id="d">Device & security</button>
+    <button id="f">Fraud Ops Console</button>
     <button class="ghost" id="o">Log out</button>`;
   $("p").onclick = () => go("pay");
   $("d").onclick = () => go("device");
+  $("f").onclick = () => go("ops");
   $("o").onclick = () => { TOKEN = null; USER = null; stack.length = 0; go("login"); };
 }
 
@@ -211,6 +231,14 @@ function Pay() {
     <div id="risk"></div>
     <label>Amount</label><input id="amt" value="700" />
     <label>UPI PIN (6-digit)</label><input id="upin" type="password" value="123456" />
+    <div class="tile" style="margin-top:4px">
+      <div class="t">Device risk signals (RASP) <span class="pill amber">demo</span></div>
+      <label style="display:block;font-weight:400"><input type="checkbox" id="r_root" style="width:auto;margin-right:6px">Rooted / emulator</label>
+      <label style="display:block;font-weight:400"><input type="checkbox" id="r_share" style="width:auto;margin-right:6px">Screen sharing active (AnyDesk)</label>
+      <label style="display:block;font-weight:400"><input type="checkbox" id="r_sim" style="width:auto;margin-right:6px">SIM mismatch</label>
+      <div class="step">These are what a real app's RASP layer detects. The fraud engine treats
+        them as hard-rule overrides (e.g. screen-share → block), not just score points.</div>
+    </div>
     <button class="primary" id="go">Pay</button>
     <button class="ghost" id="mule">Try paying a known mule →</button>
     <div class="err" id="err"></div>`;
@@ -230,17 +258,61 @@ function Pay() {
   check();
 
   const pay = async (to) => {
+    const amount = Number($("amt").value);
+    const sig = to + ":" + amount;
     $("err").textContent = "Running fraud engine…";
     const r = await api("/pay", { sender_vpa: USER.vpa, receiver_vpa: to,
-      amount: Number($("amt").value), pin: $("upin").value,
-      device_id: "authlab", type: "PAY", channel: "MANUAL" }, true);
+      amount, pin: $("upin").value,
+      device_id: "authlab", type: "PAY", channel: "MANUAL",
+      idempotency_key: idemKey(sig),                       // stable across retries of THIS attempt
+      rooted: $("r_root").checked ? 1 : 0,
+      screen_share: $("r_share").checked ? 1 : 0,
+      sim_mismatch: $("r_sim").checked ? 1 : 0 }, true);
+    delete payKeys[sig];                                   // attempt resolved → next pay gets a fresh key
     if (!r.ok && !r.data.label) return $("err").textContent = r.data.detail || "Payment failed";
-    LAST = { ...r.data, to, amount: Number($("amt").value) };
+    LAST = { ...r.data, to, amount };
     if (r.data.sender_balance != null) USER.balance = r.data.sender_balance;
+    // REVIEW → step-up OTP needed before the money moves
+    if (r.data.result === "REVIEW") return go("payotp");
     go("result");
   };
   $("go").onclick = () => pay($("to").value);
   $("mule").onclick = () => pay("cash.quick777@paytm");   // L1 collector, fresh + blacklisted
+}
+
+/* ─────────────────── 3b. PAY — STEP-UP OTP (REVIEW) ───────────────────
+   A REVIEW verdict holds the payment as 'pending' and issues an OTP. The code is
+   deliberately NOT in the /pay response (a challenge you hand back is no second
+   factor) — it is printed to the SERVER LOG. Enter it here to release the payment. */
+function PayOtp() {
+  $("body").innerHTML = `
+    <div class="tile warn">
+      <div class="t">⏳ Extra verification — ${money(LAST.amount)} to ${LAST.to}</div>
+      <div class="step">${LAST.message || "Enter the OTP to complete this payment."}</div>
+    </div>
+    <label>6-digit OTP</label><input id="otp" maxlength="6" inputmode="numeric" />
+    <div class="tile"><div class="step"><b>No SMS sent (demo).</b> The OTP is in the
+      <b>server log</b> — look for <code>[OTP CHALLENGE] Transaction #${LAST.transaction_id}</code>.
+      A step-up code handed back in the API response would not be a real second factor.</div></div>
+    <button class="primary" id="v">Verify & pay</button>
+    <button class="ghost" id="rs">Resend code</button>
+    <button id="h">Cancel</button>
+    <div class="err" id="err"></div>`;
+  $("h").onclick = () => { stack.length = 0; go("home"); };
+  $("v").onclick = async () => {
+    $("err").textContent = "Verifying…";
+    const r = await api("/pay/verify-otp",
+      { pending_txn_id: LAST.transaction_id, otp: $("otp").value, device_id: "authlab" }, true);
+    if (!r.ok) return $("err").textContent = r.data.detail || "Wrong or expired OTP";
+    LAST = { ...LAST, ...r.data };
+    if (r.data.sender_balance != null) USER.balance = r.data.sender_balance;
+    go("result", true);
+  };
+  $("rs").onclick = async () => {
+    $("err").textContent = "Requesting a new code…";
+    const r = await api("/pay/resend-otp", { pending_txn_id: LAST.transaction_id }, true);
+    $("err").textContent = r.ok ? "New code generated — check the server log." : (r.data.detail || "Resend failed");
+  };
 }
 
 /* ───────────────────────────── 4. RESULT ───────────────────────────── */
@@ -267,14 +339,24 @@ function Result() {
     ${l === "BLOCK" ? `<div class="tile"><div class="t">Your money</div>
         <div class="rsn">• Not deducted — the debit never ran</div>
         <div class="rsn">• Alert raised to the bank's fraud team</div></div>` : ""}
-    ${LAST.post_review ? `<button class="primary" id="rc">Recall this payment</button>` : ""}
+    ${LAST.post_review ? `<button class="primary" id="rc">Recall this payment (request bank reversal)</button>` : ""}
+    <button id="rp">Report this payee (blacklist)</button>
     <button id="h">Back to home</button>
     <div class="err" id="err"></div>`;
   $("h").onclick = () => { stack.length = 0; go("home"); };
   if ($("rc")) $("rc").onclick = async () => {
+    $("err").textContent = "Filing a reversal request to the bank…";
     const r = await api(`/pay/recall/${LAST.transaction_id}`, {}, true);
-    if (r.ok) { USER.balance = r.data.sender_balance; $("err").textContent = "✅ " + r.data.message; }
-    else $("err").textContent = r.data.detail || "Recall failed";
+    if (r.ok) {
+      USER.balance = r.data.sender_balance;
+      const bd = r.data.bank_decision;
+      $("err").innerHTML = `✅ ${r.data.message}` + (bd ? `<div class="step">Bank decision: <b>${bd.decision}/${bd.reason_code}</b></div>` : "");
+    } else $("err").textContent = r.data.detail || "Recall failed";
+  };
+  $("rp").onclick = async () => {
+    $("err").textContent = "Reporting…";
+    const r = await api("/report", { reported_vpa: LAST.to, reporter_vpa: USER.vpa, reason: "scam" }, true);
+    $("err").textContent = r.ok ? "✅ " + (r.data.message || "Reported + blacklisted.") : (r.data.detail || "Report failed");
   };
 }
 
@@ -415,6 +497,115 @@ function Device() {
     </div>
     <button id="h">Back</button>`;
   $("h").onclick = back;
+}
+
+/* ─────────────────────── 6. FRAUD OPS CONSOLE ───────────────────────
+   Surfaces the advanced backend LAYERS that have no place in a normal user
+   screen: the post-payment monitor, the ledger reconcile, and the live UPI
+   daily-limit usage. The bank reversal-desk (adjudication) is reached from a
+   flagged payment's "Recall" button on the Result screen. ──────────────── */
+function Ops() {
+  const CAP_DAY_AMT = 100000, CAP_DAY_CNT = 20;
+  $("body").innerHTML = `
+    <div class="tile">
+      <div class="t">Post-payment monitor <span class="pill amber">second line</span></div>
+      <div class="step">Inline scoring sees ONE payment; a mule ring shows only AFTER money
+        moves. This re-scans committed transfers for collection (fan-in) and pass-through mules,
+        and raises ALERTS — it never moves money.</div>
+      <button class="primary" id="mScan" style="margin-top:10px">Scan last 120 min</button>
+      <div id="mOut" style="margin-top:8px"></div>
+    </div>
+
+    <div class="tile">
+      <div class="t">Ledger integrity <span class="pill green">double-entry</span></div>
+      <div class="step">Append-only ledger. Reconcile proves: every transfer's legs sum to zero,
+        each balance == SUM(its entries), and the whole system nets to zero.</div>
+      <button class="primary" id="lScan" style="margin-top:10px">Reconcile now</button>
+      <div id="lOut" style="margin-top:8px"></div>
+    </div>
+
+    <div class="tile">
+      <div class="t">UPI daily limits <span class="pill amber">live</span></div>
+      <div class="step">Real caps enforced on every /pay: ₹1,00,000 per transaction, and a rolling
+        24h cap of ₹1,00,000 across up to 20 transfers. Below = your live usage.</div>
+      <button class="primary" id="uScan" style="margin-top:10px">Check my usage</button>
+      <div id="uOut" style="margin-top:8px"></div>
+    </div>
+
+    <div class="tile warn">
+      <div class="t">Bank reversal desk</div>
+      <div class="step">The bank's fraud desk (adjudication with ISO reason codes ACCR / RJCR /
+        PDCR) is reached when you tap <b>Recall</b> on a flagged payment — the app never claws
+        money itself; it REQUESTS a reversal and the bank decides.</div>
+    </div>
+    <button id="h">Back to home</button>`;
+  $("h").onclick = () => { stack.length = 0; go("home"); };
+
+  /* 1. monitor */
+  $("mScan").onclick = async () => {
+    $("mOut").innerHTML = `<div class="rsn">Scanning…</div>`;
+    const r = await apiGet("/fraud/monitor?window_min=120");
+    if (!r.ok) return $("mOut").innerHTML = `<div class="rsn" style="color:#ff6b8a">${r.data.detail || "Scan failed"}</div>`;
+    const d = r.data;
+    const head = `<div class="kv"><div>window</div><div>${d.window_minutes}m</div>
+      <div>suspects</div><div style="color:${d.suspected_mules ? "#ff6b8a" : "#63e089"}">${d.suspected_mules}</div>
+      <div>alerts raised</div><div>${d.alerts_raised}</div></div>`;
+    const list = (d.suspects || []).length === 0
+      ? `<div class="rsn">• No mule patterns in this window — clean.</div>`
+      : d.suspects.map(s => `<div class="rsn" style="color:#ff6b8a">• <b>${s.vpa}</b> — ${
+          s.pattern === "collection"
+            ? `collection mule: fan-in ${s.fan_in} · ${s.victims} txns · ${money(s.total || 0)} · age ${s.age_days}d`
+            : `pass-through: got ${money(s.received || 0)} → forwarded ${money(s.forwarded || 0)} · age ${s.age_days}d`
+        }</div>`).join("");
+    $("mOut").innerHTML = head + list;
+  };
+
+  /* 2. ledger */
+  $("lScan").onclick = async () => {
+    $("lOut").innerHTML = `<div class="rsn">Reconciling…</div>`;
+    const r = await apiGet("/ledger/verify");
+    if (!r.ok) return $("lOut").innerHTML = `<div class="rsn" style="color:#ff6b8a">${r.data.detail || "Verify failed"}</div>`;
+    const d = r.data;
+    const ok = d.consistent;
+    $("lOut").innerHTML = `
+      <div class="rsn" style="color:${ok ? "#63e089" : "#ff6b8a"};font-weight:700">
+        ${ok ? "✅ RECONCILED" : "🛑 RECONCILIATION FAILED"}</div>
+      <div class="kv">
+        <div>entries</div><div>${d.entries}</div>
+        <div>system sum</div><div style="color:${d.system_sum === 0 ? "#63e089" : "#ff6b8a"}">${money(d.system_sum)}</div>
+        <div>unbalanced transfers</div><div>${(d.unbalanced_transfers || []).length}</div>
+        <div>balance drift</div><div style="color:${(d.balance_drift || []).length ? "#ff6b8a" : "#63e089"}">${(d.balance_drift || []).length}</div>
+      </div>
+      ${(d.balance_drift || []).map(x => `<div class="rsn" style="color:#ff6b8a">• ${x.vpa}: balance ${money(x.balance)} vs ledger ${money(x.ledger)}</div>`).join("")}
+      <div class="step" style="margin-top:6px">${d.message}</div>`;
+  };
+
+  /* 3. limits */
+  $("uScan").onclick = async () => {
+    $("uOut").innerHTML = `<div class="rsn">Reading your last 24h…</div>`;
+    const r = await apiGet("/transactions/" + encodeURIComponent(USER.vpa), true);
+    if (!r.ok || !Array.isArray(r.data)) return $("uOut").innerHTML = `<div class="rsn" style="color:#ff6b8a">${r.data.detail || "Could not read history"}</div>`;
+    const dayAgo = Date.now() - 24 * 60 * 60 * 1000;
+    let amt = 0, cnt = 0;
+    for (const t of r.data) {
+      const mine = t.sender === USER.vpa;
+      const okS = t.status === "success" || t.status === "flagged";
+      const ts = t.created_at ? Date.parse(t.created_at) : NaN;
+      const inWin = isNaN(ts) ? true : ts >= dayAgo;
+      if (mine && okS && inWin) { amt += Number(t.amount) || 0; cnt += 1; }
+    }
+    const amtPct = Math.min(100, (amt / CAP_DAY_AMT) * 100);
+    const cntPct = Math.min(100, (cnt / CAP_DAY_CNT) * 100);
+    const bar = (pct, danger) => `<div style="height:8px;border-radius:4px;background:#2a2a30;overflow:hidden;margin:4px 0">
+      <div style="height:100%;width:${pct}%;border-radius:4px;background:${danger ? "#ff6b8a" : "#63e089"}"></div></div>`;
+    $("uOut").innerHTML = `
+      <div class="rsn">Amount used (24h): <b>${money(amt)}</b> / ${money(CAP_DAY_AMT)}</div>
+      ${bar(amtPct, amt >= CAP_DAY_AMT)}
+      <div class="step">${money(Math.max(0, CAP_DAY_AMT - amt))} left today</div>
+      <div class="rsn" style="margin-top:8px">Transfers used (24h): <b>${cnt}</b> / ${CAP_DAY_CNT}</div>
+      ${bar(cntPct, cnt >= CAP_DAY_CNT)}
+      <div class="step">${Math.max(0, CAP_DAY_CNT - cnt)} transfers left today</div>`;
+  };
 }
 
 go("login");

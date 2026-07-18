@@ -18,7 +18,14 @@ import {
   ChevronRight,
   Sliders,
   Settings,
-  X
+  X,
+  Radar,
+  Scale,
+  Gauge,
+  Landmark,
+  RefreshCw,
+  CheckCircle2,
+  XCircle
 } from 'lucide-react';
 import { api } from '../api';
 
@@ -52,13 +59,64 @@ const SliceShield = ({
   isDeviceRooted = false,
   setIsDeviceRooted,
   isActiveScreenShare = false,
-  setIsActiveScreenShare
+  setIsActiveScreenShare,
+  myVpa = ''
 }) => {
   // Navigation states for bottom configuration drawers
-  const [activeDrawer, setActiveDrawer] = useState(null); // 'delay' | 'highvalue' | 'guardian' | 'logs' | null
+  const [activeDrawer, setActiveDrawer] = useState(null); // 'delay' | 'highvalue' | 'guardian' | 'logs' | 'monitor' | 'ledger' | 'limits' | null
 
   // Local state for live stats from backend
   const [stats, setStats] = useState(null);
+
+  // ---- Fraud Ops Console: live results from the advanced backend layers ----
+  const [opsLoading, setOpsLoading] = useState(false);
+  const [monitorData, setMonitorData] = useState(null); // GET /fraud/monitor
+  const [ledgerData, setLedgerData] = useState(null);   // GET /ledger/verify
+  const [limitsData, setLimitsData] = useState(null);   // computed from history
+
+  // UPI daily limits (mirror server/app.py constants)
+  const CAP_PER_TXN = 100000, CAP_DAY_AMT = 100000, CAP_DAY_CNT = 20;
+
+  const runMonitor = async () => {
+    setActiveDrawer('monitor'); setOpsLoading(true); setMonitorData(null);
+    try {
+      const { ok, data } = await api.monitor(120);
+      setMonitorData(ok ? data : { error: data?.detail || 'Monitor scan failed' });
+    } catch (e) {
+      setMonitorData({ error: e.message || 'Monitor scan failed' });
+    } finally { setOpsLoading(false); }
+  };
+
+  const runLedger = async () => {
+    setActiveDrawer('ledger'); setOpsLoading(true); setLedgerData(null);
+    try {
+      const { ok, data } = await api.verifyLedger();
+      setLedgerData(ok ? data : { error: data?.detail || 'Ledger verify failed' });
+    } catch (e) {
+      setLedgerData({ error: e.message || 'Ledger verify failed' });
+    } finally { setOpsLoading(false); }
+  };
+
+  const runLimits = async () => {
+    setActiveDrawer('limits'); setOpsLoading(true); setLimitsData(null);
+    try {
+      if (!myVpa) { setLimitsData({ error: 'Not logged in' }); return; }
+      const { ok, data } = await api.history(myVpa);
+      if (!ok || !Array.isArray(data)) { setLimitsData({ error: 'Could not read history' }); return; }
+      const dayAgo = Date.now() - 24 * 60 * 60 * 1000;
+      let sentAmt = 0, sentCnt = 0;
+      for (const t of data) {
+        const isMine = t.sender === myVpa;
+        const okStatus = t.status === 'success' || t.status === 'flagged';
+        const ts = t.created_at ? Date.parse(t.created_at) : NaN;
+        const inWindow = isNaN(ts) ? true : ts >= dayAgo; // if unparseable, count it (conservative)
+        if (isMine && okStatus && inWindow) { sentAmt += Number(t.amount) || 0; sentCnt += 1; }
+      }
+      setLimitsData({ sentAmt, sentCnt });
+    } catch (e) {
+      setLimitsData({ error: e.message || 'Could not read history' });
+    } finally { setOpsLoading(false); }
+  };
 
   useEffect(() => {
     let active = true;
@@ -216,6 +274,55 @@ const SliceShield = ({
           </span>
           <span style={styles.metricLbl}>Open Alerts</span>
         </div>
+      </div>
+
+      {/* 2.6 Fraud Operations Console — the advanced backend layers, live */}
+      <div style={styles.sectionHeader}>
+        <Landmark size={16} color="var(--accent-blue)" />
+        <span style={styles.sectionTitle}>Fraud Operations Console</span>
+      </div>
+      <div style={styles.controlsList}>
+        {/* Post-payment monitor */}
+        <button onClick={runMonitor} style={styles.controlItemRow} aria-label="Run post-payment monitor">
+          <div style={styles.controlRowLeft}>
+            <div style={{ ...styles.menuIconBox, backgroundColor: 'rgba(235, 59, 136, 0.08)' }}>
+              <Radar size={16} color="var(--accent-pink)" />
+            </div>
+            <div style={styles.menuTexts}>
+              <span style={styles.menuTitle}>Post-Payment Monitor</span>
+              <span style={styles.menuDesc}>Re-scan committed transfers for mule rings (fan-in / pass-through)</span>
+            </div>
+          </div>
+          <ChevronRight size={16} color="var(--text-muted)" />
+        </button>
+
+        {/* Ledger integrity */}
+        <button onClick={runLedger} style={styles.controlItemRow} aria-label="Verify ledger integrity">
+          <div style={styles.controlRowLeft}>
+            <div style={{ ...styles.menuIconBox, backgroundColor: 'rgba(34, 230, 123, 0.08)' }}>
+              <Scale size={16} color="var(--accent-neon)" />
+            </div>
+            <div style={styles.menuTexts}>
+              <span style={styles.menuTitle}>Ledger Integrity Check</span>
+              <span style={styles.menuDesc}>Double-entry reconcile — every rupee accounted for</span>
+            </div>
+          </div>
+          <ChevronRight size={16} color="var(--text-muted)" />
+        </button>
+
+        {/* UPI daily limits */}
+        <button onClick={runLimits} style={{ ...styles.controlItemRow, borderBottom: 'none' }} aria-label="View UPI daily limits">
+          <div style={styles.controlRowLeft}>
+            <div style={{ ...styles.menuIconBox, backgroundColor: 'rgba(170, 51, 255, 0.08)' }}>
+              <Gauge size={16} color="var(--accent-purple)" />
+            </div>
+            <div style={styles.menuTexts}>
+              <span style={styles.menuTitle}>UPI Daily Limits</span>
+              <span style={styles.menuDesc}>₹1L / txn • ₹1L + 20 txns per 24h — live usage</span>
+            </div>
+          </div>
+          <ChevronRight size={16} color="var(--text-muted)" />
+        </button>
       </div>
 
       {/* 3. Advanced Configurations Bento Menu */}
@@ -779,6 +886,230 @@ const SliceShield = ({
 
             <button onClick={() => setActiveDrawer(null)} style={styles.drawerSaveBtn}>
               Dismiss Logs
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* E. Post-Payment Monitor Drawer */}
+      {activeDrawer === 'monitor' && (
+        <div style={styles.drawerOverlay} onClick={() => setActiveDrawer(null)}>
+          <div style={styles.drawerContent} onClick={(e) => e.stopPropagation()} className="animate-slide-up">
+            <div style={styles.drawerDragHandle}></div>
+            <div style={styles.drawerHeader}>
+              <h3 style={styles.drawerTitle}>Post-Payment Monitor</h3>
+              <button onClick={() => setActiveDrawer(null)} style={styles.drawerCloseBtn} aria-label="Close">
+                <X size={16} color="var(--text-primary)" />
+              </button>
+            </div>
+            <p style={styles.drawerDesc}>
+              The "second line". Inline scoring sees only ONE payment; a mule ring is
+              visible only AFTER money moves. This re-scans committed transfers and
+              raises ALERTS — it never moves money.
+            </p>
+
+            {opsLoading && <p style={styles.emptyText}>Scanning committed transfers…</p>}
+            {!opsLoading && monitorData?.error && (
+              <div style={styles.opsErrorBox}>{monitorData.error}</div>
+            )}
+            {!opsLoading && monitorData && !monitorData.error && (
+              <>
+                <div style={styles.metricsGrid}>
+                  <div style={styles.metricCard}>
+                    <span style={styles.metricVal}>{monitorData.window_minutes}m</span>
+                    <span style={styles.metricLbl}>Window</span>
+                  </div>
+                  <div style={styles.metricCard}>
+                    <span style={{ ...styles.metricVal, color: 'var(--accent-pink)' }}>{monitorData.suspected_mules}</span>
+                    <span style={styles.metricLbl}>Suspects</span>
+                  </div>
+                  <div style={styles.metricCard}>
+                    <span style={{ ...styles.metricVal, color: '#ff8c00' }}>{monitorData.alerts_raised}</span>
+                    <span style={styles.metricLbl}>Alerts</span>
+                  </div>
+                </div>
+                <div style={styles.logsDrawerList}>
+                  {(monitorData.suspects || []).length === 0 ? (
+                    <p style={styles.emptyText}>No mule patterns in this window. Clean.</p>
+                  ) : (
+                    monitorData.suspects.map((s, i) => (
+                      <div key={i} style={styles.suspectCard}>
+                        <div style={styles.scanRow}>
+                          <span style={styles.scanMerchant}>{s.vpa}</span>
+                          <span style={styles.scanTagAlert}>
+                            {s.pattern === 'collection' ? 'COLLECTION MULE' : 'PASS-THROUGH MULE'}
+                          </span>
+                        </div>
+                        <span style={styles.scanTime}>
+                          {s.pattern === 'collection'
+                            ? `fan-in ${s.fan_in} senders • ${s.victims} txns • ₹${(s.total || 0).toLocaleString()} • age ${s.age_days}d`
+                            : `received ₹${(s.received || 0).toLocaleString()} → forwarded ₹${(s.forwarded || 0).toLocaleString()} • age ${s.age_days}d`}
+                        </span>
+                      </div>
+                    ))
+                  )}
+                </div>
+                <p style={styles.opsNote}>
+                  Money already moved — recovery is a freeze/report action to the bank
+                  (see Recall on a payment), not a silent claw-back.
+                </p>
+              </>
+            )}
+
+            <button onClick={runMonitor} style={styles.drawerSaveBtn} disabled={opsLoading}>
+              <RefreshCw size={14} style={{ marginRight: 6, verticalAlign: 'middle' }} />
+              {opsLoading ? 'Scanning…' : 'Re-scan Now'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* F. Ledger Integrity Drawer */}
+      {activeDrawer === 'ledger' && (
+        <div style={styles.drawerOverlay} onClick={() => setActiveDrawer(null)}>
+          <div style={styles.drawerContent} onClick={(e) => e.stopPropagation()} className="animate-slide-up">
+            <div style={styles.drawerDragHandle}></div>
+            <div style={styles.drawerHeader}>
+              <h3 style={styles.drawerTitle}>Ledger Integrity Check</h3>
+              <button onClick={() => setActiveDrawer(null)} style={styles.drawerCloseBtn} aria-label="Close">
+                <X size={16} color="var(--text-primary)" />
+              </button>
+            </div>
+            <p style={styles.drawerDesc}>
+              Append-only double-entry ledger. Reconcile proves: every transfer's legs
+              sum to zero, each balance == SUM(its entries), and the whole system nets to zero.
+            </p>
+
+            {opsLoading && <p style={styles.emptyText}>Reconciling ledger…</p>}
+            {!opsLoading && ledgerData?.error && (
+              <div style={styles.opsErrorBox}>{ledgerData.error}</div>
+            )}
+            {!opsLoading && ledgerData && !ledgerData.error && (
+              <>
+                <div style={{
+                  ...styles.ledgerBadge,
+                  backgroundColor: ledgerData.consistent ? 'rgba(34,230,123,0.08)' : 'rgba(235,59,136,0.08)',
+                  borderColor: ledgerData.consistent ? 'rgba(34,230,123,0.25)' : 'rgba(235,59,136,0.25)',
+                }}>
+                  {ledgerData.consistent
+                    ? <CheckCircle2 size={22} color="var(--accent-neon)" />
+                    : <XCircle size={22} color="var(--accent-pink)" />}
+                  <span style={{
+                    ...styles.ledgerBadgeText,
+                    color: ledgerData.consistent ? 'var(--accent-neon)' : 'var(--accent-pink)',
+                  }}>
+                    {ledgerData.consistent ? 'RECONCILED' : 'RECONCILIATION FAILED'}
+                  </span>
+                </div>
+                <div style={styles.metricsGrid}>
+                  <div style={styles.metricCard}>
+                    <span style={styles.metricVal}>{ledgerData.entries}</span>
+                    <span style={styles.metricLbl}>Entries</span>
+                  </div>
+                  <div style={styles.metricCard}>
+                    <span style={{ ...styles.metricVal, color: ledgerData.system_sum === 0 ? 'var(--accent-neon)' : 'var(--accent-pink)' }}>
+                      ₹{ledgerData.system_sum}
+                    </span>
+                    <span style={styles.metricLbl}>System Sum</span>
+                  </div>
+                  <div style={styles.metricCard}>
+                    <span style={{ ...styles.metricVal, color: (ledgerData.balance_drift || []).length ? 'var(--accent-pink)' : 'var(--accent-neon)' }}>
+                      {(ledgerData.balance_drift || []).length}
+                    </span>
+                    <span style={styles.metricLbl}>Drift</span>
+                  </div>
+                </div>
+                {(ledgerData.balance_drift || []).length > 0 && (
+                  <div style={styles.logsDrawerList}>
+                    {ledgerData.balance_drift.map((d, i) => (
+                      <div key={i} style={styles.suspectCard}>
+                        <div style={styles.scanRow}>
+                          <span style={styles.scanMerchant}>{d.vpa}</span>
+                          <span style={styles.scanTagAlert}>DRIFT</span>
+                        </div>
+                        <span style={styles.scanTime}>balance ₹{d.balance} vs ledger ₹{d.ledger}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <p style={styles.opsNote}>{ledgerData.message}</p>
+              </>
+            )}
+
+            <button onClick={runLedger} style={styles.drawerSaveBtn} disabled={opsLoading}>
+              <RefreshCw size={14} style={{ marginRight: 6, verticalAlign: 'middle' }} />
+              {opsLoading ? 'Reconciling…' : 'Re-verify Now'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* G. UPI Daily Limits Drawer */}
+      {activeDrawer === 'limits' && (
+        <div style={styles.drawerOverlay} onClick={() => setActiveDrawer(null)}>
+          <div style={styles.drawerContent} onClick={(e) => e.stopPropagation()} className="animate-slide-up">
+            <div style={styles.drawerDragHandle}></div>
+            <div style={styles.drawerHeader}>
+              <h3 style={styles.drawerTitle}>UPI Daily Limits</h3>
+              <button onClick={() => setActiveDrawer(null)} style={styles.drawerCloseBtn} aria-label="Close">
+                <X size={16} color="var(--text-primary)" />
+              </button>
+            </div>
+            <p style={styles.drawerDesc}>
+              Real UPI caps, enforced server-side on every /pay: max ₹1,00,000 per
+              transaction, and a rolling 24-hour cap of ₹1,00,000 total across up to 20 transfers.
+            </p>
+
+            {opsLoading && <p style={styles.emptyText}>Reading your last 24h…</p>}
+            {!opsLoading && limitsData?.error && (
+              <div style={styles.opsErrorBox}>{limitsData.error}</div>
+            )}
+            {!opsLoading && limitsData && !limitsData.error && (
+              <>
+                <div style={styles.drawerSliderBlock}>
+                  <div style={styles.sliderHeader}>
+                    <span style={styles.drawerLabel}>Amount used (24h)</span>
+                    <span style={styles.sliderValueText}>
+                      ₹{limitsData.sentAmt.toLocaleString()} / ₹{CAP_DAY_AMT.toLocaleString()}
+                    </span>
+                  </div>
+                  <div style={styles.limitBarTrack}>
+                    <div style={{
+                      ...styles.limitBarFill,
+                      width: `${Math.min(100, (limitsData.sentAmt / CAP_DAY_AMT) * 100)}%`,
+                      backgroundColor: limitsData.sentAmt >= CAP_DAY_AMT ? 'var(--accent-pink)' : 'var(--accent-neon)',
+                    }}></div>
+                  </div>
+                  <span style={styles.sliderBounds}>
+                    ₹{Math.max(0, CAP_DAY_AMT - limitsData.sentAmt).toLocaleString()} left today
+                  </span>
+                </div>
+                <div style={styles.drawerSliderBlock}>
+                  <div style={styles.sliderHeader}>
+                    <span style={styles.drawerLabel}>Transfers used (24h)</span>
+                    <span style={styles.sliderValueText}>{limitsData.sentCnt} / {CAP_DAY_CNT}</span>
+                  </div>
+                  <div style={styles.limitBarTrack}>
+                    <div style={{
+                      ...styles.limitBarFill,
+                      width: `${Math.min(100, (limitsData.sentCnt / CAP_DAY_CNT) * 100)}%`,
+                      backgroundColor: limitsData.sentCnt >= CAP_DAY_CNT ? 'var(--accent-pink)' : 'var(--accent-purple)',
+                    }}></div>
+                  </div>
+                  <span style={styles.sliderBounds}>
+                    {Math.max(0, CAP_DAY_CNT - limitsData.sentCnt)} transfers left today
+                  </span>
+                </div>
+                <p style={styles.opsNote}>
+                  Computed live from your last 24h of successful transfers. A payment
+                  over any cap is refused by the server with HTTP 403.
+                </p>
+              </>
+            )}
+
+            <button onClick={runLimits} style={styles.drawerSaveBtn} disabled={opsLoading}>
+              <RefreshCw size={14} style={{ marginRight: 6, verticalAlign: 'middle' }} />
+              {opsLoading ? 'Refreshing…' : 'Refresh'}
             </button>
           </div>
         </div>
@@ -1629,6 +1960,59 @@ const styles = {
     top: '2px',
     left: '2px',
     transition: 'all 0.2s',
+  },
+
+  /* ---- Fraud Ops Console drawers ---- */
+  opsErrorBox: {
+    backgroundColor: 'rgba(235, 59, 136, 0.08)',
+    border: '1px solid rgba(235, 59, 136, 0.25)',
+    borderRadius: '12px',
+    padding: '12px',
+    fontSize: '12px',
+    color: 'var(--accent-pink)',
+  },
+  opsNote: {
+    fontSize: '10px',
+    color: 'var(--text-secondary)',
+    lineHeight: '1.4',
+    margin: 0,
+    fontStyle: 'italic',
+  },
+  suspectCard: {
+    backgroundColor: 'var(--surface-color)',
+    border: '1px solid var(--border-color)',
+    borderRadius: '12px',
+    padding: '10px 12px',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '4px',
+  },
+  ledgerBadge: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '10px',
+    border: '1px solid',
+    borderRadius: '16px',
+    padding: '14px',
+  },
+  ledgerBadgeText: {
+    fontSize: '15px',
+    fontWeight: '800',
+    fontFamily: 'var(--font-display)',
+    letterSpacing: '0.5px',
+  },
+  limitBarTrack: {
+    width: '100%',
+    height: '8px',
+    borderRadius: '4px',
+    backgroundColor: 'var(--surface-hover)',
+    overflow: 'hidden',
+  },
+  limitBarFill: {
+    height: '100%',
+    borderRadius: '4px',
+    transition: 'width 0.4s ease',
   }
 };
 

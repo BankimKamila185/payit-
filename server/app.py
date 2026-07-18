@@ -1332,70 +1332,164 @@ def resend_otp(req: ResendOtpReq):
             "delivery": "server_log"}
 
 
+def _execute_reversal(con, tx):
+    """Move money back for an APPROVED reversal — the BANK's booking action.
+
+    This is the settlement leg (ISO 20022 pacs.004, return-reason FOCR = "following
+    cancellation request"). It is only ever called after the bank has ADJUDICATED
+    and approved (see /bank/reversal-request); it is NOT a caller-initiated clawback.
+
+    Returns (ok: bool, info: dict). ok=False with reason 'funds_gone' means the
+    money has left the account — no one can conjure it back; it's a 1930/court
+    matter. CAS on status + guarded debit make it concurrency-safe and prevent a
+    negative balance (both measured bugs in the old sender-side recall).
+    """
+    txid = tx["id"]
+    sid, rid, amt = tx["sender_account_id"], tx["receiver_account_id"], tx["amount"]
+    with con:
+        con.execute("SELECT id FROM accounts WHERE id IN (?,?) ORDER BY id FOR UPDATE", (sid, rid))
+        cur = con.execute(
+            "UPDATE transactions SET status='reversed' WHERE id=? AND status IN ('success','flagged')",
+            (txid,))
+        if cur.rowcount == 0:
+            return False, {"reason": "already_reversed"}
+        cur = con.execute(
+            "UPDATE accounts SET balance = balance - ? WHERE id=? AND balance >= ?",
+            (amt, rid, amt))
+        if cur.rowcount == 0:
+            left = con.execute("SELECT balance FROM accounts WHERE id=?", (rid,)).fetchone()["balance"]
+            # roll the status flip back — nothing was reversed
+            con.execute("UPDATE transactions SET status=? WHERE id=?", (tx["status"], txid))
+            return False, {"reason": "funds_gone", "remaining": float(left)}
+        con.execute("UPDATE accounts SET balance = balance + ? WHERE id=?", (amt, sid))
+        _ledger_post(con, f"rev:{tx['txn_ref'] or txid}", [(rid, -amt), (sid, amt)],
+                     kind="reversal", reverses=tx["txn_ref"] or f"tx:{txid}")
+    return True, {"reason": "reversed"}
+
+
+class ReversalReq(BaseModel):
+    txn_id: int
+    cfcfrms_ref: str = ""      # law-enforcement / 1930 reference; without it the bank can hold but not reverse
+    reason: str = "FRAD"       # ISO 20022 cancellation reason (FRAD = fraudulent origin)
+
+
+@app.post("/bank/reversal-request")
+def bank_reversal_request(req: ReversalReq, con=Depends(get_db)):
+    """The BENEFICIARY BANK's fraud desk — adjudicates a reversal request.
+
+    This is the honest 'report-and-request' model (ISO 20022 camt.056 request ->
+    camt.029 resolution -> pacs.004 return; UPI's UDIR; SWIFT gpi Stop&Recall). The
+    fraud engine / a victim REQUESTS a reversal with a reason; the BANK decides on
+    ITS OWN criteria and only it moves money. The app never debits an account —
+    which is why the old sender-side 'recall' was wrong (an app reaching into
+    someone's account has no authority; even a fraudster gets due process).
+
+    The decision is deliberately NOT "the requester said fraud, so yes." The bank
+    checks things the requester cannot assert, using its OWN records:
+      1. EVIDENCE BAR  — blacklisted receiver, OR high recent fan-in, OR a fresh
+                         account forwarding money (the bank's independent read).
+                         Weak -> REJECTED. It won't act on the report alone.
+      2. LEGAL AUTHORITY — a real bank freezes/reverses on a law-enforcement notice
+                         (India: CFCFRMS/1930 under BNSS §§168/94), not a customer's
+                         word. No cfcfrms_ref -> it can only HOLD (lien), not reverse
+                         (ISO reject-reason RQDA: 'requested debit authority').
+      3. FUNDS PRESENT — a lien only reaches money still there. Gone -> REJECTED
+                         (ISO AM04: insufficient funds) -> a 1930/court recovery.
+
+    NOTE (honest): this 'bank' is simulated in the same backend — the separation of
+    authority is architectural, not a real second institution. But the decision
+    logic and the ISO reason codes are real, and the bank uses its own account data.
+    """
+    tx = con.execute("SELECT * FROM transactions WHERE id=?", (req.txn_id,)).fetchone()
+    if not tx:
+        raise HTTPException(404, "transaction not found")
+    if tx["status"] == "reversed":
+        return {"decision": "RJCR", "reason_code": "ARDT", "outcome": "already_reversed",
+                "message": "This payment was already reversed."}
+
+    rid, amt = tx["receiver_account_id"], tx["amount"]
+    mule = con.execute("SELECT vpa, balance, blacklisted, account_age_days, is_merchant FROM accounts WHERE id=?",
+                       (rid,)).fetchone()
+
+    # ---- 1. bank's OWN evidence read (not the requester's word) ----
+    day = (datetime.now() - timedelta(hours=24)).isoformat()
+    fan_in = con.execute(
+        """SELECT COUNT(DISTINCT sender_account_id) c FROM transactions
+           WHERE receiver_account_id=? AND status IN ('success','flagged') AND created_at > ?""",
+        (rid, day)).fetchone()["c"]
+    age = _account_age_days(mule)
+    is_merchant = bool(mule["is_merchant"])
+    # Merchants legitimately have high fan-in and can be new, so their fan-in/age
+    # is NOT evidence of muling — only a blacklist hit counts against a merchant.
+    strong = bool(mule["blacklisted"]) or (not is_merchant and (fan_in >= 5 or age < 10))
+    evidence = {"blacklisted": bool(mule["blacklisted"]), "fan_in_24h": fan_in,
+                "receiver_age_days": age, "is_merchant": is_merchant}
+
+    if not strong:
+        return {"decision": "RJCR", "reason_code": "NARR", "outcome": "rejected",
+                "evidence": evidence,
+                "message": "Bank review: evidence does not meet the bar to act on a mule "
+                           "suspicion. We do not reverse on a report alone."}
+
+    # ---- 2. legal authority (LEA / CFCFRMS reference) ----
+    if not req.cfcfrms_ref:
+        # can mark a lien-style hold, but cannot reverse without a law-enforcement ref
+        con.execute("INSERT INTO alerts (transaction_id, status, severity, created_at) VALUES (?,?,?,?)",
+                    (tx["id"], "reversal_pending", "high", now_iso()))
+        con.commit()
+        return {"decision": "PDCR", "reason_code": "RQDA", "outcome": "lien_pending",
+                "evidence": evidence,
+                "message": "Bank review: evidence accepted, but a reversal needs a law-enforcement "
+                           "reference (file at 1930 / cybercrime.gov.in). Funds flagged / held pending that."}
+
+    # ---- 3. funds present? then reverse (pacs.004 FOCR) ----
+    ok, info = _execute_reversal(con, tx)
+    if not ok and info["reason"] == "funds_gone":
+        con.execute("INSERT INTO alerts (transaction_id, status, severity, created_at) VALUES (?,?,?,?)",
+                    (tx["id"], "reversal_failed_funds_gone", "critical", now_iso()))
+        con.commit()
+        return {"decision": "RJCR", "reason_code": "AM04", "outcome": "funds_gone",
+                "evidence": evidence, "remaining": info.get("remaining"),
+                "message": f"Bank review: reversal approved but ₹{amt:.0f} already moved on "
+                           f"(only ₹{info.get('remaining',0):.0f} left). Escalated to law enforcement (1930)."}
+    if not ok:
+        return {"decision": "RJCR", "reason_code": "ARDT", "outcome": info["reason"],
+                "message": "Already reversed."}
+
+    return {"decision": "ACCR", "reason_code": "FOCR", "outcome": "reversed",
+            "transaction_id": tx["id"], "amount": amt, "evidence": evidence,
+            "message": f"Bank approved reversal — ₹{amt:.0f} returned to the payer."}
+
+
 @app.post("/pay/recall/{txid}")
 def pay_recall(txid: int, current_user: dict = Depends(get_current_user),
                con=Depends(get_db)):
-    """F3: reverse a completed/flagged payment — money returns to the sender.
+    """Report a completed payment as fraud and REQUEST a reversal from the bank.
 
-    This used to be a read-then-write: it SELECTed the status, then moved money,
-    then set status='recalled' as three separate statements. A SELECT takes no
-    lock, so two taps of the Recall button both passed the check and both
-    refunded. Measured: a ₹50,000 payment refunded twice — the sender ended up
-    +₹50,000 and the receiver -₹50,000. Note the books still balanced (each
-    refund wrote both sides), which is exactly why a ledger would have made this
-    *visible* but not prevented it. The fix is the CAS below, not bookkeeping.
+    This no longer claws money back itself (the old version debited the receiver's
+    account directly — which an app has no authority to do, even to a fraudster).
+    It now files a report to the beneficiary bank's fraud desk, which adjudicates
+    (see /bank/reversal-request). A demo CFCFRMS/1930 reference is attached so the
+    bank can act; in the real world that reference comes from the victim filing at
+    1930 / cybercrime.gov.in.
     """
     tx = con.execute("SELECT * FROM transactions WHERE id=?", (txid,)).fetchone()
     if not tx:
         raise HTTPException(404, "transaction not found")
     if tx["sender_account_id"] != current_user["id"]:
-        raise HTTPException(403, "Unauthorized to recall this transaction")
+        raise HTTPException(403, "Unauthorized to report this transaction")
 
-    sid, rid, amt = tx["sender_account_id"], tx["receiver_account_id"], tx["amount"]
+    # Attach a simulated law-enforcement reference (real world: victim files at 1930).
+    demo_ref = f"NCRP-DEMO-{txid}"
+    result = bank_reversal_request(ReversalReq(txn_id=txid, cfcfrms_ref=demo_ref, reason="FRAD"), con)
 
-    with con:
-        # Lock both accounts in a deterministic order (ascending id) BEFORE
-        # touching either. Recalling A->B while B->A is recalled would otherwise
-        # grab the two rows in opposite orders and deadlock.
-        con.execute("SELECT id FROM accounts WHERE id IN (?,?) ORDER BY id FOR UPDATE", (sid, rid))
-
-        # CAS: the predicate is the lock and the rowcount is the decision. The
-        # second concurrent recall finds status='recalled', matches zero rows,
-        # and refunds nothing. Correct at READ COMMITTED because Postgres
-        # re-evaluates the WHERE clause against the updated row after unblocking.
-        cur = con.execute(
-            "UPDATE transactions SET status='recalled' WHERE id=? AND status IN ('success','flagged')",
-            (txid,))
-        if cur.rowcount == 0:
-            raise HTTPException(409, "Already recalled, or this payment is not reversible.")
-
-        # Guarded debit. Without `AND balance >= ?` a receiver who already spent
-        # the money went negative (measured: -₹49,700) and was then bricked —
-        # their own /pay debit guard could never pass again.
-        cur = con.execute(
-            "UPDATE accounts SET balance = balance - ? WHERE id=? AND balance >= ?",
-            (amt, rid, amt))
-        if cur.rowcount == 0:
-            # The honest answer to "I paid a fraudster and he moved it on".
-            # We cannot conjure money that has left the account, and pretending
-            # otherwise is what the old code did.
-            left = con.execute("SELECT balance FROM accounts WHERE id=?", (rid,)).fetchone()["balance"]
-            raise HTTPException(409,
-                f"Cannot recall — ₹{amt:.0f} has already been moved on by the receiver "
-                f"(only ₹{left:.0f} remains). Report this to your bank / cyber-crime (1930); "
-                f"recovery is a bank and law-enforcement action, not something this app can do.")
-
-        con.execute("UPDATE accounts SET balance = balance + ? WHERE id=?", (amt, sid))
-        # Reversal = a NEW compensating pair (accountants don't use erasers). The
-        # original entries stay; these undo them and point back via reverses.
-        _ledger_post(con, f"rev:{tx['txn_ref'] or txid}",
-                     [(rid, -amt), (sid, amt)],
-                     kind="reversal", reverses=tx["txn_ref"] or f"tx:{txid}")
-
-    bal = con.execute("SELECT balance FROM accounts WHERE id=?", (sid,)).fetchone()["balance"]
-    return {"result": "RECALLED", "transaction_id": txid, "amount": amt,
-            "message": f"Payment recalled — ₹{amt:.0f} returned to your account.",
-            "sender_balance": bal}
+    # Map the bank's decision to the payer-facing response the frontend expects.
+    if result["outcome"] == "reversed":
+        bal = con.execute("SELECT balance FROM accounts WHERE id=?", (tx["sender_account_id"],)).fetchone()["balance"]
+        return {"result": "RECALLED", "transaction_id": txid, "amount": tx["amount"],
+                "message": result["message"], "sender_balance": bal, "bank_decision": result}
+    # funds gone / rejected / pending — surface the bank's honest verdict
+    raise HTTPException(409, result["message"])
 
 
 @app.post("/auth/send-otp")

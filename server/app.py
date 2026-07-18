@@ -1486,6 +1486,87 @@ class ReportReq(BaseModel):
     reason: str = "scam"
     amount_lost: float = 0
 
+
+@app.get("/fraud/monitor")
+def fraud_monitor(window_min: int = 60, con=Depends(get_db)):
+    """Post-payment transaction monitoring (the 'second line').
+
+    Inline scoring at /pay can only see ONE payment. A mule ring is only visible
+    AFTER the money moves: each victim's deposit into a collection mule looks fine
+    on its own, and a pass-through only shows once the account forwards. Real PSPs
+    run this as a continuous/batch layer that re-scans COMMITTED transactions and
+    raises ALERTS (it never moves money — the money is already gone; recovery is a
+    freeze/report action). This endpoint is that layer.
+
+    Detects, over the last `window_min` minutes of committed transfers:
+      1. COLLECTION mule  — a fresh, non-merchant account that received from many
+                            distinct senders (fan-in)
+      2. PASS-THROUGH mule — an account that received and then forwarded most of it
+                            out soon after (gather->scatter)
+    Merchants and established accounts are excluded (a shop legitimately has fan-in).
+    Raises an alert per suspected mule and returns a report a bank could act on.
+    """
+    cutoff = (datetime.now() - timedelta(minutes=window_min)).isoformat()
+
+    # 1. collection mules: >=5 distinct senders into a fresh non-merchant account
+    collection = con.execute(
+        """SELECT r.id, r.vpa, COUNT(DISTINCT t.sender_account_id) fan_in,
+                  COUNT(*) n, ROUND(SUM(t.amount)::numeric,2) total, r.account_age_days age
+           FROM transactions t JOIN accounts r ON r.id=t.receiver_account_id
+           WHERE t.status IN ('success','flagged') AND t.created_at > ?
+             AND r.is_merchant=0 AND r.blacklisted=0
+           GROUP BY r.id, r.vpa, r.account_age_days
+           HAVING COUNT(DISTINCT t.sender_account_id) >= 5""",
+        (cutoff,)).fetchall()
+
+    # 2. pass-through mules: account both received AND sent in the window, and
+    #    forwarded out >=70% of what it took in (money didn't stop — it flowed on)
+    passthru = con.execute(
+        """WITH ins AS (
+              SELECT receiver_account_id id, SUM(amount) got FROM transactions
+              WHERE status IN ('success','flagged') AND created_at > ? GROUP BY receiver_account_id),
+            outs AS (
+              SELECT sender_account_id id, SUM(amount) sent FROM transactions
+              WHERE status IN ('success','flagged') AND created_at > ? GROUP BY sender_account_id)
+           SELECT a.id, a.vpa, ROUND(ins.got::numeric,2) got, ROUND(outs.sent::numeric,2) sent,
+                  a.account_age_days age
+           FROM ins JOIN outs ON outs.id=ins.id JOIN accounts a ON a.id=ins.id
+           WHERE a.is_merchant=0 AND a.blacklisted=0 AND ins.got > 0
+             AND outs.sent >= 0.70 * ins.got""",
+        (cutoff, cutoff)).fetchall()
+
+    suspects, alerted = [], 0
+    seen = set()
+    for r in collection:
+        seen.add(r["id"])
+        suspects.append({"vpa": r["vpa"], "pattern": "collection", "fan_in": r["fan_in"],
+                         "victims": r["n"], "total": float(r["total"]), "age_days": r["age"]})
+        # alert every inbound transaction (the victims) for this mule
+        cur = con.execute(
+            """INSERT INTO alerts (transaction_id, status, severity, created_at)
+               SELECT id, 'mule_suspect', 'high', ? FROM transactions
+               WHERE receiver_account_id=? AND status IN ('success','flagged') AND created_at > ?
+                 AND id NOT IN (SELECT transaction_id FROM alerts WHERE status='mule_suspect' AND transaction_id IS NOT NULL)""",
+            (now_iso(), r["id"], cutoff))
+        alerted += cur.rowcount or 0
+    for r in passthru:
+        if r["id"] in seen:
+            continue
+        suspects.append({"vpa": r["vpa"], "pattern": "pass_through",
+                         "received": float(r["got"]), "forwarded": float(r["sent"]), "age_days": r["age"]})
+    con.commit()
+
+    return {
+        "window_minutes": window_min,
+        "suspected_mules": len(suspects),
+        "alerts_raised": alerted,
+        "suspects": suspects,
+        "note": ("Post-payment monitoring: money already moved, so this RAISES ALERTS "
+                 "for review / freeze-request — it does not (and cannot) unilaterally "
+                 "reverse another bank's account. That is a bank/1930 action."),
+    }
+
+
 @app.post("/report")
 def report(req: ReportReq):
     con = db()

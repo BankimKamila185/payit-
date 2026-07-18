@@ -39,7 +39,7 @@ Har stage pe: **(a) real mein kya hota**, **(b) security kya hai**, **(c) hum ky
 - `POST /pay` API
 - **Auth token** check (sirf valid session request bheje) ✅
 - **Input validation** (amount > 0, valid VPA format, fields present) ✅
-- Request ko ek **unique transaction ID** ke saath aage switch ko bhejna ✅
+- Request ko ek **transaction reference (RRN-style)** ke saath aage switch ko bhejna ✅ *(dedup client idempotency-key se hota hai, RRN se nahi)*
 - TLS ✅
 
 ---
@@ -58,7 +58,7 @@ Har stage pe: **(a) real mein kya hota**, **(b) security kya hai**, **(c) hum ky
 - **RRN / txn ID** generate ✅
 - Debit/credit ko sahi "bank" tak route ✅
 - **Lifecycle states** (initiated → pending → success/failed) ✅
-- **Idempotency check** (duplicate txn ID reject) ✅
+- **Idempotency** — client-supplied key + UNIQUE index in `idempotency_keys`; a retried /pay replays the stored response instead of paying twice ✅
 - 🛡️ **Fraud engine yahan (ya PSP pe) hook hota** — transfer commit hone se *pehle* ✅
 
 ---
@@ -77,7 +77,7 @@ Har stage pe: **(a) real mein kya hota**, **(b) security kya hai**, **(c) hum ky
 - **PIN verify** — stored hash se compare ✅
 - **Balance check** (paisa hai? warna fail) ✅
 - **Atomic transfer** — debit + credit dono saath (ek fail toh dono rollback) ✅
-- **Ledger** — har transaction record ✅
+- **Double-entry ledger** (`ledger_entries`) — append-only, every movement sums to zero, balance reconciled via `/ledger/verify` ✅
 
 ---
 
@@ -87,7 +87,7 @@ Har stage pe: **(a) real mein kya hota**, **(b) security kya hai**, **(c) hum ky
 | Something you HAVE — device binding | Device ID register + check ✅ |
 | Something you KNOW — UPI PIN | Hashed PIN verify ✅ |
 | PIN never in plaintext | Hash/encrypt on app side ✅ |
-| Unique txn ID + idempotency | RRN + duplicate check ✅ |
+| Idempotency | client key + UNIQUE index (`idempotency_keys`), stored-response replay ✅ |
 | Atomic money movement | DB transaction (debit+credit together) ✅ |
 | Encrypted channel | TLS/HTTPS ✅ |
 
@@ -104,6 +104,6 @@ Har stage pe: **(a) real mein kya hota**, **(b) security kya hai**, **(c) hum ky
 ---
 
 ## ✅ Net result
-Ek aisा system jo **technically real UPI jaisa behave karta** — app, PSP, switch, 2 banks, 2-factor security, atomic transfer, ledger — **par real network/paise ke bina.** Fraud engine real flow ke beech baithta, exactly jaise production mein.
+Ek aisा system jo **real UPI ke flow ko imaandaari se model karta** — app, PSP, aur do banks **simulated** (ek hi DB mein; humein asli NPCI switch / bank access nahi milta, aur ye hum saaf bolte hain), par jo cheezein REAL hain wo sach mein real hain: 2-factor auth (Argon2 + WebAuthn), atomic transfer with CAS + idempotency, aur ek append-only **double-entry ledger** jo reconcile hota hai. Fraud engine us flow ke beech baithta hai, jaise production mein PSP ke andar baithta.
 
 > **Tagline:** "We didn't fake a payment — we rebuilt UPI in miniature, then put a fraud brain inside it."

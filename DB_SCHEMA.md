@@ -69,11 +69,19 @@ Tables: **banks, accounts, devices, vpa_mapper, transactions, fraud_reports, ses
 
 ---
 
-## 5. `transactions` — ledger + fraud decision log (dil)
+## 5. `transactions` — transaction + fraud decision log (dil)
+
+> **Note:** `transactions` is the decision/audit log — NOT the money ledger.
+> The money of record lives in **`ledger_entries`** (append-only double-entry:
+> every movement writes ≥2 rows summing to zero; `accounts.balance` is a cache
+> reconciled against it via `/ledger/verify`). **Idempotency** is enforced by the
+> separate **`idempotency_keys`** table — a client-supplied key with a UNIQUE
+> index — NOT by `txn_ref`.
+
 | Column | Type | Matlab | Use |
 |---|---|---|---|
 | id | serial PK | — | — |
-| txn_ref | text UNIQUE | RRN/txn id | idempotency |
+| txn_ref | text | RRN-style ref (not unique) | display / audit |
 | sender_vpa | text | bhejne wala | B-signals |
 | receiver_vpa | text | jise gaya | A-signals |
 | amount | numeric | kitna | **C1** |

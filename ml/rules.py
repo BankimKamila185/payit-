@@ -122,9 +122,12 @@ def score(f: dict) -> dict:
         pts += W["blacklisted"]
         reasons.append("Receiver is on the fraud blacklist")
 
-    if f.get("name_vpa_mismatch"):
-        pts += W["name_mismatch"]
-        reasons.append("Receiver VPA name / brand mismatch")
+    # NOTE: the old "VPA name / brand keyword" rule was DROPPED. It only worked
+    # because our demo mules were named on-the-nose (bigwin.lottery.help@…). A real
+    # scammer uses an innocuous VPA (rahul92@ybl), so keying on the name is a demo
+    # crutch, not real detection. Mules are caught by BEHAVIOUR instead — fresh age,
+    # fan-in, pass-through/forwarding, velocity, micro-credit, device signals — and
+    # by the graph + post-payment monitor, none of which read the VPA string.
 
     if f.get("balance_drawdown", 0) >= 0.9:
         pts += W["high_drawdown"]

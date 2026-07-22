@@ -1,17 +1,17 @@
 {
   "model": "XGBoost",
-  "decision_threshold": 0.92,
-  "pr_auc": 0.9852,
-  "roc_auc": 0.9996,
-  "fraud_precision": 0.977,
-  "fraud_recall": 0.9532,
-  "fraud_f1": 0.9649,
-  "false_positive_rate": 0.0007,
+  "decision_threshold": 0.95,
+  "pr_auc": 0.9836,
+  "roc_auc": 0.9995,
+  "fraud_precision": 0.9806,
+  "fraud_recall": 0.9444,
+  "fraud_f1": 0.9622,
+  "false_positive_rate": 0.0006,
   "confusion_matrix": {
-    "tn": 50789,
-    "fp": 36,
-    "fn": 75,
-    "tp": 1527
+    "tn": 50795,
+    "fp": 30,
+    "fn": 89,
+    "tp": 1513
   },
   "n_train": 209706,
   "n_test": 52427,

@@ -40,8 +40,13 @@ TARGET = "is_fraud"
 # synthetic stream (bookkeeping), not fraud — the model learned them erratically
 # (non-monotonic, peaks mid-range) and they conflict with build_db's serve-time
 # values. Serving still sends them; the pipeline ignores unknown columns by name.
+# name_vpa_mismatch dropped: it fires on a brand/scam keyword in the VPA string,
+# which only separates fraud here because our demo mules are named on-the-nose. A
+# real scammer's VPA is innocuous, so the feature would not generalise — training
+# on it teaches the model a shortcut that fails in production. Detection now leans
+# on behavioural signals (age, fan-in, forwarding, velocity, micro-credit, device).
 DROP = ["ts", "sender_vpa", "receiver_vpa", "fraud_type", TARGET,
-        "sender_txn_count", "receiver_txn_count"]
+        "sender_txn_count", "receiver_txn_count", "name_vpa_mismatch"]
 CATEGORICAL = ["type", "channel"]
 
 

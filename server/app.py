@@ -907,9 +907,10 @@ def precheck(req: PrecheckReq):
                         (r["id"], cutoff)).fetchone()["c"]
     if fanin >= 5 and not r["is_merchant"]:
         reasons.append(f"Receiver got money from {fanin} different people recently (mule pattern)"); risk = max(risk, 55)
-    local = req.receiver_vpa.split("@")[0].lower()
-    if any(k in local for k in PRECHECK_KW) and not r["is_merchant"]:
-        reasons.append("VPA name contains a brand/scam-style keyword"); risk = max(risk, 50)
+    # (removed) VPA brand/scam-keyword warning — a real scam VPA is innocuous, so
+    # keying on the name string is a demo crutch, not a real signal. Precheck now
+    # warns only on behaviour the bank can actually see: blacklist, fresh age,
+    # never-paid-before, and recent fan-in (mule pattern).
     con.close()
 
     level = "high" if risk >= 60 else "medium" if risk >= 35 else "low"

@@ -1033,6 +1033,31 @@ def _log_fraud(con, txid, out):
                     (txid, "open", "critical" if out["label"] == "BLOCK" else "high", now_iso()))
 
 
+def _ml_provisional_block(con, feats, receiver_vpa, txid, out):
+    """ML/rules gave a high-confidence BLOCK on a fresh receiver -> provisionally
+    blacklist that ACCOUNT and file a report to the bank.
+
+    This is deliberately PROVISIONAL. Auto-blocking an account on an ML score alone
+    would wrongly freeze genuine accounts (a screen-share BLOCK is about the SENDER's
+    compromised device, not proof the receiver is a mule). So the block is a HOLD
+    pending the bank: /bank/review-account adjudicates on the bank's OWN evidence and
+    UNBLOCKS the account if it doesn't hold. The app proposes; the bank (the
+    authority) disposes. Never touches merchants or already-blacklisted accounts.
+    """
+    if feats["receiver_is_merchant"] or feats["receiver_blacklisted"]:
+        return None
+    con.execute("UPDATE accounts SET blacklisted=1 WHERE id=?", (feats["_receiver_id"],))
+    con.execute("""INSERT INTO blacklist (entity_type, entity_value, reason, created_at)
+                   VALUES ('account', ?, ?, ?)""",
+                (receiver_vpa, f"ML auto-block (provisional, score {out['score']}) — pending bank review", now_iso()))
+    con.execute("""INSERT INTO fraud_reports (reported_vpa, reporter_vpa, reason, amount_lost, status, created_at)
+                   VALUES (?,?,?,?,?,?)""",
+                (receiver_vpa, "SYSTEM/ML", "ML auto-flag: " + "; ".join(out["reasons"][:3]), 0, "ml_provisional", now_iso()))
+    con.execute("INSERT INTO alerts (transaction_id, status, severity, created_at) VALUES (?,?,?,?)",
+                (txid, "ml_auto_block", "high", now_iso()))
+    return {"account_blocked": receiver_vpa, "status": "provisional_pending_bank_review", "score": out["score"]}
+
+
 @app.post("/pay")
 def pay(req: PayReq, current_user: dict = Depends(get_current_user),
         con=Depends(get_db)):
@@ -1136,6 +1161,13 @@ def pay(req: PayReq, current_user: dict = Depends(get_current_user),
     if out["label"] == "BLOCK":
         resp = {"result": "BLOCKED", "transaction_id": txid, **out,
                 "message": "Payment blocked by Fraud Shield — money not deducted."}
+        # ML high-confidence catch on a fresh receiver -> provisionally block that
+        # ACCOUNT and file it to the bank (bank reviews + unblocks if it doesn't hold).
+        auto = _ml_provisional_block(con, feats, req.receiver_vpa, txid, out)
+        if auto:
+            resp["account_action"] = auto
+            resp["message"] += (f" Receiver {auto['account_blocked']} provisionally blacklisted "
+                                f"+ reported to bank for review (auto-unblocked if the bank clears it).")
         _store_idempotent(con, current_user["id"], req.idempotency_key, 200, resp)
         con.commit(); con.close()
         return resp
@@ -1365,6 +1397,62 @@ def _execute_reversal(con, tx):
         _ledger_post(con, f"rev:{tx['txn_ref'] or txid}", [(rid, -amt), (sid, amt)],
                      kind="reversal", reverses=tx["txn_ref"] or f"tx:{txid}")
     return True, {"reason": "reversed"}
+
+
+class AccountReviewReq(BaseModel):
+    vpa: str
+
+
+@app.post("/bank/review-account")
+def bank_review_account(req: AccountReviewReq, con=Depends(get_db)):
+    """Bank reviews an ML-provisionally-blocked account and CONFIRMS or CLEARS it on
+    its OWN evidence (recent fan-in, account age, independent human reports).
+
+    This is the safety net that makes ML auto-blocking acceptable: the ML block is a
+    HOLD, and the bank — the authority over the account — decides. A genuine account
+    the ML wrongly caught (e.g. because the payer's device was screen-shared) is
+    UNBLOCKED here. The ML's own SYSTEM/ML report is NOT counted as evidence (that
+    would be circular — the block justifying itself).
+    """
+    acc = con.execute("SELECT * FROM accounts WHERE vpa=?", (req.vpa,)).fetchone()
+    if not acc:
+        raise HTTPException(404, "account not found")
+
+    day = (datetime.now() - timedelta(hours=24)).isoformat()
+    fan_in = con.execute(
+        """SELECT COUNT(DISTINCT sender_account_id) c FROM transactions
+           WHERE receiver_account_id=? AND status IN ('success','flagged') AND created_at > ?""",
+        (acc["id"], day)).fetchone()["c"]
+    age = _account_age_days(acc)
+    human_reports = con.execute(
+        "SELECT COUNT(*) c FROM fraud_reports WHERE reported_vpa=? AND reporter_vpa <> 'SYSTEM/ML'",
+        (req.vpa,)).fetchone()["c"]
+    is_merchant = bool(acc["is_merchant"])
+    # bank's independent bar — mirrors /bank/reversal-request. A merchant, or an
+    # established account with no fan-in and no human report, does NOT hold.
+    strong = (not is_merchant) and (fan_in >= 5 or age < 10 or human_reports >= 1)
+    evidence = {"fan_in_24h": fan_in, "account_age_days": age,
+                "human_reports": human_reports, "is_merchant": is_merchant}
+
+    if strong:
+        con.execute("UPDATE fraud_reports SET status='confirmed' WHERE reported_vpa=? AND status='ml_provisional'",
+                    (req.vpa,))
+        con.execute("UPDATE blacklist SET reason=? WHERE entity_value=? AND entity_type='account'",
+                    (f"Bank CONFIRMED (fan-in {fan_in}, age {age}d, {human_reports} human report(s))", req.vpa))
+        con.commit()
+        return {"decision": "CONFIRMED", "outcome": "account_stays_blocked", "vpa": req.vpa,
+                "evidence": evidence,
+                "message": f"Bank review: evidence holds — {req.vpa} confirmed, account stays blocked."}
+
+    # weak -> UNBLOCK (reverse the ML's provisional block)
+    con.execute("UPDATE accounts SET blacklisted=0 WHERE vpa=?", (req.vpa,))
+    con.execute("DELETE FROM blacklist WHERE entity_value=? AND entity_type='account'", (req.vpa,))
+    con.execute("UPDATE fraud_reports SET status='cleared' WHERE reported_vpa=? AND status='ml_provisional'",
+                (req.vpa,))
+    con.commit()
+    return {"decision": "CLEARED", "outcome": "account_unblocked", "vpa": req.vpa,
+            "evidence": evidence,
+            "message": f"Bank review: evidence does not hold — {req.vpa} UNBLOCKED (ML false positive reversed)."}
 
 
 class ReversalReq(BaseModel):

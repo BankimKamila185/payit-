@@ -56,13 +56,6 @@ export default function OnboardingFlow({ onLogin, deviceId }) {
     { id: 6, name: 'Punjab National Bank', upi_handle: 'okpnb', color: '#ec1c24' }
   ];
 
-  // Quick fill phone numbers (from database seed data) for easy testing
-  const demoUsers = [
-    { name: 'Isha Singh', phone: '9043321819', vpa: 'isha1@oksbi' },
-    { name: 'Ravi Sharma', phone: '9265423511', vpa: 'ravi2@okpnb' },
-    { name: 'Simran Desai', phone: '9931034131', vpa: 'simran3@ybl' }
-  ];
-
   // Load banks list
   useEffect(() => {
     api.getBanks().then((r) => {
@@ -324,11 +317,6 @@ export default function OnboardingFlow({ onLogin, deviceId }) {
     }
   };
 
-  const selectDemoUser = (user) => {
-    setPhone(user.phone);
-    setErr('');
-  };
-
   // Render back button helper
   const renderBackBtn = (prevStep) => (
     <button style={S.backBtn} onClick={() => { setStep(prevStep); setErr(''); }}>
@@ -407,23 +395,6 @@ export default function OnboardingFlow({ onLogin, deviceId }) {
               onKeyDown={(e) => e.key === 'Enter' && handlePhoneSubmit()}
               autoFocus
             />
-          </div>
-
-          {/* Quick Demo selection */}
-          <div style={S.demoUsersSection}>
-            <p style={S.demoUsersTitle}>Select a demo account from database:</p>
-            <div style={S.demoChips}>
-              {demoUsers.map(du => (
-                <button 
-                  key={du.phone} 
-                  style={{ ...S.demoChip, border: phone === du.phone ? '1px solid #eb3b88' : '1px solid var(--border-color)' }}
-                  onClick={() => selectDemoUser(du)}
-                >
-                  <span style={S.demoChipName}>{du.name}</span>
-                  <span style={S.demoChipPhone}>{du.phone}</span>
-                </button>
-              ))}
-            </div>
           </div>
 
           {err && <div style={S.errText}>{err}</div>}

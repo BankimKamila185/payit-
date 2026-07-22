@@ -156,11 +156,9 @@ function App() {
   const [isDeviceRooted, setIsDeviceRooted] = useState(false);
   const [isActiveScreenShare, setIsActiveScreenShare] = useState(false);
 
-  // Security Event Log
-  const [securityLog, setSecurityLog] = useState([
-    { message: "payit shield activated", type: "system", time: "12:00 PM" },
-    { message: "Real-time AI monitoring active", type: "system", time: "12:05 PM" }
-  ]);
+  // Security Event Log — starts empty; only REAL events (from actual actions)
+  // are appended (see setSecurityLog calls). No seeded/fake entries.
+  const [securityLog, setSecurityLog] = useState([]);
 
   // Real-Time Notification Banners
   const [notifications, setNotifications] = useState([]);
@@ -388,7 +386,7 @@ function App() {
       refreshTxns();                            // reload real history after any result
     } catch (e) {
       setAiScanningTx(null);
-      triggerNotification("⚠️ Backend not reachable — start server on :3000", "alert");
+      triggerNotification("⚠️ Backend not reachable — start server on :8000", "alert");
     }
   };
 

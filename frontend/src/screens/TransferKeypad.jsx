@@ -38,16 +38,9 @@ const TransferKeypad = ({
     onInvestSuccess(numericAmount);
   };
 
-  // Helper to determine if recipient is a flagged scam address
-  const isFlaggedScam = () => {
-    if (!recipientName) return false;
-    const name = recipientName.toLowerCase();
-    return name.includes("prize") || 
-           name.includes("scam") || 
-           name.includes("lottery") || 
-           name.includes("mule") ||
-           name.includes("unknown_prize");
-  };
+  // NOTE: Fraud/scam risk is NOT decided here. This screen must never show a
+  // client-side "safe" or "scam" claim — a name-keyword guess is not detection.
+  // The real verdict (SAFE / REVIEW / BLOCK) comes from the backend at /pay.
 
   const getInitials = (name) => {
     const parts = name.split(" ");
@@ -80,8 +73,8 @@ const TransferKeypad = ({
             <div style={styles.recipientLeft}>
               <div style={{
                 ...styles.recipientAvatar,
-                background: isFlaggedScam() ? 'rgba(235, 59, 136, 0.12)' : 'linear-gradient(135deg, #aa33ff 0%, #0088ff 100%)',
-                borderColor: isFlaggedScam() ? 'var(--accent-pink)' : 'var(--border-color)'
+                background: 'linear-gradient(135deg, #aa33ff 0%, #0088ff 100%)',
+                borderColor: 'var(--border-color)'
               }}>
                 {getInitials(recipientName)}
               </div>
@@ -94,13 +87,6 @@ const TransferKeypad = ({
               </div>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
-              <div style={styles.verifiedTag}>
-                {isFlaggedScam() ? (
-                  <span style={styles.muleTag}>FLAGGED MULE</span>
-                ) : (
-                  <span style={styles.safeTag}>VERIFIED SAFE</span>
-                )}
-              </div>
               {onChangePayee && (
                 <button 
                   onClick={onChangePayee} 
@@ -123,17 +109,6 @@ const TransferKeypad = ({
           </div>
 
 
-          {isFlaggedScam() && (
-            <div style={styles.scamWarningCard}>
-              <AlertTriangle size={18} color="var(--accent-pink)" style={{ marginTop: 2 }} />
-              <div style={styles.scamWarningText}>
-                <span style={styles.scamWarningTitle}>Scam Alert Database Match</span>
-                <span style={styles.scamWarningDesc}>
-                  Warning: This recipient UPI has been reported 40+ times for cyber fraud lottery claims. Transfers may result in immediate loss of funds.
-                </span>
-              </div>
-            </div>
-          )}
         </>
       )}
 
@@ -180,13 +155,13 @@ const TransferKeypad = ({
             disabled={!amount || parseFloat(amount) <= 0}
             style={{
               ...styles.transferBtn,
-              backgroundColor: amount && parseFloat(amount) > 0 ? (recipientName && isFlaggedScam() ? 'var(--accent-pink)' : 'var(--accent-neon)') : 'rgba(255, 255, 255, 0.05)',
+              backgroundColor: amount && parseFloat(amount) > 0 ? 'var(--accent-neon)' : 'rgba(255, 255, 255, 0.05)',
               color: amount && parseFloat(amount) > 0 ? '#000000' : 'var(--text-secondary)',
               cursor: amount && parseFloat(amount) > 0 ? 'pointer' : 'default',
               flex: 1
             }}
           >
-            {recipientName && isFlaggedScam() ? 'Pay Risk Alert' : 'Transfer'}
+            Transfer
           </button>
         </div>
       </div>

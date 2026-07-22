@@ -125,22 +125,22 @@ const PaidSuccess = ({
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '12px', color: 'var(--text-secondary)', fontFamily: 'monospace', lineHeight: '1.4' }}>
               <div>• <strong>Transaction ID:</strong> {transactionDetails.id || `TX-${transId}`}</div>
-              <div>• <strong>Amount:</strong> ₹{amount}, <strong>Receiver:</strong> {transactionDetails.recipientVpa || 'quickcash777@okpnb'}</div>
-              <div>• <strong>Fraud score:</strong> {transactionDetails.score || 78}/100</div>
+              <div>• <strong>Amount:</strong> ₹{amount}, <strong>Receiver:</strong> {transactionDetails.recipientVpa || '—'}</div>
+              <div>• <strong>Fraud score:</strong> {transactionDetails.score ?? '—'}/100</div>
               <div>
                 • <strong>WHY flagged:</strong> "
-                {transactionDetails.reasons && transactionDetails.reasons.length > 0 
-                  ? transactionDetails.reasons.join(' + ') 
-                  : "Receiver blacklisted mule + 4-day-old account + received from 12 senders (fan-in) + forwarded quickly"}
+                {transactionDetails.reasons && transactionDetails.reasons.length > 0
+                  ? transactionDetails.reasons.join(' + ')
+                  : "—"}
                 "
               </div>
             </div>
             <div style={{ marginTop: '12px', paddingTop: '8px', borderTop: '1px solid var(--border-color)', fontSize: '10px', color: '#22e67b', display: 'flex', alignItems: 'center', gap: '6px' }}>
               <span>🔄</span>
               <span>
-                {(transactionDetails.score || 0) >= 35 
-                  ? "Demo reversal auto-enabled (Production: bank clawback reverses funds in 60s)" 
-                  : "Safe settlement hold (Production: funds released to recipient in 60s)"}
+                {(transactionDetails.score || 0) >= 35
+                  ? "Recall available → files a reversal REQUEST to the bank; the bank adjudicates (no automatic clawback)."
+                  : "Payment settled to recipient."}
               </span>
             </div>
           </div>

@@ -66,11 +66,28 @@ def combine(model_score: float, rule_pts: float, graph_score: float,
     # Mule-ring escalation — ONLY when the money is heading to a fresh
     # non-merchant account (mule_target). A chain / gather-scatter into an
     # established or merchant payee is legitimate flow (salary->rent,
-    # chanda->shop, reseller->wholesaler) and must not be escalated. Corroborated
-    # by any rule signal so a lone pattern doesn't fire on its own.
+    # chanda->shop, reseller->wholesaler) and must not be escalated.
+    #
+    # Two tiers, because the shape alone is NOT proof. "Dad tops up my new
+    # account, I forward it to a friend who also just joined" is structurally
+    # identical to a layering hop — same path, same timing, same amount. Blocking
+    # on the pattern alone therefore blocks real families. So:
+    #   - pattern + INDEPENDENT evidence (a real rule stack: velocity, fan-in,
+    #     device compromise, low KYC...) -> BLOCK
+    #   - pattern ALONE                  -> REVIEW, i.e. step up with an OTP. A
+    #     genuine payer clears it; a ring still gets friction, an alert trail, and
+    #     is picked up again by the post-payment monitor.
     if (graph_motif in ("CHAIN", "CYCLE", "GATHER_SCATTER") and graph_score >= 60
-            and mule_target and rule_pts >= 15):
-        final = max(final, REVIEW_MAX)   # corroborated mule ring -> BLOCK edge
+            and mule_target):
+        # The bar sits ABOVE the "everything here is new" stack (first-time payee
+        # 15 + new receiver 15 + new sender 15 = 45), because newness is structure,
+        # not evidence — a real family transfer to a friend's just-opened account
+        # scores exactly that. Crossing 55 needs something behavioural: velocity,
+        # fan-in, a compromised device, low KYC, a blacklist hit.
+        if rule_pts >= 55:
+            final = max(final, REVIEW_MAX)   # corroborated mule ring -> BLOCK
+        elif rule_pts >= 15:
+            final = max(final, SAFE_MAX)     # pattern alone -> REVIEW (step-up)
 
     # Deterministic rule floors (rules are trustworthy; the model is not).
     if rule_pts >= 80:
@@ -148,8 +165,14 @@ class FraudEngine:
         r_age = txn.get("receiver_account_age_days", 400)
         r_merchant = bool(txn.get("receiver_is_merchant"))
         r_blacklisted = bool(txn.get("receiver_blacklisted"))
+        r_txns = int(txn.get("receiver_txn_count", 0) or 0)
         mule_target = (r_age < 10 and not r_merchant)          # fresh cash-out account
-        receiver_trusted = (not r_blacklisted) and (r_merchant or r_age > 180)
+        # Trust needs AGE **and** a real usage history. An old account with almost
+        # no activity is not a safe destination — a dormant account that suddenly
+        # starts receiving is itself a classic mule signature, so it must not get
+        # the trust cap just for having existed a long time.
+        receiver_trusted = (not r_blacklisted) and (
+            r_merchant or (r_age > 180 and r_txns >= 5))
 
         # ---- combine (blend + mule-ring + hard-rule + receiver-trust) ----
         final = combine(model_score, rl["score"], gr["score"], gr["motif"],

@@ -23,6 +23,7 @@ W = {
     "fan_in": 20,               # receiver getting money from many senders
     "forwards_recent": 20,      # receiver forwards money quickly (mule)
     "new_receiver": 15,         # receiver account < 7 days old
+    "new_sender": 15,           # SENDER account is itself brand new (mule leg)
     "blacklisted": 40,          # receiver on blacklist
     "name_mismatch": 20,        # VPA brand/name mismatch
     "high_drawdown": 15,        # sending > 90% of balance
@@ -117,6 +118,14 @@ def score(f: dict) -> dict:
     if f.get("receiver_account_age_days", 999) < 7:
         pts += W["new_receiver"]
         reasons.append(f"Receiver account only {int(f.get('receiver_account_age_days',0))} days old")
+
+    # A brand-new account that is itself SENDING money out is the middle leg of a
+    # mule chain. Only the receiver's age was ever scored, so the account actually
+    # doing the forwarding contributed nothing on its own — it was caught only if
+    # the graph happened to see the whole path. This scores that leg directly.
+    if f.get("sender_account_age_days", 999) < 15 and not f.get("sender_is_corporate"):
+        pts += W["new_sender"]
+        reasons.append(f"Sender account is only {int(f.get('sender_account_age_days', 0))} days old")
 
     if f.get("receiver_blacklisted"):
         pts += W["blacklisted"]

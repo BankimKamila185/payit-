@@ -28,7 +28,7 @@ and a mule that slips through is caught **after** by a post-payment monitor + ba
 ```
 ┌──────────────┐      ┌────────────────────────────┐      ┌──────────────┐
 │  FRONTEND    │─────▶│  BACKEND  server/app.py    │─────▶│  Postgres    │
-│  React :5173 │ HTTP │  FastAPI :8000             │      │  (Neon)      │
+│  React :5173 │ HTTP │  FastAPI :8001             │      │  (Neon)      │
 │  auth-lab    │      │  PSP + switch + bank roles │      │              │
 │  :5180       │      │  🛡️ Fraud engine INLINE    │      │              │
 └──────────────┘      └────────────────────────────┘      └──────────────┘
@@ -45,6 +45,10 @@ and a mule that slips through is caught **after** by a post-payment monitor + ba
 | 4 | Reversal request | `/pay/recall` → `/bank/reversal-request` | recovery |
 | 5 | Account review | `/bank/review-account` | confirms/clears an ML block |
 
+The bank side has its **own operator console** (`bank-console/`, :5190) — the engine files a
+request there and the bank rules on it, because the app has no authority over another
+bank's account.
+
 ---
 
 ## Results (fresh eval, synthetic data)
@@ -52,13 +56,13 @@ and a mule that slips through is caught **after** by a post-payment monitor + ba
 | Metric | Value |
 |---|---|
 | **Fraud recall (full engine)** | **97%** |
-| **Legit false-positive rate** | **2.2%** |
+| **Legit false-positive rate** | **2.6%** |
 | Model alone — recall / precision | 94.4% / 98.1% |
 
 **Caught 100%:** mule chains, fan-in collection, cycles, smurfing, malware drain, AnyDesk
 scam, SIM swap, QR scam, dormant-account abuse, account testing, jumped deposit, and more.
 
-**Weakest:** social-engineering scams (utility-bill 53%, charity 56%, refund 65%) — in these
+**Weakest:** social-engineering scams (utility-bill 57%, charity 61%, refund 70%) — in these
 the victim *willingly* pays, so the transaction itself looks normal. That's an inherent limit
 of transaction-level detection, not a bug.
 
@@ -79,15 +83,18 @@ device & screen-share signals, blacklist and reports.
 DATABASE_URL="postgresql://USER:PASSWORD@HOST/DB?sslmode=require"
 PAYIT_PIN_PEPPER="payit-dev-pepper-2026-change-for-prod"   # must match the DB's PIN hashes
 
-# 2. backend  :8000
+# 2. backend  :8001
 set -a && source .env && set +a
-.venv/bin/python -m uvicorn server.app:app --host 127.0.0.1 --port 8000
+.venv/bin/python -m uvicorn server.app:app --host 127.0.0.1 --port 8001
 
-# 3. frontend  :5173      (frontend/.env → VITE_API_URL=http://localhost:8000)
+# 3. frontend  :5173      (frontend/.env → VITE_API_URL=http://localhost:8001)
 cd frontend && npm install && npm run dev
 
 # 4. auth-lab  :5180
 cd auth-lab && python3 -m http.server 5180
+
+# 5. bank console  :5190
+cd bank-console && python3 -m http.server 5190
 ```
 
 **ML pipeline**
@@ -110,6 +117,7 @@ cd auth-lab && python3 -m http.server 5180
 | `ml/train.py` · `ml/eval_*.py` | training + evaluation |
 | `frontend/` | React app (team's) |
 | `auth-lab/` | second frontend — onboarding, passkey, Fraud Ops Console |
+| `bank-console/` | the **bank's** operator UI (:5190) — adjudicates what the engine escalated |
 | `db/` | schema build + migrations |
 | `backend/` | ⚠️ older Node/TS backend — **not wired in**, the Python one is live |
 

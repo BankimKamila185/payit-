@@ -12,7 +12,7 @@ pakadta hai, aur jo nikal gaya uske liye **post-payment + bank-reversal** layer 
 ```
 ┌──────────────┐      ┌────────────────────────────┐      ┌──────────────┐
 │  FRONTEND    │─────▶│  BACKEND  server/app.py    │─────▶│  Postgres    │
-│  React :5173 │ HTTP │  FastAPI :8000             │      │  (Neon)      │
+│  React :5173 │ HTTP │  FastAPI :8001             │      │  (Neon)      │
 │  auth-lab    │      │  PSP + switch + bank roles │      │              │
 │  :5180       │      │  🛡️ Fraud engine INLINE    │      │              │
 └──────────────┘      └────────────────────────────┘      └──────────────┘
@@ -77,9 +77,9 @@ Iska matlab: neeche ke saare numbers **workflow proof hain, real-world benchmark
 
 | Component | Status | Detail |
 |---|---|---|
-| **Backend (Python)** | ✅ **LIVE** | `server/app.py` FastAPI :8000 — auth, pay, fraud, ledger, bank, monitor |
+| **Backend (Python)** | ✅ **LIVE** | `server/app.py` FastAPI :8001 — auth, pay, fraud, ledger, bank, monitor |
 | **Fraud engine** | ✅ | model (0.25) + rules (0.45) + graph (0.30), SHAP reasons, hard-rule overrides |
-| **Frontend (React)** | ✅ **connected** | `frontend/` :5173 → `VITE_API_URL=:8000`. Real API calls, **koi mock fraud nahi** |
+| **Frontend (React)** | ✅ **connected** | `frontend/` :5173 → `VITE_API_URL=:8001`. Real API calls, **koi mock fraud nahi** |
 | **auth-lab** | ✅ | `auth-lab/` :5180 — onboarding, passkey, pay, Fraud Ops Console |
 | **Auth** | ✅ | Argon2id + pepper, login PIN + UPI PIN, **WebAuthn passkey**, device binding, session tokens, lockout |
 | **Payments** | ✅ | CAS (compare-and-swap), **idempotency keys**, atomic debit/credit, UPI daily limits |
@@ -100,8 +100,8 @@ blacklist, reports — koi bhi VPA string nahi padhta.
 
 | Metric | Value |
 |---|---|
-| **Full engine — fraud recall** | **97%** (7743/8009) |
-| **Full engine — legit false-positive** | **2.2%** |
+| **Full engine — fraud recall** | **97%** (7768/8009) |
+| **Full engine — legit false-positive** | **2.6%** |
 | Model alone (held-out) — recall | 94.4% |
 | Model alone — precision | 98.1% |
 
@@ -109,8 +109,8 @@ blacklist, reports — koi bhi VPA string nahi padhta.
 anydesk_scam, sim_swap, qr_scam, dormant, account_testing, jumped_deposit, rooted_takeover,
 beneficiary_drain, max_limit_drain, overpayment_scam, loan_app_extortion
 
-**Kamzor (social-engineering):** utility_bill 53%, charity 56%, refund_cashback 65%,
-rental_token 79%, fake_ecommerce 84%, lottery_advance_fee 85%, customer_care_spoof 88%
+**Kamzor (social-engineering):** utility_bill 57%, charity 61%, refund_cashback 70%,
+rental_token 82%, fake_ecommerce 85%, lottery_advance_fee 86%, customer_care_spoof 89%
 
 > **Kyun kamzor:** in scams mein **victim khud khushi se** pay karta hai — transaction bilkul
 > normal dikhta, dhokha baat-cheet mein hota hai. Ye inherent limit hai, bug nahi.
@@ -157,7 +157,7 @@ Frontend: 3-tier result + SHAP reasons
 | **`backend/` (Node/TS) dead weight** — live path Python hai, TS backend ko koi call nahi karta | Decide: hatao ya migrate karo |
 | **`fraud-risk-engine/` + `ml/api.py` wired nahi** — purane artifacts, live `/score` path mein nahi | Cleanup |
 | **Synthetic data only** | Numbers workflow-proof hain, benchmark nahi |
-| **Social-engineering scams 53-88%** | Inherent (victim willingly pays) |
+| **Social-engineering scams 57-89%** | Inherent (victim willingly pays) |
 | **FingerprintJS asli library nahi** — lightweight canvas hash | Known simplification |
 | **Self-learning from confirmed cases** | Nahi bana (future) |
 | **Simulated:** NPCI switch, PIN/HSM crypto, real SMS (OTP server log mein), dono bank ek hi DB mein | Saaf bolna chahiye |
@@ -171,5 +171,5 @@ Frontend: 3-tier result + SHAP reasons
 - **Kya REAL hai:** 2-factor auth (Argon2id + passkey), atomic transfer (CAS + idempotency),
   double-entry ledger jo reconcile hota, 3-tier detection, post-payment monitor, bank adjudication
 - **Kya SIMULATED hai:** NPCI switch, HSM/PIN crypto, SMS delivery, dono banks ek DB mein
-- **Numbers:** 97% recall / 2.2% FP — **synthetic data pe**, workflow proof
+- **Numbers:** 97% recall / 2.6% FP — **synthetic data pe**, workflow proof
 - **Tagline:** "We didn't fake a payment — we rebuilt UPI in miniature, then put a fraud brain inside it."

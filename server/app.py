@@ -1077,6 +1077,101 @@ def _ml_provisional_block(con, feats, receiver_vpa, txid, out):
     return {"account_blocked": receiver_vpa, "status": "provisional_pending_bank_review", "score": out["score"]}
 
 
+def _chain_evidence(con, ring, out, txid):
+    """Build the case file the bank actually needs to rule on a chain.
+
+    A one-line "ML flagged it" is not evidence — the bank has to be able to check the
+    claim itself, and a reviewer has to be able to see WHY without trusting us. So
+    this assembles the whole thing: every hop with its amount and the gap to the next
+    one (layering is defined by money keeping its value while moving fast), and each
+    account in the path with the attributes the bank can verify independently — age,
+    KYC level, merchant flag, lifetime volume, 24h fan-in.
+    """
+    hops, seen = [], None
+    for payer, payee in zip(ring, ring[1:]):
+        row = con.execute(
+            """SELECT t.id, t.amount, t.created_at FROM transactions t
+               JOIN accounts sa ON sa.id=t.sender_account_id
+               JOIN accounts ra ON ra.id=t.receiver_account_id
+               WHERE sa.vpa=? AND ra.vpa=? AND t.status IN ('success','flagged','pending')
+               ORDER BY t.id DESC LIMIT 1""", (payer, payee)).fetchone()
+        hop = {"from": payer, "to": payee,
+               "amount": float(row["amount"]) if row else None,
+               "at": row["created_at"] if row else None,
+               "transaction_id": row["id"] if row else None}
+        if row and seen:
+            try:
+                hop["seconds_after_previous"] = int(
+                    (datetime.fromisoformat(row["created_at"]) - datetime.fromisoformat(seen)).total_seconds())
+            except Exception:
+                pass
+        if row:
+            seen = row["created_at"]
+        hops.append(hop)
+
+    day = (datetime.now() - timedelta(hours=24)).isoformat()
+    accounts = []
+    for vpa in ring:
+        a = con.execute("""SELECT a.id, a.account_age_days, a.kyc_level, a.is_merchant,
+                                  a.txn_count, a.blacklisted, u.name
+                           FROM accounts a JOIN users u ON u.id=a.user_id
+                           WHERE a.vpa=?""", (vpa,)).fetchone()
+        if not a:
+            continue
+        fan_in = con.execute(
+            """SELECT COUNT(DISTINCT sender_account_id) c FROM transactions
+               WHERE receiver_account_id=? AND status IN ('success','flagged') AND created_at > ?""",
+            (a["id"], day)).fetchone()["c"]
+        accounts.append({"vpa": vpa, "name": a["name"], "age_days": a["account_age_days"],
+                         "kyc": a["kyc_level"], "is_merchant": bool(a["is_merchant"]),
+                         "lifetime_txns": a["txn_count"], "fan_in_24h": fan_in,
+                         "already_blacklisted": bool(a["blacklisted"])})
+
+    return {
+        "pattern": "mule_chain",
+        "path": ring,
+        "hops": hops,
+        "accounts": accounts,
+        "engine": {"score": out.get("score"), "label": out.get("label"),
+                   "components": out.get("components"), "reasons": out.get("reasons", [])[:5]},
+        "detected_on_transaction": txid,
+        "detected_at": now_iso(),
+    }
+
+
+def _file_chain_case_to_bank(con, ring, out, txid):
+    """File the chain with the bank automatically, the moment it is detected.
+
+    Until now a case only reached the bank if the payment was BLOCKED, or if the
+    victim happened to notice and press Recall themselves. So a chain that scored
+    REVIEW — which is most of them, because the shape alone is not proof — was
+    detected, logged, and then went nowhere. The person whose money it was had to
+    discover it on their own.
+
+    The engine now reports every detected chain, with the full evidence bundle, and
+    the bank decides. Nobody has to click. This still only FILES: no account is
+    frozen here and no money moves — those remain the bank's calls.
+    """
+    if not ring or len(ring) < 2:
+        return None
+    victim_vpa = ring[0]
+    dup = con.execute(
+        """SELECT 1 FROM fraud_reports WHERE reported_vpa=? AND reporter_vpa='SYSTEM/ML'
+           AND status='ml_provisional' AND reason LIKE ?""",
+        (ring[1], f'%"detected_on_transaction": {txid}%')).fetchone()
+    if dup:
+        return None
+    evidence = _chain_evidence(con, ring, out, txid)
+    con.execute("""INSERT INTO fraud_reports (reported_vpa, reporter_vpa, reason, amount_lost,
+                                              status, created_at) VALUES (?,?,?,?,?,?)""",
+                (ring[1], "SYSTEM/ML", json.dumps(evidence),
+                 sum(h["amount"] or 0 for h in evidence["hops"]), "ml_provisional", now_iso()))
+    con.execute("INSERT INTO alerts (transaction_id, status, severity, created_at) VALUES (?,?,?,?)",
+                (txid, "chain_reported", "high", now_iso()))
+    return {"reported_account": ring[1], "victim": victim_vpa, "path": ring,
+            "status": "filed_with_bank_pending_review"}
+
+
 def _file_chain_victim_cases(con, ring, blocked_txid):
     """A chain is proved at its LAST hop — but the money feeding it came from a
     VICTIM further up, and that payment is now sitting inside a mule account.
@@ -1215,6 +1310,16 @@ def pay(req: PayReq, current_user: dict = Depends(get_current_user),
     out["txn_ref"] = rrn
     _log_fraud(con, txid, out)
 
+    # A detected chain goes to the bank IMMEDIATELY, whatever the verdict was.
+    # Previously only a BLOCK escalated, so a chain scored REVIEW — which is most of
+    # them, since the shape alone is not proof — was detected and then went nowhere
+    # unless the victim noticed and pressed Recall. The engine reports; the bank
+    # rules. Nobody has to click. Filing only: no freeze, no money movement here.
+    chain_case = None
+    if out.get("ring"):
+        chain_case = _file_chain_case_to_bank(con, out["ring"], out, txid)
+        _file_chain_victim_cases(con, out["ring"], txid)
+
     if out["label"] == "BLOCK":
         resp = {"result": "BLOCKED", "transaction_id": txid, **out,
                 "message": "Payment blocked by Fraud Shield — money not deducted."}
@@ -1225,14 +1330,10 @@ def pay(req: PayReq, current_user: dict = Depends(get_current_user),
             resp["account_action"] = auto
             resp["message"] += (f" Receiver {auto['account_blocked']} provisionally blacklisted "
                                 f"+ reported to bank for review (auto-unblocked if the bank clears it).")
-        # A proved chain means someone upstream already paid into this mule. Blocking
-        # the forward saves nobody's money by itself — file their leg with the bank too.
-        victims = _file_chain_victim_cases(con, out.get("ring") or [], txid)
-        if victims:
-            resp["victim_cases_filed"] = victims
-            total = sum(v["amount"] for v in victims)
-            resp["message"] += (f" {len(victims)} upstream payment(s) totalling ₹{total:,.0f} filed "
-                                f"with the bank for reversal — the victim did not have to ask.")
+        if chain_case:
+            resp["chain_case"] = chain_case
+            resp["message"] += (" Chain reported to the bank with full evidence — "
+                                "the victim did not have to ask.")
         _store_idempotent(con, current_user["id"], req.idempotency_key, 200, resp)
         con.commit(); con.close()
         return resp
@@ -1248,6 +1349,9 @@ def pay(req: PayReq, current_user: dict = Depends(get_current_user),
         resp = {"result": "REVIEW", "transaction_id": txid, **out,
                 "message": f"Extra verification needed — enter the OTP. Demo mode: no SMS sent, the code is in the server logs. {SMS_DISCLAIMER}",
                 "delivery": "server_log"}
+        if chain_case:
+            resp["chain_case"] = chain_case
+            resp["message"] += " A mule chain was detected and reported to the bank with full evidence."
         # Replaying REVIEW matters as much as replaying SUCCESS: without it a
         # retry would raise a SECOND pending transaction and a second OTP.
         # Must run before the close — the connection is unusable afterwards.
@@ -1495,10 +1599,27 @@ def bank_pending(con=Depends(get_db)):
            WHERE reporter_vpa='SYSTEM/ML' AND status IN ('confirmed','cleared')
            ORDER BY id DESC LIMIT 20""").fetchall()
 
+    # The engine files structured evidence (chain path, per-hop timing, each
+    # account's verifiable attributes). Parse it out so the desk can show the case
+    # instead of a one-line assertion the reviewer would have to take on trust.
+    def _expand(rows):
+        out_rows = []
+        for r in rows:
+            d = dict(r)
+            raw = d.get("reason") or ""
+            if raw.startswith("{"):
+                try:
+                    d["evidence_bundle"] = json.loads(raw)
+                    d["reason"] = "Mule chain detected: " + " → ".join(d["evidence_bundle"].get("path", []))
+                except Exception:
+                    pass
+            out_rows.append(d)
+        return out_rows
+
     return {
-        "pending_account_reviews": [dict(r) for r in pending_accounts],
+        "pending_account_reviews": _expand(pending_accounts),
         "pending_reversals": [dict(r) for r in pending_reversals],
-        "bank_decisions": [dict(r) for r in decided],
+        "bank_decisions": _expand(decided),
         "note": ("The fraud engine REQUESTS; the bank decides. A provisional ML block is "
                  "cleared (account unblocked) if the bank's own evidence doesn't hold."),
     }

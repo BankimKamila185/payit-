@@ -111,6 +111,43 @@ async function jpost(p,b){ const r = await fetch(API+p,{method:"POST",headers:{"
 const money = (n) => "₹" + Number(n||0).toLocaleString("en-IN");
 const when  = (s) => { try { return new Date(s).toLocaleString("en-IN",{dateStyle:"medium",timeStyle:"short"}); } catch { return s||""; } };
 
+/* The engine files a structured case, not an assertion. Render it so the reviewer
+   can check the claim instead of taking "ML flagged it" on trust: every hop with the
+   gap to the next (layering = value preserved while moving fast), and each account's
+   attributes the bank can verify against its own records. */
+function evidenceHtml(ev){
+  if(!ev) return "";
+  const hops = (ev.hops || []).map(h => {
+    const gap = h.seconds_after_previous != null
+      ? `<span class="tag t-amber" style="margin-left:6px">+${h.seconds_after_previous}s</span>` : "";
+    return `<div style="font-family:ui-monospace,Menlo,monospace;font-size:12px;padding:5px 0;
+              border-bottom:1px solid var(--line)">
+        <b>${money(h.amount)}</b> &nbsp;${h.from} <span style="color:var(--blue)">→</span> ${h.to}${gap}
+        <span style="color:var(--muted)"> · txn #${h.transaction_id ?? "—"}</span></div>`;
+  }).join("");
+  const accs = (ev.accounts || []).map(a => `
+      <div style="font-size:12px;padding:5px 0;border-bottom:1px solid var(--line)">
+        <span style="font-family:ui-monospace,Menlo,monospace">${a.vpa}</span>
+        <span style="color:var(--muted)"> · ${a.name || ""}</span><br>
+        <span style="color:var(--muted);font-size:11px">
+          age <b style="color:${a.age_days < 10 ? "var(--red)" : "var(--ink)"}">${a.age_days}d</b> ·
+          KYC ${a.kyc} · ${a.is_merchant ? "merchant" : "personal"} ·
+          lifetime ${a.lifetime_txns} txns · fan-in 24h
+          <b style="color:${a.fan_in_24h >= 5 ? "var(--red)" : "var(--ink)"}">${a.fan_in_24h}</b>
+          ${a.already_blacklisted ? ' · <b style="color:var(--red)">already blacklisted</b>' : ""}
+        </span></div>`).join("");
+  return `
+    <div style="margin-top:11px;background:#111823;border:1px solid var(--line);border-radius:8px;padding:12px 14px">
+      <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px">
+        Evidence filed by the engine · ${ev.pattern || ""} ·
+        engine said ${ev.engine?.label || "—"} ${ev.engine?.score ?? ""}</div>
+      <div style="font-size:10.5px;color:var(--muted);margin:8px 0 3px">MONEY PATH</div>${hops}
+      <div style="font-size:10.5px;color:var(--muted);margin:10px 0 3px">ACCOUNTS IN THE PATH (verify against your own records)</div>${accs}
+      ${(ev.engine?.reasons || []).length ? `<div style="font-size:10.5px;color:var(--muted);margin:10px 0 3px">ENGINE SIGNALS</div>` +
+        ev.engine.reasons.map(r => `<div style="font-size:11.5px;color:var(--muted)">• ${r}</div>`).join("") : ""}
+    </div>`;
+}
+
 function setStatus(ok, msg){
   $("status").innerHTML = `<span class="dot" style="background:${ok?"#3ecf8e":"#ff5f6d"}"></span>${msg}`;
 }
@@ -138,6 +175,7 @@ async function load(){
           <span style="font-size:11px;color:var(--muted)">filed ${when(c.created_at)}</span>
         </div>
         <div class="reason">Engine's reason: ${c.reason || "—"}</div>
+        ${evidenceHtml(c.evidence_bundle)}
         <div class="ev">
           <div><div class="k">Account age</div><div class="v">${c.age_days}d</div></div>
           <div><div class="k">Type</div><div class="v">${c.is_merchant ? "Merchant" : "Personal"}</div></div>

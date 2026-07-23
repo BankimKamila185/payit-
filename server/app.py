@@ -1442,6 +1442,47 @@ def bank_pending(con=Depends(get_db)):
     }
 
 
+class ReversalResolveReq(BaseModel):
+    txn_id: int
+    cfcfrms_ref: str = ""     # the reference the operator actually received (1930 / CFCFRMS)
+    approve: bool = True
+
+
+@app.post("/bank/resolve-reversal")
+def bank_resolve_reversal(req: ReversalResolveReq, con=Depends(get_db)):
+    """Bank-side resolution of a HELD reversal — the only path that moves money back.
+
+    It lives on the bank's desk, not in the payer's app, and it will not approve
+    without a law-enforcement reference that the OPERATOR supplies. The payer can
+    report; only the bank can reverse. (ISO 20022: camt.029 resolution -> pacs.004
+    return on approval; RJCR/NARR on rejection.)
+    """
+    tx = con.execute("SELECT * FROM transactions WHERE id=?", (req.txn_id,)).fetchone()
+    if not tx:
+        raise HTTPException(404, "transaction not found")
+
+    if not req.approve:
+        con.execute("""UPDATE alerts SET status='reversal_rejected'
+                       WHERE transaction_id=? AND status='reversal_pending'""", (req.txn_id,))
+        con.commit()
+        return {"decision": "RJCR", "reason_code": "NARR", "outcome": "rejected",
+                "transaction_id": req.txn_id,
+                "message": "Bank declined the reversal — the case did not hold on review."}
+
+    if not req.cfcfrms_ref.strip():
+        raise HTTPException(400, "A law-enforcement reference (1930 / CFCFRMS) is required "
+                                 "before this bank can reverse a settled payment.")
+
+    # Re-run the same adjudication, now WITH the reference the operator holds.
+    result = bank_reversal_request(
+        ReversalReq(txn_id=req.txn_id, cfcfrms_ref=req.cfcfrms_ref.strip(), reason="FRAD"), con)
+    if result.get("outcome") == "reversed":
+        con.execute("""UPDATE alerts SET status='reversal_done'
+                       WHERE transaction_id=? AND status='reversal_pending'""", (req.txn_id,))
+        con.commit()
+    return result
+
+
 class AccountReviewReq(BaseModel):
     vpa: str
 
@@ -1610,17 +1651,24 @@ def pay_recall(txid: int, current_user: dict = Depends(get_current_user),
     if tx["sender_account_id"] != current_user["id"]:
         raise HTTPException(403, "Unauthorized to report this transaction")
 
-    # Attach a simulated law-enforcement reference (real world: victim files at 1930).
-    demo_ref = f"NCRP-DEMO-{txid}"
-    result = bank_reversal_request(ReversalReq(txn_id=txid, cfcfrms_ref=demo_ref, reason="FRAD"), con)
+    # NO law-enforcement reference is invented here. An earlier version auto-attached
+    # a fake "NCRP-DEMO-<id>" ref, which handed the app the bank's authority straight
+    # back through a side door: the bank's legal-authority gate always passed, so the
+    # payer's tap still pulled money out of someone else's account. That is exactly
+    # what routing through the bank was supposed to prevent.
+    #
+    # So the request goes in BARE. The bank weighs its own evidence and, at most,
+    # places a lien. Money moves only when an operator resolves the case at the
+    # bank's own desk (/bank/resolve-reversal, surfaced in bank-console).
+    result = bank_reversal_request(ReversalReq(txn_id=txid, cfcfrms_ref="", reason="FRAD"), con)
 
-    # Map the bank's decision to the payer-facing response the frontend expects.
-    if result["outcome"] == "reversed":
-        bal = con.execute("SELECT balance FROM accounts WHERE id=?", (tx["sender_account_id"],)).fetchone()["balance"]
-        return {"result": "RECALLED", "transaction_id": txid, "amount": tx["amount"],
-                "message": result["message"], "sender_balance": bal, "bank_decision": result}
-    # funds gone / rejected / pending — surface the bank's honest verdict
-    raise HTTPException(409, result["message"])
+    bal = con.execute("SELECT balance FROM accounts WHERE id=?",
+                      (tx["sender_account_id"],)).fetchone()["balance"]
+    return {"result": "REPORTED", "transaction_id": txid, "amount": tx["amount"],
+            "outcome": result["outcome"],            # lien_pending / rejected / funds_gone
+            "message": result["message"],
+            "sender_balance": bal,                   # unchanged — nothing moved on your say-so
+            "bank_decision": result}
 
 
 @app.post("/auth/send-otp")

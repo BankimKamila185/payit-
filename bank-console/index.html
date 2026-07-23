@@ -170,7 +170,7 @@ async function load(){
   /* ---- held reversals ---- */
   $("liens").innerHTML = liens.length === 0
     ? `<div class="empty">No reversals on hold.</div>`
-    : liens.map(l => `
+    : liens.map((l,i) => `
       <div class="case" style="border-left-color:var(--blue)">
         <div class="row">
           <span class="vpa">TXN #${l.transaction_id}</span>
@@ -178,9 +178,39 @@ async function load(){
           <div class="spacer"></div>
           <span style="font-size:13px;font-weight:700">${money(l.amount)}</span>
         </div>
-        <div class="reason">${l.payer} → ${l.payee} · held ${when(l.created_at)}</div>
-        <div class="reason">Cannot reverse without a 1930 / CFCFRMS reference — funds flagged pending that.</div>
+        <div class="reason">${l.payer} → ${l.payee} · reported ${when(l.created_at)}</div>
+        <div class="reason">The payer can only report. This desk reverses <b>only</b> against a
+          law-enforcement reference the operator actually holds.</div>
+        <div class="actions">
+          <input id="ref${i}" placeholder="1930 / CFCFRMS reference"
+            style="flex:1;min-width:200px;background:#0c121b;border:1px solid var(--line);
+                   border-radius:7px;color:var(--ink);padding:8px 11px;font:inherit">
+          <button class="primary" data-act="ok" data-tx="${l.transaction_id}" data-i="${i}">Approve reversal</button>
+          <button data-act="no" data-tx="${l.transaction_id}" data-i="${i}">Reject</button>
+        </div>
+        <div id="lv${i}"></div>
       </div>`).join("");
+
+  document.querySelectorAll("#liens button[data-tx]").forEach(btn => {
+    btn.onclick = async () => {
+      const i = btn.dataset.i, approve = btn.dataset.act === "ok";
+      const ref = approve ? ($("ref"+i)?.value || "").trim() : "";
+      if (approve && !ref) {
+        $("lv"+i).innerHTML = `<div class="verdict v-no">A law-enforcement reference is required
+          before this bank can reverse a settled payment.</div>`;
+        return;
+      }
+      btn.disabled = true; btn.textContent = approve ? "Reversing…" : "Rejecting…";
+      const res = await jpost("/bank/resolve-reversal",
+                              { txn_id: Number(btn.dataset.tx), cfcfrms_ref: ref, approve });
+      const v = res.data || {};
+      const good = v.outcome === "reversed";
+      $("lv"+i).innerHTML = `<div class="verdict ${good ? "v-ok" : "v-no"}">
+        <b>${v.decision || "ERROR"}</b>${v.reason_code ? " / " + v.reason_code : ""} —
+        ${v.message || v.detail || ""}</div>`;
+      setTimeout(load, 1500);
+    };
+  });
 
   /* ---- issued rulings ---- */
   $("ruled").innerHTML = ruled.length === 0

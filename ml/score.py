@@ -46,7 +46,8 @@ def decide(final_score: int) -> str:
 
 def combine(model_score: float, rule_pts: float, graph_score: float,
             graph_motif: str | None, hard_action: str | None = None,
-            receiver_trusted: bool = False, mule_target: bool = False) -> int:
+            receiver_trusted: bool = False, mule_target: bool = False,
+            strong_evidence: bool = False) -> int:
     """Blend the 3 detectors into a decision, with policy overrides.
 
     The hard problem this solves: a mule chain, a collection cash-out, and a
@@ -79,19 +80,24 @@ def combine(model_score: float, rule_pts: float, graph_score: float,
     #     is picked up again by the post-payment monitor.
     if (graph_motif in ("CHAIN", "CYCLE", "GATHER_SCATTER") and graph_score >= 60
             and mule_target):
-        # The bar sits ABOVE the "everything here is new" stack (first-time payee
-        # 15 + new receiver 15 + new sender 15 = 45), because newness is structure,
-        # not evidence — a real family transfer to a friend's just-opened account
-        # scores exactly that. Crossing 55 needs something behavioural: velocity,
-        # fan-in, a compromised device, low KYC, a blacklist hit.
-        if rule_pts >= 55:
+        # BLOCK needs a NAMED fraud signal, not a points total. A threshold on
+        # rule_pts looked strict but was met by ordinary life: a new phone (25) plus
+        # a 2am transfer (15) pushed an honest "dad tops me up, I pay a friend" chain
+        # straight to BLOCK — and, once chains started filing the upstream leg, that
+        # also filed dad's genuine payment for reversal. New device and odd hour are
+        # context, not evidence. See strong_evidence in score() for what counts.
+        if strong_evidence:
             final = max(final, REVIEW_MAX)   # corroborated mule ring -> BLOCK
         elif rule_pts >= 15:
             final = max(final, SAFE_MAX)     # pattern alone -> REVIEW (step-up)
 
     # Deterministic rule floors (rules are trustworthy; the model is not).
+    # The top floor only BLOCKS with named evidence: five soft signals stack to 85
+    # on their own (first-time 15 + new receiver 15 + new sender 15 + new device 25
+    # + odd hour 15) and that is a description of a student on a new phone at 2am,
+    # not of a fraud. Without evidence the same stack still escalates — to REVIEW.
     if rule_pts >= 80:
-        final = max(final, 70)           # very strong rule stack -> BLOCK
+        final = max(final, 70 if strong_evidence else 50)
     elif rule_pts >= 55:
         final = max(final, 50)           # hard rule stack -> REVIEW
     # The model gets NO solo block floor — it is advisory only (see BLEND note).
@@ -174,9 +180,24 @@ class FraudEngine:
         receiver_trusted = (not r_blacklisted) and (
             r_merchant or (r_age > 180 and r_txns >= 5))
 
+        # What may turn a mule-SHAPE into a BLOCK. Each of these is something an
+        # ordinary payer does not have; none of them is "you bought a new phone" or
+        # "you paid at 2am", which is what a plain points threshold kept accepting.
+        strong_evidence = bool(
+            r_blacklisted                                   # known bad destination
+            or txn.get("device_screen_share")               # remote-access scam in progress
+            or txn.get("device_rooted")                     # compromised device
+            or txn.get("sim_carrier_mismatch")              # SIM swap
+            or txn.get("recent_micro_credit")               # jumped-deposit setup
+            or int(txn.get("receiver_fan_in_60s", 0) or 0) >= 5    # many victims, one account
+            or int(txn.get("sender_fan_out_60s", 0) or 0) >= 8     # smurfing out
+            or int(txn.get("sender_velocity_60s", 0) or 0) >= 4    # burst
+        )
+
         # ---- combine (blend + mule-ring + hard-rule + receiver-trust) ----
         final = combine(model_score, rl["score"], gr["score"], gr["motif"],
-                        rl.get("hard_action"), receiver_trusted, mule_target)
+                        rl.get("hard_action"), receiver_trusted, mule_target,
+                        strong_evidence)
         label = decide(final)
 
         # ---- combine reasons (dedup, keep order: graph > rules > shap) ----

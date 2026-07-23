@@ -125,6 +125,40 @@ app.add_middleware(CORSMiddleware,
 
 engine: FraudEngine | None = None
 
+# ---- fraud engine as a SEPARATE service (real UPI: fraud scoring is not in the
+# payment server, it is the PSP's / NPCI's own service, reached over the network) ----
+import urllib.request as _urlreq
+import urllib.error as _urlerr
+FRAUD_URL = os.getenv("FRAUD_URL", "http://127.0.0.1:8002")
+
+
+def _fraud_call(path: str, feats: dict):
+    body = json.dumps({"feats": feats}).encode()
+    r = _urlreq.Request(FRAUD_URL + path, method="POST", data=body,
+                        headers={"Content-Type": "application/json"})
+    with _urlreq.urlopen(r, timeout=5) as x:
+        return json.loads(x.read())
+
+
+def fraud_score(feats: dict) -> dict:
+    """Score a transaction via the fraud service. Falls back to the in-process
+    engine only if the service is unreachable, so a demo never hard-stops — but the
+    real path is the network call, and we log when the fallback is used."""
+    try:
+        return _fraud_call("/score", feats)
+    except Exception as e:                              # any failure -> local fallback
+        print(f"[FRAUD SERVICE DOWN] {type(e).__name__}: {e} — using in-process fallback")
+        return engine.score(feats, observe=False)
+
+
+def fraud_observe(feats: dict) -> None:
+    """Tell the fraud service to record the committed edge in its mule graph."""
+    try:
+        _fraud_call("/observe", feats)
+    except Exception:
+        if engine is not None:
+            engine.observe(feats)                       # local fallback, NOT recursion
+
 
 # ------------------------------------------------------------------ DB helpers
 import psycopg2
@@ -1375,7 +1409,7 @@ def pay(req: PayReq, current_user: dict = Depends(get_current_user),
     # We do not know the verdict yet, so the edge is recorded after the transfer
     # commits (see engine.observe below) — never for a BLOCK, and for a REVIEW
     # only once the OTP passes.
-    out = engine.score(feats, observe=False)
+    out = fraud_score(feats)
     # blacklisted receiver = definitive auto-block (like real PSP/bank policy)
     if feats["receiver_blacklisted"] and out["label"] != "BLOCK":
         out["label"] = "BLOCK"; out["score"] = 100
@@ -1475,7 +1509,7 @@ def pay(req: PayReq, current_user: dict = Depends(get_current_user),
         raise HTTPException(400, "insufficient balance or transaction failed")
 
     # Money moved: now the edge is real, so the graph may learn from it.
-    engine.observe(feats)
+    fraud_observe(feats)
 
     new_bal = con.execute("SELECT balance FROM accounts WHERE id=?", (sid,)).fetchone()["balance"]
     resp = {"result": "SUCCESS", "transaction_id": txid, **out,
@@ -1589,7 +1623,7 @@ def verify_otp(req: OtpReq, current_user: dict = Depends(get_current_user)):
     # reaches this line — which is the point.
     s_vpa = con.execute("SELECT vpa FROM accounts WHERE id=?", (tx["sender_account_id"],)).fetchone()["vpa"]
     d_vpa = con.execute("SELECT vpa FROM accounts WHERE id=?", (tx["receiver_account_id"],)).fetchone()["vpa"]
-    engine.observe({"sender_vpa": s_vpa, "receiver_vpa": d_vpa,
+    fraud_observe({"sender_vpa": s_vpa, "receiver_vpa": d_vpa,
                     "amount": tx["amount"], "ts": int(time.time())})
 
     bal = con.execute("SELECT balance FROM accounts WHERE id=?", (tx["sender_account_id"],)).fetchone()["balance"]
@@ -2410,7 +2444,7 @@ def analyzer_trace(req: AnalyzeReq):
     # read-only w.r.t. the database: scoring used to write the hypothetical edge
     # into the live graph, so replaying a what-if here poisoned the detector that
     # real payments are scored against.
-    out = engine.score(feats, observe=False)
+    out = fraud_score(feats)
     comp = out["components"]
     if feats["receiver_blacklisted"] and out["label"] != "BLOCK":
         out["label"] = "BLOCK"; out["score"] = 100

@@ -83,17 +83,20 @@ device & screen-share signals, blacklist and reports.
 DATABASE_URL="postgresql://USER:PASSWORD@HOST/DB?sslmode=require"
 PAYIT_PIN_PEPPER="payit-dev-pepper-2026-change-for-prod"   # must match the DB's PIN hashes
 
-# 2. backend  :8001
+# 2. fraud scoring service  :8002   (separate process — the app calls it over HTTP)
 set -a && source .env && set +a
+.venv/bin/python -m uvicorn ml.fraud_service:app --host 127.0.0.1 --port 8002
+
+# 3. backend  :8001
 .venv/bin/python -m uvicorn server.app:app --host 127.0.0.1 --port 8001
 
-# 3. frontend  :5173      (frontend/.env → VITE_API_URL=http://localhost:8001)
+# 4. frontend  :5173      (frontend/.env → VITE_API_URL=http://localhost:8001)
 cd frontend && npm install && npm run dev
 
-# 4. auth-lab  :5180
+# 5. auth-lab  :5180
 cd auth-lab && python3 -m http.server 5180
 
-# 5. bank console  :5190
+# 6. bank console  :5190
 cd bank-console && python3 -m http.server 5190
 ```
 
@@ -111,7 +114,8 @@ cd bank-console && python3 -m http.server 5190
 
 | Path | What |
 |---|---|
-| `server/app.py` | **the live backend** — FastAPI, all endpoints |
+| `server/app.py` | **payment backend (PSP)** — FastAPI :8001, calls the fraud service over HTTP |
+| `ml/fraud_service.py` | **fraud scoring service** :8002 — a separate process, its own model + mule graph |
 | `ml/score.py` | fraud engine — blends model + rules + graph |
 | `ml/rules.py` · `ml/graph.py` · `ml/explain.py` | deterministic rules · mule-graph motifs · SHAP reasons |
 | `ml/train.py` · `ml/eval_*.py` | training + evaluation |

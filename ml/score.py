@@ -91,6 +91,16 @@ def combine(model_score: float, rule_pts: float, graph_score: float,
         elif rule_pts >= 15:
             final = max(final, SAFE_MAX)     # pattern alone -> REVIEW (step-up)
 
+    # COLLECTION MULE — many distinct people suddenly paying one fresh, non-merchant
+    # account. The graph raises FAN_IN for it, but that motif only scores ~23-40, so
+    # the blend buried it: seven victims paying the same 2-day-old account inside 35
+    # seconds still came out SAFE, and the only thing that ever caught it was the
+    # post-payment monitor — i.e. after every one of them had already paid. A shop
+    # legitimately has fan-in, which is why this needs mule_target (fresh + not a
+    # merchant); with that, it is the single clearest mule shape there is.
+    if graph_motif == "FAN_IN" and mule_target:
+        final = max(final, REVIEW_MAX if strong_evidence else SAFE_MAX)
+
     # Deterministic rule floors (rules are trustworthy; the model is not).
     # The top floor only BLOCKS with named evidence: five soft signals stack to 85
     # on their own (first-time 15 + new receiver 15 + new sender 15 + new device 25

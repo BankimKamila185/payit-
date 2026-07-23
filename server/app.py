@@ -1061,6 +1061,44 @@ def _ml_provisional_block(con, feats, receiver_vpa, txid, out):
     return {"account_blocked": receiver_vpa, "status": "provisional_pending_bank_review", "score": out["score"]}
 
 
+def _file_chain_victim_cases(con, ring, blocked_txid):
+    """A chain is proved at its LAST hop — but the money feeding it came from a
+    VICTIM further up, and that payment is now sitting inside a mule account.
+
+    Blocking the forward alone left the victim stranded: we stopped the mule from
+    moving the money on, said "fraud caught", and then filed nothing for the person
+    whose money it actually was. They'd have to notice and hit recall themselves.
+
+    So every upstream leg of the proved chain is filed with the bank as a reversal
+    case. This only FILES — no money moves here. The bank still resolves it at its
+    own desk (/bank/resolve-reversal) and still needs a law-enforcement reference.
+    """
+    if not ring or len(ring) < 2:
+        return []
+    filed = []
+    day = (datetime.now() - timedelta(hours=24)).isoformat()
+    for payer_vpa, payee_vpa in zip(ring, ring[1:]):
+        row = con.execute(
+            """SELECT t.id, t.amount FROM transactions t
+               JOIN accounts sa ON sa.id = t.sender_account_id
+               JOIN accounts ra ON ra.id = t.receiver_account_id
+               WHERE sa.vpa=? AND ra.vpa=? AND t.status IN ('success','flagged')
+                 AND t.created_at > ? AND t.id <> ?
+               ORDER BY t.id DESC LIMIT 1""",
+            (payer_vpa, payee_vpa, day, blocked_txid)).fetchone()
+        if not row:
+            continue
+        dup = con.execute("SELECT 1 FROM alerts WHERE transaction_id=? AND status='reversal_pending'",
+                          (row["id"],)).fetchone()
+        if dup:
+            continue
+        con.execute("INSERT INTO alerts (transaction_id, status, severity, created_at) VALUES (?,?,?,?)",
+                    (row["id"], "reversal_pending", "critical", now_iso()))
+        filed.append({"transaction_id": row["id"], "amount": float(row["amount"]),
+                      "payer": payer_vpa, "payee": payee_vpa})
+    return filed
+
+
 @app.post("/pay")
 def pay(req: PayReq, current_user: dict = Depends(get_current_user),
         con=Depends(get_db)):
@@ -1171,6 +1209,14 @@ def pay(req: PayReq, current_user: dict = Depends(get_current_user),
             resp["account_action"] = auto
             resp["message"] += (f" Receiver {auto['account_blocked']} provisionally blacklisted "
                                 f"+ reported to bank for review (auto-unblocked if the bank clears it).")
+        # A proved chain means someone upstream already paid into this mule. Blocking
+        # the forward saves nobody's money by itself — file their leg with the bank too.
+        victims = _file_chain_victim_cases(con, out.get("ring") or [], txid)
+        if victims:
+            resp["victim_cases_filed"] = victims
+            total = sum(v["amount"] for v in victims)
+            resp["message"] += (f" {len(victims)} upstream payment(s) totalling ₹{total:,.0f} filed "
+                                f"with the bank for reversal — the victim did not have to ask.")
         _store_idempotent(con, current_user["id"], req.idempotency_key, 200, resp)
         con.commit(); con.close()
         return resp

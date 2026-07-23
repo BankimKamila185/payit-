@@ -414,10 +414,35 @@ def enrich_from_db(con, sender, receiver, t) -> dict:
     win_24h = (_now_dt - timedelta(hours=24)).isoformat()
 
     # first-time payee: has sender EVER paid this receiver?
-    prior = con.execute(
-        "SELECT COUNT(*) c FROM transactions WHERE sender_account_id=? AND receiver_account_id=?",
-        (s["id"], r["id"])).fetchone()["c"]
+    prior_rows = con.execute(
+        """SELECT amount, created_at FROM transactions
+           WHERE sender_account_id=? AND receiver_account_id=? AND status IN ('success','flagged')
+           ORDER BY id DESC LIMIT 12""", (s["id"], r["id"])).fetchall()
+    prior = len(prior_rows)
     first_time = int(prior == 0)
+
+    # RELATIONSHIP: a real person pays the SAME people over and over — landlord,
+    # maid, the chaiwala, their kid. A mule forwards to a DIFFERENT fresh account
+    # each time. So "how established is this exact pair" is the cleanest line between
+    # layering and life, and it is what lets a genuine chain (dad -> son -> son's
+    # friend) off the hook without letting a real ring through.
+    established_payee = prior >= 3
+
+    # RECURRING: salary on the 1st, rent on the 5th, an EMI on a fixed date. Same
+    # payee, similar amount (+-15%), on a monthly-ish cadence. This is the pattern
+    # the engine used to have no memory of and would flag as a first-time-looking
+    # anomaly. Detected here so it can be trusted instead.
+    recurring = False
+    if prior >= 2:
+        similar = [row for row in prior_rows
+                   if abs(float(row["amount"]) - amount) <= 0.15 * max(amount, 1)]
+        if len(similar) >= 2:
+            gaps = []
+            times = sorted(datetime.fromisoformat(row["created_at"]) for row in similar)
+            for a, b in zip(times, times[1:]):
+                gaps.append((b - a).days)
+            monthly = [g for g in gaps if 20 <= g <= 40]        # ~monthly rhythm
+            recurring = len(monthly) >= 1 or (len(similar) >= 3 and prior >= 5)
 
     # velocity: sender's txns in last 60s / 10m / 24h
     velocity = con.execute(
@@ -488,6 +513,8 @@ def enrich_from_db(con, sender, receiver, t) -> dict:
         "odd_hour": int(datetime.now().hour not in usual and datetime.now().hour in range(0, 6)),
         "balance_drawdown": round(amount / max(float(s["balance"] or 1e6), 1), 3),
         "is_new_device": is_new_device, "first_time_payee": first_time,
+        "prior_payments_to_payee": prior, "established_payee": int(established_payee),
+        "recurring_payee": int(recurring),
         "sender_velocity_60s": velocity, "receiver_fan_in_60s": fan_in,
         "sender_fan_out_60s": fan_out, "receiver_forwards_recent": int(fwd > 0),
         "sender_velocity_10m": velocity_10m, "sender_velocity_24h": velocity_24h,

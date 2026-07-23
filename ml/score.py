@@ -199,6 +199,16 @@ class FraudEngine:
         receiver_trusted = (not r_blacklisted) and (
             r_merchant or (r_age > 180 and r_txns >= 5))
 
+        # A mule forwards to a NEW account every time; a person pays the SAME people
+        # over and over. So a hop into an already-established or recurring payee — a
+        # son paying his landlord, an EMI on a fixed date — is not a laundering hop
+        # no matter how much its shape resembles one. Unless the destination is
+        # actually blacklisted, a known relationship takes the money out of the ring.
+        known_relationship = (not r_blacklisted) and (
+            bool(txn.get("established_payee")) or bool(txn.get("recurring_payee")))
+        if known_relationship:
+            mule_target = False
+
         # What may turn a mule-SHAPE into a BLOCK. Each of these is something an
         # ordinary payer does not have; none of them is "you bought a new phone" or
         # "you paid at 2am", which is what a plain points threshold kept accepting.
@@ -221,9 +231,14 @@ class FraudEngine:
 
         # ---- combine reasons (dedup, keep order: graph > rules > shap) ----
         reasons = []
-        if gr["motif"] in ("CHAIN", "CYCLE") and gr["score"] >= 60:
+        # A known/recurring relationship is not a mule ring, so it neither reads as a
+        # chain in the reasons nor gets filed as one (the ring field below drives the
+        # bank filing in /pay). The pattern is still there in the graph; we are saying
+        # it is explained.
+        chain_motif = gr["motif"] in ("CHAIN", "CYCLE", "CHAIN_SLOW") and not known_relationship
+        if chain_motif and gr["motif"] in ("CHAIN", "CYCLE") and gr["score"] >= 60:
             reasons.append(f"Mule {gr['motif'].lower()}: {' -> '.join(gr['path'])}")
-        elif gr["motif"] == "CHAIN_SLOW" and gr["path"]:
+        elif chain_motif and gr["motif"] == "CHAIN_SLOW" and gr["path"]:
             reasons.append(f"Mule chain (paced to evade): {' -> '.join(gr['path'])}")
         for r in rl["reasons"] + shap_reasons:
             if r not in reasons:
@@ -240,8 +255,9 @@ class FraudEngine:
             },
             "reasons": reasons[:5],
             # CHAIN_SLOW included: the victim's upstream leg must still be filed with
-            # the bank when the ring merely moved slower than 60 seconds.
-            "ring": gr["path"] if gr["motif"] in ("CHAIN", "CYCLE", "CHAIN_SLOW") else [],
+            # the bank when the ring merely moved slower than 60 seconds. Empty for a
+            # known/recurring relationship — that is not a ring to file.
+            "ring": gr["path"] if chain_motif else [],
         }
 
 

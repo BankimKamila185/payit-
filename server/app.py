@@ -1049,6 +1049,22 @@ def _ml_provisional_block(con, feats, receiver_vpa, txid, out):
     """
     if feats["receiver_is_merchant"] or feats["receiver_blacklisted"]:
         return None
+
+    # Act against the RECEIVER only when the RECEIVER is what looks wrong.
+    # A screen-share / rooted / SIM-swap BLOCK is about the PAYER's device, and the
+    # payee may be his mother. This used to block any non-merchant payee on any
+    # BLOCK, so a 4-year-old video-KYC account with a fan-in of 4 got provisionally
+    # blacklisted because the person paying her was on a compromised phone. The bank
+    # cleared her — but she should never have been touched. Punish the party the
+    # evidence is actually about.
+    r_age = int(feats.get("receiver_account_age_days", 400) or 400)
+    r_txns = int(feats.get("receiver_txn_count", 0) or 0)
+    fan_in = int(feats.get("receiver_fan_in_60s", 0) or 0)
+    established = (r_age > 180 and r_txns >= 5)
+    receiver_is_suspect = (r_age < 10) or (fan_in >= 5)
+    if established or not receiver_is_suspect:
+        return None
+
     con.execute("UPDATE accounts SET blacklisted=1 WHERE id=?", (feats["_receiver_id"],))
     con.execute("""INSERT INTO blacklist (entity_type, entity_value, reason, created_at)
                    VALUES ('account', ?, ?, ?)""",

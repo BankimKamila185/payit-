@@ -1122,10 +1122,33 @@ def _chain_evidence(con, ring, out, txid):
             """SELECT COUNT(DISTINCT sender_account_id) c FROM transactions
                WHERE receiver_account_id=? AND status IN ('success','flagged') AND created_at > ?""",
             (a["id"], day)).fetchone()["c"]
+        # What has this account actually been DOING? A destination that keeps what it
+        # receives behaves nothing like one that passes ~all of it straight on, and
+        # the bank cannot judge the account without seeing that.
+        got = float(con.execute(
+            """SELECT COALESCE(SUM(amount),0) s FROM transactions
+               WHERE receiver_account_id=? AND status IN ('success','flagged') AND created_at > ?""",
+            (a["id"], day)).fetchone()["s"])
+        sent = float(con.execute(
+            """SELECT COALESCE(SUM(amount),0) s FROM transactions
+               WHERE sender_account_id=? AND status IN ('success','flagged') AND created_at > ?""",
+            (a["id"], day)).fetchone()["s"])
+        recent = con.execute(
+            """SELECT t.amount, t.created_at, sa.vpa AS s, ra.vpa AS r FROM transactions t
+               JOIN accounts sa ON sa.id=t.sender_account_id
+               JOIN accounts ra ON ra.id=t.receiver_account_id
+               WHERE (t.sender_account_id=? OR t.receiver_account_id=?)
+                 AND t.status IN ('success','flagged')
+               ORDER BY t.id DESC LIMIT 5""", (a["id"], a["id"])).fetchall()
         accounts.append({"vpa": vpa, "name": a["name"], "age_days": a["account_age_days"],
                          "kyc": a["kyc_level"], "is_merchant": bool(a["is_merchant"]),
                          "lifetime_txns": a["txn_count"], "fan_in_24h": fan_in,
-                         "already_blacklisted": bool(a["blacklisted"])})
+                         "already_blacklisted": bool(a["blacklisted"]),
+                         "received_24h": round(got, 2), "sent_24h": round(sent, 2),
+                         "forwarded_pct": round(sent / got * 100, 1) if got else 0.0,
+                         "recent_activity": [
+                             {"amount": float(x["amount"]), "from": x["s"], "to": x["r"],
+                              "at": x["created_at"]} for x in recent]})
 
     return {
         "pattern": "mule_chain",
@@ -1155,20 +1178,38 @@ def _file_chain_case_to_bank(con, ring, out, txid):
     if not ring or len(ring) < 2:
         return None
     victim_vpa = ring[0]
-    dup = con.execute(
-        """SELECT 1 FROM fraud_reports WHERE reported_vpa=? AND reporter_vpa='SYSTEM/ML'
-           AND status='ml_provisional' AND reason LIKE ?""",
-        (ring[1], f'%"detected_on_transaction": {txid}%')).fetchone()
-    if dup:
-        return None
     evidence = _chain_evidence(con, ring, out, txid)
-    con.execute("""INSERT INTO fraud_reports (reported_vpa, reporter_vpa, reason, amount_lost,
-                                              status, created_at) VALUES (?,?,?,?,?,?)""",
-                (ring[1], "SYSTEM/ML", json.dumps(evidence),
-                 sum(h["amount"] or 0 for h in evidence["hops"]), "ml_provisional", now_iso()))
+    total = sum(h["amount"] or 0 for h in evidence["hops"])
+    by_vpa = {a["vpa"]: a for a in evidence["accounts"]}
+
+    # A case per account the money passed THROUGH or landed IN — not just the first
+    # hop. Only the middle account was ever reported, so the end of the chain — the
+    # account actually holding the money — was described in the evidence and then
+    # never charged with anything. ring[0] is the victim and merchants are legitimate
+    # destinations, so both are skipped.
+    filed = []
+    for vpa in ring[1:]:
+        info = by_vpa.get(vpa, {})
+        if info.get("is_merchant"):
+            continue
+        dup = con.execute(
+            """SELECT 1 FROM fraud_reports WHERE reported_vpa=? AND reporter_vpa='SYSTEM/ML'
+               AND status='ml_provisional' AND reason LIKE ?""",
+            (vpa, f'%"detected_on_transaction": {txid}%')).fetchone()
+        if dup:
+            continue
+        role = "final destination — money landed here" if vpa == ring[-1] else "pass-through leg"
+        con.execute("""INSERT INTO fraud_reports (reported_vpa, reporter_vpa, reason, amount_lost,
+                                                  status, created_at) VALUES (?,?,?,?,?,?)""",
+                    (vpa, "SYSTEM/ML", json.dumps({**evidence, "role_in_chain": role}),
+                     total, "ml_provisional", now_iso()))
+        filed.append({"account": vpa, "role": role})
+
+    if not filed:
+        return None
     con.execute("INSERT INTO alerts (transaction_id, status, severity, created_at) VALUES (?,?,?,?)",
                 (txid, "chain_reported", "high", now_iso()))
-    return {"reported_account": ring[1], "victim": victim_vpa, "path": ring,
+    return {"reported_accounts": filed, "victim": victim_vpa, "path": ring,
             "status": "filed_with_bank_pending_review"}
 
 

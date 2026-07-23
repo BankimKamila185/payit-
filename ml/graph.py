@@ -22,7 +22,10 @@ No GNN (research: GNN not guaranteed better + risky). Lightweight + explainable.
 from __future__ import annotations
 from collections import defaultdict, deque
 
-RING_WINDOW = 60          # seconds: hops must be recent to count as one ring
+RING_WINDOW = 180         # seconds (3 min): hops must be recent to count as one ring.
+                          # 60s was script speed — a mule operator logging into the
+                          # next account and paying again takes minutes, so the full
+                          # -strength chain never fired for a human-paced ring.
 RING_WINDOW_LONG = 900    # seconds: 15 minutes lookback for slower/evasive rings
 AMOUNT_TOL = 0.25         # +-25% counts as "the same money" flowing through
 FANIN_WINDOW = 60         # seconds for fan-in counting

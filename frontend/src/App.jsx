@@ -108,6 +108,7 @@ function App() {
   const refreshTxns = () => {
     if (currentUser) api.history(currentUser).then((r) => { if (r.ok) setRealTxns(r.data); });
   };
+
   const [lastTx, setLastTx] = useState(null);
 
   // --- NEW SECURITY STATES ---
@@ -121,6 +122,23 @@ function App() {
   const [appPinInput, setAppPinInput] = useState('');
   const [appPinError, setAppPinError] = useState('');
   const [appPinBusy, setAppPinBusy] = useState(false);
+
+  // Live balance + history. Only the PAYER ever saw their balance move, because it
+  // came back on the /pay response — whoever RECEIVED the money sat on a stale
+  // number until they reloaded the whole page. Poll so both sides update on their
+  // own. Paused while the app is locked.
+  useEffect(() => {
+    if (!currentUser || appLocked) return;
+    const tick = async () => {
+      const b = await api.balance(currentUser);
+      if (b.ok && b.data?.balance != null) setBalance(b.data.balance);
+      const h = await api.history(currentUser);
+      if (h.ok && Array.isArray(h.data)) setRealTxns(h.data);
+    };
+    tick();
+    const id = setInterval(tick, 4000);
+    return () => clearInterval(id);
+  }, [currentUser, appLocked]);
 
   // --- FORGOT-PIN (OTP flow, triggered from PIN gate or UpiSettings) ---
   const [showForgotPin, setShowForgotPin] = useState(false);

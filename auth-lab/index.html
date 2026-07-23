@@ -209,7 +209,7 @@ function Home() {
   $("body").innerHTML = `
     <div class="bal">
       <div class="lbl">Available balance</div>
-      <div class="amt">${money(USER.balance ?? 0)}</div>
+      <div class="amt" id="balAmt">${money(USER.balance ?? 0)}</div>
       <div class="who">${USER.name} · ${USER.vpa}</div>
     </div>
     <button class="primary" id="p">Send money</button>
@@ -655,6 +655,29 @@ function Ops() {
     renderBank(r.data);
   };
 }
+
+/* ── live balance ───────────────────────────────────────────────────────────
+   Only the PAYER ever saw their balance move, because it came back on the /pay
+   response. The person RECEIVING money learnt nothing — their screen sat on a
+   stale number until they reloaded the whole page. Poll so both sides update on
+   their own. Runs only while logged in and sitting on Home.                   */
+setInterval(async () => {
+  if (!USER || !TOKEN || stack[stack.length - 1] !== "home") return;
+  try {
+    const r = await apiGet("/balance/" + encodeURIComponent(USER.vpa), true);
+    if (!r.ok || r.data.balance == null) return;
+    if (Number(r.data.balance) !== Number(USER.balance)) {
+      USER.balance = r.data.balance;
+      const el = $("balAmt");
+      if (el) {
+        el.textContent = money(USER.balance);
+        el.style.transition = "color .3s";
+        el.style.color = "#63e089";                 // flash so the change is noticed
+        setTimeout(() => { el.style.color = ""; }, 1000);
+      }
+    }
+  } catch {}
+}, 3000);
 
 go("login");
 </script>

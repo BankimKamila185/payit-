@@ -73,6 +73,8 @@ const SliceShield = ({
   const [monitorData, setMonitorData] = useState(null); // GET /fraud/monitor
   const [ledgerData, setLedgerData] = useState(null);   // GET /ledger/verify
   const [limitsData, setLimitsData] = useState(null);   // computed from history
+  const [bankData, setBankData] = useState(null);       // GET /bank/pending
+  const [bankBusy, setBankBusy] = useState("");         // vpa currently being reviewed
 
   // UPI daily limits (mirror server/app.py constants)
   const CAP_PER_TXN = 100000, CAP_DAY_AMT = 100000, CAP_DAY_CNT = 20;
@@ -95,6 +97,29 @@ const SliceShield = ({
     } catch (e) {
       setLedgerData({ error: e.message || 'Ledger verify failed' });
     } finally { setOpsLoading(false); }
+  };
+
+  const runBank = async () => {
+    setActiveDrawer('bank'); setOpsLoading(true); setBankData(null);
+    try {
+      const { ok, data } = await api.bankPending();
+      setBankData(ok ? data : { error: data?.detail || 'Could not load the bank queue' });
+    } catch (e) {
+      setBankData({ error: e.message || 'Could not load the bank queue' });
+    } finally { setOpsLoading(false); }
+  };
+
+  // The bank rules on one provisionally-blocked account, then we refresh the queue
+  // so the decision (CONFIRMED / CLEARED) shows up straight away.
+  const reviewAccount = async (vpa) => {
+    setBankBusy(vpa);
+    try {
+      await api.bankReviewAccount(vpa);
+      const { ok, data } = await api.bankPending();
+      if (ok) setBankData(data);
+    } catch (e) {
+      setBankData(prev => ({ ...(prev || {}), error: e.message || 'Review failed' }));
+    } finally { setBankBusy(""); }
   };
 
   const runLimits = async () => {
@@ -311,7 +336,7 @@ const SliceShield = ({
         </button>
 
         {/* UPI daily limits */}
-        <button onClick={runLimits} style={{ ...styles.controlItemRow, borderBottom: 'none' }} aria-label="View UPI daily limits">
+        <button onClick={runLimits} style={styles.controlItemRow} aria-label="View UPI daily limits">
           <div style={styles.controlRowLeft}>
             <div style={{ ...styles.menuIconBox, backgroundColor: 'rgba(170, 51, 255, 0.08)' }}>
               <Gauge size={16} color="var(--accent-purple)" />
@@ -323,7 +348,27 @@ const SliceShield = ({
           </div>
           <ChevronRight size={16} color="var(--text-muted)" />
         </button>
+
+        {/* Bank server — the escalation queue + the bank's rulings */}
+        <button onClick={runBank} style={{ ...styles.controlItemRow, borderBottom: 'none' }} aria-label="Open bank server queue">
+          <div style={styles.controlRowLeft}>
+            <div style={{ ...styles.menuIconBox, backgroundColor: 'rgba(0, 136, 255, 0.08)' }}>
+              <Landmark size={16} color="var(--accent-blue)" />
+            </div>
+            <div style={styles.menuTexts}>
+              <span style={styles.menuTitle}>Bank Server</span>
+              <span style={styles.menuDesc}>What the engine escalated → what the bank ruled</span>
+            </div>
+          </div>
+          <ChevronRight size={16} color="var(--text-muted)" />
+        </button>
       </div>
+
+      {/* Honest caveat — the numbers above/inside come from a synthetic dataset */}
+      <p style={styles.synthNote}>
+        ⚠️ Fraud model trained &amp; evaluated on <b>synthetic</b> data — real UPI transaction
+        data isn't public (RBI). Metrics prove the workflow, not real-world accuracy.
+      </p>
 
       {/* 3. Advanced Configurations Bento Menu */}
       <div style={styles.sectionHeader}>
@@ -1110,6 +1155,114 @@ const SliceShield = ({
             <button onClick={runLimits} style={styles.drawerSaveBtn} disabled={opsLoading}>
               <RefreshCw size={14} style={{ marginRight: 6, verticalAlign: 'middle' }} />
               {opsLoading ? 'Refreshing…' : 'Refresh'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* H. Bank Server Drawer — the escalation queue and the bank's rulings */}
+      {activeDrawer === 'bank' && (
+        <div style={styles.drawerOverlay} onClick={() => setActiveDrawer(null)}>
+          <div style={styles.drawerContent} onClick={(e) => e.stopPropagation()} className="animate-slide-up">
+            <div style={styles.drawerDragHandle}></div>
+            <div style={styles.drawerHeader}>
+              <h3 style={styles.drawerTitle}>Bank Server</h3>
+              <button onClick={() => setActiveDrawer(null)} style={styles.drawerCloseBtn} aria-label="Close">
+                <X size={16} color="var(--text-primary)" />
+              </button>
+            </div>
+            <p style={styles.drawerDesc}>
+              The app never freezes another bank's account or moves its money. The fraud engine
+              files a REQUEST here; the bank rules on its own evidence — and UNBLOCKS an account
+              the engine wrongly caught.
+            </p>
+
+            {opsLoading && <p style={styles.emptyText}>Loading the bank queue…</p>}
+            {!opsLoading && bankData?.error && <div style={styles.opsErrorBox}>{bankData.error}</div>}
+
+            {!opsLoading && bankData && !bankData.error && (
+              <>
+                {/* 1. accounts the ML blocked, waiting on the bank */}
+                <span style={styles.drawerSubTitle}>
+                  ⚠️ Engine → Bank · awaiting review ({(bankData.pending_account_reviews || []).length})
+                </span>
+                <div style={styles.logsDrawerList}>
+                  {(bankData.pending_account_reviews || []).length === 0 ? (
+                    <p style={styles.emptyText}>No account escalations pending.</p>
+                  ) : (
+                    bankData.pending_account_reviews.map((r, i) => (
+                      <div key={i} style={styles.suspectCard}>
+                        <div style={styles.scanRow}>
+                          <span style={styles.scanMerchant}>{r.vpa}</span>
+                          <span style={styles.scanTagOrange}>PROVISIONAL BLOCK</span>
+                        </div>
+                        <span style={styles.scanTime}>
+                          age {r.age_days}d • {r.is_merchant ? 'merchant' : 'personal'} • {r.reason}
+                        </span>
+                        <button
+                          onClick={() => reviewAccount(r.vpa)}
+                          disabled={bankBusy === r.vpa}
+                          style={styles.bankReviewBtn}
+                        >
+                          {bankBusy === r.vpa ? 'Bank reviewing…' : 'Run bank review'}
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                {/* 2. reversals the bank is holding for a law-enforcement reference */}
+                {(bankData.pending_reversals || []).length > 0 && (
+                  <>
+                    <span style={styles.drawerSubTitle}>
+                      ⏳ Reversals held (need a 1930 / CFCFRMS reference)
+                    </span>
+                    <div style={styles.logsDrawerList}>
+                      {bankData.pending_reversals.map((r, i) => (
+                        <div key={i} style={styles.suspectCard}>
+                          <div style={styles.scanRow}>
+                            <span style={styles.scanMerchant}>#{r.transaction_id} · ₹{r.amount}</span>
+                            <span style={styles.scanTagOrange}>LIEN</span>
+                          </div>
+                          <span style={styles.scanTime}>{r.payer} → {r.payee}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
+
+                {/* 3. what the bank already ruled */}
+                <span style={styles.drawerSubTitle}>
+                  ✅ Bank rulings ({(bankData.bank_decisions || []).length})
+                </span>
+                <div style={styles.logsDrawerList}>
+                  {(bankData.bank_decisions || []).length === 0 ? (
+                    <p style={styles.emptyText}>No rulings yet.</p>
+                  ) : (
+                    bankData.bank_decisions.map((d, i) => {
+                      const cleared = d.status === 'cleared';
+                      return (
+                        <div key={i} style={styles.suspectCard}>
+                          <div style={styles.scanRow}>
+                            <span style={styles.scanMerchant}>{d.vpa}</span>
+                            <span style={cleared ? styles.scanTagSafe : styles.scanTagAlert}>
+                              {cleared ? 'CLEARED → UNBLOCKED' : 'CONFIRMED → BLOCKED'}
+                            </span>
+                          </div>
+                          <span style={styles.scanTime}>{d.reason}</span>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+
+                <p style={styles.opsNote}>{bankData.note}</p>
+              </>
+            )}
+
+            <button onClick={runBank} style={styles.drawerSaveBtn} disabled={opsLoading}>
+              <RefreshCw size={14} style={{ marginRight: 6, verticalAlign: 'middle' }} />
+              {opsLoading ? 'Loading…' : 'Refresh Queue'}
             </button>
           </div>
         </div>
@@ -2013,6 +2166,28 @@ const styles = {
     height: '100%',
     borderRadius: '4px',
     transition: 'width 0.4s ease',
+  },
+  synthNote: {
+    fontSize: '10px',
+    lineHeight: '1.45',
+    color: 'var(--text-secondary)',
+    backgroundColor: 'rgba(255, 140, 0, 0.06)',
+    border: '1px solid rgba(255, 140, 0, 0.18)',
+    borderRadius: '12px',
+    padding: '10px 12px',
+    margin: '4px 0 0 0',
+  },
+  bankReviewBtn: {
+    marginTop: '8px',
+    alignSelf: 'flex-start',
+    backgroundColor: 'rgba(0, 136, 255, 0.1)',
+    border: '1px solid rgba(0, 136, 255, 0.3)',
+    borderRadius: '8px',
+    color: 'var(--accent-blue)',
+    padding: '6px 12px',
+    fontSize: '10px',
+    fontWeight: '700',
+    cursor: 'pointer',
   }
 };
 

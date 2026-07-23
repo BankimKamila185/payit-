@@ -1,21 +1,27 @@
-are we# 🔍 Project Analysis — What It Is, Data Needed, How It Works, What to Improve
+# 🔍 Project Analysis — What It Is, How It Works, What's Actually Done
+
+> **Last verified:** against the live code + a fresh eval run. Earlier versions of this
+> file described a much earlier state ("frontend disconnected", "mock fraud", "no login").
+> All of that is **done** — the notes below reflect what the code actually does today.
 
 ## 1. PROJECT KYA HAI (exactly)
 
-**Real-time UPI Fraud Detection System** — teen parts jo milke ek payment app banate jo fraud ko **paisa jaane se PEHLE** pakadta:
+**Real-time UPI Fraud Detection System** — ek payment app jo fraud ko **paisa jaane se PEHLE**
+pakadta hai, aur jo nikal gaya uske liye **post-payment + bank-reversal** layer rakhta hai.
 
 ```
-┌──────────────┐    ┌──────────────┐    ┌──────────────────┐
-│  FRONTEND    │───▶│   BACKEND    │───▶│  ML ENGINE       │
-│  (React app) │    │ (Node + DB)  │    │  (Python /score) │
-│  team ne     │    │  team ne     │    │  humne banaya    │
-│  banaya      │    │  banaya      │    │                  │
-└──────────────┘    └──────────────┘    └──────────────────┘
-  send money UI      transaction flow     24 fraud types
-  balance, screens   + balance transfer   XGBoost+graph+SHAP
+┌──────────────┐      ┌────────────────────────────┐      ┌──────────────┐
+│  FRONTEND    │─────▶│  BACKEND  server/app.py    │─────▶│  Postgres    │
+│  React :5173 │ HTTP │  FastAPI :8000             │      │  (Neon)      │
+│  auth-lab    │      │  PSP + switch + bank roles │      │              │
+│  :5180       │      │  🛡️ Fraud engine INLINE    │      │              │
+└──────────────┘      └────────────────────────────┘      └──────────────┘
+                         model + rules + graph + SHAP
 ```
 
-**Ek line:** User "Send Money" kare → backend transaction banaye → fraud engine check kare → SAFE toh paisa move, FRAUD toh block — sab <200ms mein, "kyun" ke saath.
+**Ek line:** User "Pay" kare → backend fraud engine score kare (<200ms) → SAFE toh atomic
+transfer + ledger entry, REVIEW toh OTP step-up, BLOCK toh reject (paisa hilta hi nahi) —
+sab "kyun" ke saath.
 
 ---
 
@@ -23,26 +29,26 @@ are we# 🔍 Project Analysis — What It Is, Data Needed, How It Works, What to
 
 ### Do tarah ka data:
 **A. Reference/master data (accounts, profiles) — baseline ke liye**
-| Data | Kyun | Kahan (DB table) |
+| Data | Kyun | DB table |
 |---|---|---|
 | Users + accounts + balances | kaun bhej raha, kitna balance | `users`, `accounts` |
 | Bank list | routing | `banks` |
-| Device fingerprints | naya device pakadna | `devices`, `device_fingerprints` |
+| Device fingerprints | naya device pakadna | `devices` |
 | Blacklist | reported accounts | `blacklist` |
-| IP reputation | VPN/proxy | `ip_reputation` |
 
 **B. Transactional data (live + history) — detection ke liye**
 | Data | Kyun |
 |---|---|
-| Har transaction (sender, receiver, amount, time, device, ip) | live scoring |
+| Har transaction (sender, receiver, amount, time, device) | live scoring |
 | Transaction HISTORY | velocity, first-time-payee, fan-in, mule-chain (behavioral features) |
-| Fraud scores + alerts | decision log |
+| Fraud scores + alerts + ledger entries | decision log + money trail |
 
 ### Engine ko chahiye (7 fields per transaction):
-`sender_vpa/id, receiver_vpa/id, amount, type, channel, device_id, hour`
-→ Baaki 27 features **history + profile se compute** hote (velocity, ratio, fan-in...).
+`sender_vpa, receiver_vpa, amount, type, channel, device_id, hour`
+→ Baaki features **history + profile se compute** hote (velocity, ratio, fan-in, age...).
 
-### Honest: real UPI data public nahi (RBI rules) → synthetic (humne 2.5 lakh banaya).
+### 🔴 Honest: real UPI data public nahi (RBI rules) → **synthetic** (2.5 lakh transactions).
+Iska matlab: neeche ke saare numbers **workflow proof hain, real-world benchmark NAHI**.
 
 ---
 
@@ -50,102 +56,120 @@ are we# 🔍 Project Analysis — What It Is, Data Needed, How It Works, What to
 
 ### Real UPI:
 ```
-[GPay app] → [PSP bank] → [NPCI switch] → [Remitter+Beneficiary banks]
-   device        auth         AI/ML fraud       PIN verify (HSM)
-   binding                    (MuleHunter)      balance, debit
+[GPay app] → [PSP bank] → [NPCI switch] → [Remitter + Beneficiary banks]
+   device        auth        AI/ML fraud       PIN verify (HSM)
+   binding                   (MuleHunter)      balance, debit
 ```
 - Fraud check **kai jagah:** PSP + NPCI switch + issuer bank
-- PIN encrypted (NPCI library), 2-factor, HSM verify
-- NPCI = switch (routing), history bank ke paas
+- PIN encrypted (NPCI Common Library), 2-factor, HSM verify
 
 ### Hamara demo:
 ```
-[React app] → [Node backend = PSP+switch+bank] → [Python ML = fraud brain]
+[React app] → [FastAPI backend = PSP + switch + dono banks] → [fraud engine inline]
 ```
-- Ek backend sab role nibhata (PSP + mock switch + bank)
-- Fraud check = hamara ML engine (Step "Pay confirm")
-- Real NPCI/PIN-HSM nahi (mock) — par flow same
-
-### Key match:
-> Real mein fraud scoring "Pay" pe + switch pe hota → **wahi hamara engine karta.** Baaki (PIN crypto, HSM, NPCI network) = infrastructure, hamara scope nahi.
+- Ek backend sab role nibhata (PSP + simulated switch + dono banks)
+- Fraud check **pay ke waqt inline** — jaise real mein PSP/switch pe hota
+- Real NPCI network / PIN-HSM **nahi** (simulated) — par flow aur decision-logic same
 
 ---
 
-## 4. CURRENT STATE (kya ready, kya nahi)
+## 4. CURRENT STATE — kya SACH mein ban chuka
 
 | Component | Status | Detail |
 |---|---|---|
-| **ML Engine (Python)** | ✅ 95% | 24 types, XGBoost+graph+SHAP, /score API. *api.py new-feature sync baaki* |
-| **ML Data** | ✅ | 2.5 lakh transactions + accounts |
-| **Backend (Node)** | ✅ 80% | `/api/transactions` (real flow + balance transfer + fraud check), alerts, history. *fraudService = sirf 3 simple rules* |
-| **Backend DB** | ✅ | 15 tables schema + seed (banks, fraud_patterns) |
-| **Frontend (React)** | 🟡 60% | send-money UI, screens, SliceShield. *Fraud = MOCK (hardcoded), backend se JUDA NAHI, LOGIN nahi* |
+| **Backend (Python)** | ✅ **LIVE** | `server/app.py` FastAPI :8000 — auth, pay, fraud, ledger, bank, monitor |
+| **Fraud engine** | ✅ | model (0.25) + rules (0.45) + graph (0.30), SHAP reasons, hard-rule overrides |
+| **Frontend (React)** | ✅ **connected** | `frontend/` :5173 → `VITE_API_URL=:8000`. Real API calls, **koi mock fraud nahi** |
+| **auth-lab** | ✅ | `auth-lab/` :5180 — onboarding, passkey, pay, Fraud Ops Console |
+| **Auth** | ✅ | Argon2id + pepper, login PIN + UPI PIN, **WebAuthn passkey**, device binding, session tokens, lockout |
+| **Payments** | ✅ | CAS (compare-and-swap), **idempotency keys**, atomic debit/credit, UPI daily limits |
+| **Ledger** | ✅ | append-only **double-entry**, `/ledger/verify` reconciles (3 invariants) |
+| **Post-payment** | ✅ | `/fraud/monitor` — collection + pass-through mule detection |
+| **Bank server** | ✅ | `/bank/reversal-request` (ISO camt codes), `/bank/review-account` (ML block confirm/clear) |
+| **Data** | ✅ | 2.5 lakh synthetic transactions + accounts |
 
-### 🚨 3 bade gaps:
-1. **Frontend ↔ Backend disconnected** (koi API call nahi frontend mein)
-2. **Frontend fraud MOCK hai** (hardcoded riskScore, real nahi)
-3. **Login screen nahi hai**
-4. **Backend fraud = sirf 3 rules** (hamara 24-type ML integrate nahi)
-
----
-
-## 5. KYA IMPROVE / KARNA HAI (priority)
-
-### 🔴 CRITICAL (bina inke demo nahi):
-1. **Backend `fraudService.evaluate()` → hamara `/score` call** (3 rules → 24-type ML)
-2. **Frontend → Backend connect** (`/api/transactions` call on Pay)
-3. **Frontend mock fraud hटao** → real backend verdict use karo
-4. **Login screen add** (users table ready, bas auth endpoint + screen)
-5. **api.py fix** (naye features sync — warna engine break)
-
-### 🟡 IMPORTANT (demo strong banane):
-6. **FingerprintJS** (real device_id — abhi manual toggle)
-7. **Feature enrichment** — backend history se features compute karke engine ko de (ya engine DB query kare)
-8. **3-tier UI** — block/review(OTP)/success + real reasons dikhao
-9. **Dashboard** — live fraud feed + mule graph (SliceShield extend)
-
-### 🟢 NICE-TO-HAVE:
-10. Attack simulator button (demo)
-11. Trace & report (FraudReportForm → chain trace)
-12. Deploy (engine + backend hosted)
+### Detection ab REALISTIC hai
+Pehle VPA-naam mein scam-keyword (`lottery`, `cash`, `kyc`) dekh ke flag hota tha — wo **crutch
+tha** (asli scammer innocent VPA rakhta). Ab wo **hata diya**. Detection sirf **behavior** pe:
+fresh age, fan-in, pass-through/forwarding, velocity, micro-credit, device/screen-share,
+blacklist, reports — koi bhi VPA string nahi padhta.
 
 ---
 
-## 6. FEATURE ENRICHMENT — sabse technical gap
-Hamara engine `velocity, fan_in, in_mule_chain, first_time_payee` **history se** compute karta. Backend ke paas history (transactions table) hai. Do options:
-- **A:** Backend features compute karke engine ko bheje (backend kaam)
-- **B:** Hamara Python engine backend DB (Postgres) se query kare (engine ko DB access)
-- **C (demo):** Engine in-memory history rakhe /score calls se (simplest — api.py already karta)
+## 5. NUMBERS (fresh eval, current model)
 
-→ **Demo ke liye C**, production ke liye A/B.
+| Metric | Value |
+|---|---|
+| **Full engine — fraud recall** | **97%** (7743/8009) |
+| **Full engine — legit false-positive** | **2.2%** |
+| Model alone (held-out) — recall | 94.4% |
+| Model alone — precision | 98.1% |
+
+**100% pakde (16 families):** mule_chain, fan_in_collection, cycle, smurfing, malware_drain,
+anydesk_scam, sim_swap, qr_scam, dormant, account_testing, jumped_deposit, rooted_takeover,
+beneficiary_drain, max_limit_drain, overpayment_scam, loan_app_extortion
+
+**Kamzor (social-engineering):** utility_bill 53%, charity 56%, refund_cashback 65%,
+rental_token 79%, fake_ecommerce 84%, lottery_advance_fee 85%, customer_care_spoof 88%
+
+> **Kyun kamzor:** in scams mein **victim khud khushi se** pay karta hai — transaction bilkul
+> normal dikhta, dhokha baat-cheet mein hota hai. Ye inherent limit hai, bug nahi.
+
+> ⚠️ **Ye sab SYNTHETIC data pe hai** — workflow proof, real-world benchmark nahi.
 
 ---
 
-## 7. INTEGRATION MAP (kaun kisse judega)
+## 6. FRAUD LAYERS (kaunsa kab chalta)
+
 ```
-Frontend (React)
-   │ POST /api/transactions {sender, receiver, amount, device_id, ip}
-   ▼
-Backend (Node) — app.ts
-   │ FraudService.evaluate()  ← YAHAN badlo
-   │   └─ POST /score {7 fields}
-   ▼
-ML Engine (Python) — /score
-   │ model + rules + graph + SHAP
-   ▼
-   returns {score, label, reasons, ring, latency}
-   │
-Backend: label==BLOCK? reject : transfer balance
-   ▼
-Frontend: block modal + reasons / success
+1. PRE-PAY    /precheck        → payee risk warning (blacklist, fresh, never-paid, fan-in)
+2. AT PAY     /pay  (inline)   → SAFE / REVIEW(OTP) / BLOCK   ← paisa hilne se PEHLE
+3. POST-PAY   /fraud/monitor   → committed txns re-scan → mule ALERTS (paisa nahi hilata)
+4. RECOVERY   /pay/recall      → bank ko reversal REQUEST → bank adjudicate kare
+5. ACCOUNT    /bank/review-account → ML ka provisional block bank confirm/clear kare
 ```
 
 ---
 
-## 8. SUMMARY (ek nazar)
-- **Project:** real-time UPI fraud detection — app + backend + ML brain, catches fraud before money moves
-- **Data:** accounts/profiles (baseline) + transaction history (behavioral) + our 2.5 lakh synthetic
-- **Real apps:** fraud at PSP+NPCI+bank; hamara backend + ML nibhata
-- **Ready:** ML engine, data, backend transaction flow, DB schema
-- **Gaps:** frontend↔backend disconnect, mock fraud, no login, our ML not integrated, api.py sync
-- **Core work:** CONNECT the 3 parts + add login + swap 3-rules for our ML (integration > new features)
+## 7. INTEGRATION MAP (actual)
+
+```
+Frontend (React / auth-lab)
+   │ POST /pay {sender, receiver, amount, pin, device_id, idempotency_key, rasp flags}
+   ▼
+FastAPI backend — server/app.py
+   │ auth → policy (limits, device) → idempotency claim
+   │ engine.score(feats)  ← model + rules + graph, inline
+   ▼
+   BLOCK  → reject (debit chalta hi nahi) [+ provisional account block → bank review]
+   REVIEW → pending + OTP step-up
+   SAFE   → atomic debit/credit + double-entry ledger post
+   ▼
+Frontend: 3-tier result + SHAP reasons
+```
+
+---
+
+## 8. REAL GAPS (honest, aaj ke)
+
+| Gap | Impact |
+|---|---|
+| **`backend/` (Node/TS) dead weight** — live path Python hai, TS backend ko koi call nahi karta | Decide: hatao ya migrate karo |
+| **`fraud-risk-engine/` + `ml/api.py` wired nahi** — purane artifacts, live `/score` path mein nahi | Cleanup |
+| **Synthetic data only** | Numbers workflow-proof hain, benchmark nahi |
+| **Social-engineering scams 53-88%** | Inherent (victim willingly pays) |
+| **FingerprintJS asli library nahi** — lightweight canvas hash | Known simplification |
+| **Self-learning from confirmed cases** | Nahi bana (future) |
+| **Simulated:** NPCI switch, PIN/HSM crypto, real SMS (OTP server log mein), dono bank ek hi DB mein | Saaf bolna chahiye |
+| **Concurrency:** single uvicorn worker + no app-side pooling | Demo-scale (~5-10 concurrent), production nahi |
+
+---
+
+## 9. SUMMARY (ek nazar)
+- **Project:** real-time UPI fraud detection — app + backend + ML brain, paisa jaane se pehle pakadta
+- **Live stack:** React frontends → FastAPI (`server/app.py`) → Postgres (Neon), fraud engine inline
+- **Kya REAL hai:** 2-factor auth (Argon2id + passkey), atomic transfer (CAS + idempotency),
+  double-entry ledger jo reconcile hota, 3-tier detection, post-payment monitor, bank adjudication
+- **Kya SIMULATED hai:** NPCI switch, HSM/PIN crypto, SMS delivery, dono banks ek DB mein
+- **Numbers:** 97% recall / 2.2% FP — **synthetic data pe**, workflow proof
+- **Tagline:** "We didn't fake a payment — we rebuilt UPI in miniature, then put a fraud brain inside it."

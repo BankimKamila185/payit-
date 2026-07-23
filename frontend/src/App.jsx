@@ -386,7 +386,7 @@ function App() {
       refreshTxns();                            // reload real history after any result
     } catch (e) {
       setAiScanningTx(null);
-      triggerNotification("⚠️ Backend not reachable — start server on :8000", "alert");
+      triggerNotification("⚠️ Backend not reachable — start server on :8001", "alert");
     }
   };
 

@@ -75,7 +75,7 @@
 </div>
 
 <script>
-const API = "http://localhost:8000";
+const API = "http://localhost:8001";
 let TOKEN = null, USER = null, LAST = null;
 const $ = (id) => document.getElementById(id);
 
@@ -532,11 +532,19 @@ function Ops() {
       <div id="uOut" style="margin-top:8px"></div>
     </div>
 
+    <div class="tile">
+      <div class="t">Bank server <span class="pill amber">escalation queue</span></div>
+      <div class="step">The app never freezes another bank's account or claws its money. The
+        engine files a REQUEST; the bank rules on its own evidence — and UNBLOCKS an account the
+        engine wrongly caught. Recall on a flagged payment uses the same desk (ISO ACCR/RJCR/PDCR).</div>
+      <button class="primary" id="bScan" style="margin-top:10px">Load bank queue</button>
+      <div id="bOut" style="margin-top:8px"></div>
+    </div>
+
     <div class="tile warn">
-      <div class="t">Bank reversal desk</div>
-      <div class="step">The bank's fraud desk (adjudication with ISO reason codes ACCR / RJCR /
-        PDCR) is reached when you tap <b>Recall</b> on a flagged payment — the app never claws
-        money itself; it REQUESTS a reversal and the bank decides.</div>
+      <div class="step">⚠️ <b>Synthetic data.</b> The fraud model is trained &amp; evaluated on a
+        generated dataset — real UPI transaction data isn't public (RBI rules). The numbers prove
+        the workflow works, <b>not</b> real-world accuracy.</div>
     </div>
     <button id="h">Back to home</button>`;
   $("h").onclick = () => { stack.length = 0; go("home"); };
@@ -605,6 +613,46 @@ function Ops() {
       <div class="rsn" style="margin-top:8px">Transfers used (24h): <b>${cnt}</b> / ${CAP_DAY_CNT}</div>
       ${bar(cntPct, cnt >= CAP_DAY_CNT)}
       <div class="step">${Math.max(0, CAP_DAY_CNT - cnt)} transfers left today</div>`;
+  };
+
+  /* 4. bank server — escalation queue + the bank's rulings */
+  const renderBank = (d) => {
+    const pend = d.pending_account_reviews || [], revs = d.pending_reversals || [], dec = d.bank_decisions || [];
+    $("bOut").innerHTML =
+      `<div class="rsn" style="margin-top:4px"><b>Engine → Bank · awaiting review (${pend.length})</b></div>` +
+      (pend.length === 0
+        ? `<div class="rsn">• none pending</div>`
+        : pend.map(r => `<div class="rsn" style="color:#ffb454">• <b>${r.vpa}</b> — provisional block ·
+             age ${r.age_days}d · ${r.is_merchant ? "merchant" : "personal"}
+             <button class="ghost bankRev" data-vpa="${r.vpa}"
+               style="margin-left:6px;padding:3px 9px;font-size:11px;width:auto;display:inline-block">Run bank review</button>
+           </div>`).join("")) +
+      (revs.length
+        ? `<div class="rsn" style="margin-top:8px"><b>Reversals held (need 1930/CFCFRMS ref)</b></div>` +
+          revs.map(r => `<div class="rsn">• #${r.transaction_id} ${money(r.amount)} — ${r.payer} → ${r.payee}</div>`).join("")
+        : "") +
+      `<div class="rsn" style="margin-top:8px"><b>Bank rulings (${dec.length})</b></div>` +
+      (dec.length === 0
+        ? `<div class="rsn">• none yet</div>`
+        : dec.map(x => `<div class="rsn" style="color:${x.status === "cleared" ? "#63e089" : "#ff6b8a"}">
+             • <b>${x.vpa}</b> — ${x.status === "cleared" ? "CLEARED → unblocked" : "CONFIRMED → blocked"}</div>`).join("")) +
+      `<div class="step" style="margin-top:6px">${d.note || ""}</div>`;
+    // wire each review button
+    document.querySelectorAll(".bankRev").forEach(b => {
+      b.onclick = async () => {
+        b.textContent = "Bank reviewing…"; b.disabled = true;
+        await api("/bank/review-account", { vpa: b.dataset.vpa }, true);
+        const r = await apiGet("/bank/pending");
+        if (r.ok) renderBank(r.data);
+      };
+    });
+  };
+
+  $("bScan").onclick = async () => {
+    $("bOut").innerHTML = `<div class="rsn">Loading bank queue…</div>`;
+    const r = await apiGet("/bank/pending");
+    if (!r.ok) return $("bOut").innerHTML = `<div class="rsn" style="color:#ff6b8a">${r.data.detail || "Failed"}</div>`;
+    renderBank(r.data);
   };
 }
 

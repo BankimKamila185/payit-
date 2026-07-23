@@ -1400,6 +1400,46 @@ def _execute_reversal(con, tx):
     return True, {"reason": "reversed"}
 
 
+@app.get("/bank/pending")
+def bank_pending(con=Depends(get_db)):
+    """The BANK's inbox — what the fraud engine has escalated, and what the bank decided.
+
+    Makes the hand-off visible: the app/ML never moves another bank's money or freezes an
+    account on its own authority; it files a REQUEST and the bank adjudicates. This endpoint
+    is that queue, so a reviewer can see (a) accounts the ML provisionally blocked and is
+    waiting on, (b) reversals held for a law-enforcement reference, and (c) what the bank
+    already ruled.
+    """
+    pending_accounts = con.execute(
+        """SELECT fr.reported_vpa AS vpa, fr.reason, fr.created_at,
+                  a.account_age_days AS age_days, a.is_merchant, a.blacklisted
+           FROM fraud_reports fr JOIN accounts a ON a.vpa = fr.reported_vpa
+           WHERE fr.reporter_vpa='SYSTEM/ML' AND fr.status='ml_provisional'
+           ORDER BY fr.id DESC LIMIT 20""").fetchall()
+
+    pending_reversals = con.execute(
+        """SELECT al.transaction_id, t.amount, sa.vpa AS payer, ra.vpa AS payee, al.created_at
+           FROM alerts al JOIN transactions t ON t.id = al.transaction_id
+                JOIN accounts sa ON sa.id = t.sender_account_id
+                JOIN accounts ra ON ra.id = t.receiver_account_id
+           WHERE al.status='reversal_pending'
+           ORDER BY al.id DESC LIMIT 20""").fetchall()
+
+    decided = con.execute(
+        """SELECT reported_vpa AS vpa, status, reason, created_at
+           FROM fraud_reports
+           WHERE reporter_vpa='SYSTEM/ML' AND status IN ('confirmed','cleared')
+           ORDER BY id DESC LIMIT 20""").fetchall()
+
+    return {
+        "pending_account_reviews": [dict(r) for r in pending_accounts],
+        "pending_reversals": [dict(r) for r in pending_reversals],
+        "bank_decisions": [dict(r) for r in decided],
+        "note": ("The fraud engine REQUESTS; the bank decides. A provisional ML block is "
+                 "cleared (account unblocked) if the bank's own evidence doesn't hold."),
+    }
+
+
 class AccountReviewReq(BaseModel):
     vpa: str
 

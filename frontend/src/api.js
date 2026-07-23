@@ -1,7 +1,8 @@
 // api.js — Payit frontend <-> backend API helper (real transaction flow, no mock)
-// Talks to our Python backend (server/app.py) at localhost:3000.
+// Talks to our Python backend (server/app.py). The port comes from
+// frontend/.env (VITE_API_URL); the fallback below is only used if that's missing.
 
-const BASE = import.meta.env.VITE_API_URL || "http://localhost:3000";
+const BASE = import.meta.env.VITE_API_URL || "http://localhost:8001";
 
 // ---- device fingerprint (browser) -> stable device_id ----
 // Real fraud systems use FingerprintJS; here a lightweight canvas+env hash,
@@ -141,6 +142,14 @@ export const api = {
   // Double-entry ledger reconcile: proves every transfer's legs sum to zero,
   // each balance == SUM(its ledger entries), and the whole system nets to zero.
   verifyLedger: () => get("/ledger/verify"),
+
+  // ---- Bank server ----
+  // The bank's inbox: what the fraud engine escalated (provisional account blocks,
+  // reversals held for a law-enforcement ref) and what the bank already ruled.
+  bankPending: () => get("/bank/pending"),
+  // The bank adjudicates a provisionally-blocked account on ITS OWN evidence:
+  // CONFIRMED (stays blocked) or CLEARED (account unblocked — ML false positive).
+  bankReviewAccount: (vpa) => post("/bank/review-account", { vpa }),
 };
 
 // -------- WebAuthn / Passkey helpers (browser-side ceremony) --------

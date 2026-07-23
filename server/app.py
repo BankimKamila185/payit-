@@ -115,7 +115,9 @@ def pin_needs_rehash(stored: str) -> bool:
 app = FastAPI(title="Payit Backend", version="1.0")
 
 import os
-ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:5174,http://localhost:5180,https://payit-mu.vercel.app").split(",")
+# 5173/5174 = customer app (vite), 5180 = auth-lab, 5190 = the BANK's own console
+# (a separate operator-facing UI, because the bank is a separate authority).
+ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:5174,http://localhost:5180,http://localhost:5190,https://payit-mu.vercel.app").split(",")
 app.add_middleware(CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
     allow_methods=["GET", "POST", "OPTIONS"],

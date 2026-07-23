@@ -1765,10 +1765,35 @@ def bank_review_account(req: AccountReviewReq, con=Depends(get_db)):
                     (req.vpa,))
         con.execute("UPDATE blacklist SET reason=? WHERE entity_value=? AND entity_type='account'",
                     (f"Bank CONFIRMED (fan-in {fan_in}, age {age}d, {human_reports} human report(s))", req.vpa))
+
+        # Confirming an account is fraud did nothing for the people whose money is
+        # sitting in it. The two rulings were disconnected: the desk could declare an
+        # account a mule and the victims' claims stayed wherever they were, for
+        # somebody to find later. Every settled payment INTO a confirmed account is
+        # now queued as a claim right here, so the operator sees who is owed what at
+        # the moment they confirm. Still only queued — returning the money remains
+        # /bank/resolve-reversal, and still needs a law-enforcement reference.
+        victims = con.execute(
+            """SELECT t.id, t.amount, sa.vpa AS payer FROM transactions t
+               JOIN accounts sa ON sa.id = t.sender_account_id
+               WHERE t.receiver_account_id=? AND t.status IN ('success','flagged')
+               ORDER BY t.id DESC LIMIT 25""", (acc["id"],)).fetchall()
+        claims = []
+        for v in victims:
+            dup = con.execute("""SELECT 1 FROM alerts WHERE transaction_id=?
+                                 AND status IN ('reversal_pending','reversal_done')""", (v["id"],)).fetchone()
+            if dup:
+                continue
+            con.execute("""INSERT INTO alerts (transaction_id, status, severity, created_at)
+                           VALUES (?,?,?,?)""", (v["id"], "reversal_pending", "critical", now_iso()))
+            claims.append({"transaction_id": v["id"], "amount": float(v["amount"]), "payer": v["payer"]})
         con.commit()
+        owed = sum(c["amount"] for c in claims)
         return {"decision": "CONFIRMED", "outcome": "account_stays_blocked", "vpa": req.vpa,
-                "evidence": evidence,
-                "message": f"Bank review: evidence holds — {req.vpa} confirmed, account stays blocked."}
+                "evidence": evidence, "victim_claims_queued": claims,
+                "message": (f"Bank review: evidence holds — {req.vpa} confirmed, account stays blocked."
+                            + (f" {len(claims)} victim claim(s) totalling ₹{owed:,.0f} queued for reversal."
+                               if claims else ""))}
 
     # weak -> UNBLOCK (reverse the ML's provisional block)
     con.execute("UPDATE accounts SET blacklisted=0 WHERE vpa=?", (req.vpa,))

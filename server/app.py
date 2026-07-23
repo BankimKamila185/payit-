@@ -1203,7 +1203,25 @@ def _file_chain_case_to_bank(con, ring, out, txid):
                                                   status, created_at) VALUES (?,?,?,?,?,?)""",
                     (vpa, "SYSTEM/ML", json.dumps({**evidence, "role_in_chain": role}),
                      total, "ml_provisional", now_iso()))
-        filed.append({"account": vpa, "role": role})
+
+        # Hold the account while the case is open. Filing alone changed nothing on
+        # our side, so the next victim could still pay straight into an account we
+        # had just told the bank was laundering money. Same guard as everywhere else:
+        # only a genuinely suspect account (fresh, or a fan-in already pulling from
+        # many people), never a merchant, never an established+active account — and
+        # the bank CLEARS it if the evidence doesn't hold, which is what makes a hold
+        # on suspicion acceptable rather than a punishment.
+        held = False
+        suspect = (info.get("age_days", 400) < 10) or (info.get("fan_in_24h", 0) >= 5)
+        established = info.get("age_days", 0) > 180 and info.get("lifetime_txns", 0) >= 5
+        if suspect and not established and not info.get("already_blacklisted"):
+            con.execute("UPDATE accounts SET blacklisted=1 WHERE vpa=?", (vpa,))
+            con.execute("""INSERT INTO blacklist (entity_type, entity_value, reason, created_at)
+                           VALUES ('account', ?, ?, ?)""",
+                        (vpa, f"Provisional hold — {role}; chain reported to bank, awaiting review",
+                         now_iso()))
+            held = True
+        filed.append({"account": vpa, "role": role, "provisionally_held": held})
 
     if not filed:
         return None

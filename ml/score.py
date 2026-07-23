@@ -91,6 +91,15 @@ def combine(model_score: float, rule_pts: float, graph_score: float,
         elif rule_pts >= 15:
             final = max(final, SAFE_MAX)     # pattern alone -> REVIEW (step-up)
 
+    # CHAIN_SLOW — the same layering, just paced past the 60s window. The graph
+    # already detects it (900s lookback) but scores it lower on purpose, so it never
+    # reached the >=60 gate above, and the motif was missing from the list entirely.
+    # Net effect: every chain a HUMAN actually performs fell straight through —
+    # switching accounts and paying again takes more than a minute. Only a script
+    # was ever fast enough to get caught.
+    elif graph_motif == "CHAIN_SLOW" and mule_target:
+        final = max(final, REVIEW_MAX if strong_evidence else SAFE_MAX)
+
     # COLLECTION MULE — many distinct people suddenly paying one fresh, non-merchant
     # account. The graph raises FAN_IN for it, but that motif only scores ~23-40, so
     # the blend buried it: seven victims paying the same 2-day-old account inside 35
@@ -214,6 +223,8 @@ class FraudEngine:
         reasons = []
         if gr["motif"] in ("CHAIN", "CYCLE") and gr["score"] >= 60:
             reasons.append(f"Mule {gr['motif'].lower()}: {' -> '.join(gr['path'])}")
+        elif gr["motif"] == "CHAIN_SLOW" and gr["path"]:
+            reasons.append(f"Mule chain (paced to evade): {' -> '.join(gr['path'])}")
         for r in rl["reasons"] + shap_reasons:
             if r not in reasons:
                 reasons.append(r)
@@ -228,7 +239,9 @@ class FraudEngine:
                 "graph": gr["score"],
             },
             "reasons": reasons[:5],
-            "ring": gr["path"] if gr["motif"] in ("CHAIN", "CYCLE") else [],
+            # CHAIN_SLOW included: the victim's upstream leg must still be filed with
+            # the bank when the ring merely moved slower than 60 seconds.
+            "ring": gr["path"] if gr["motif"] in ("CHAIN", "CYCLE", "CHAIN_SLOW") else [],
         }
 
 

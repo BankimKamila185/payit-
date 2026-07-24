@@ -962,9 +962,9 @@ def set_pin(req: SetPinReq, current_user: dict = Depends(get_current_user)):
         con.close()
         raise HTTPException(404, "VPA not found")
 
-    if len(req.upi_pin) != 6 or not req.upi_pin.isdigit():
+    if len(req.upi_pin) not in (4, 6) or not req.upi_pin.isdigit():
         con.close()
-        raise HTTPException(400, "UPI PIN must be a 6-digit number")
+        raise HTTPException(400, "UPI PIN must be a 4 or 6-digit number")
     
     pin_hash = hash_pin(req.upi_pin)                  # Argon2id + pepper
     con.execute("UPDATE accounts SET upi_pin_hash=? WHERE vpa=?", (pin_hash, req.vpa))
@@ -1025,8 +1025,8 @@ def reset_pin(req: ResetPinReq):
     # demand 4 here and 6 again after the OTP step, which no input could satisfy, so
     # the route could never succeed. Validated up front so a wrong length doesn't
     # burn one of the caller's three OTP attempts.
-    if len(req.new_pin) != 6 or not req.new_pin.isdigit():
-        raise HTTPException(400, "UPI PIN must be a 6-digit number")
+    if len(req.new_pin) not in (4, 6) or not req.new_pin.isdigit():
+        raise HTTPException(400, "UPI PIN must be a 4 or 6-digit number")
     con = db()
     acc = con.execute("SELECT * FROM accounts WHERE vpa=?", (req.vpa,)).fetchone()
     if not acc:

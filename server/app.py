@@ -717,7 +717,23 @@ def firebase_login(req: FirebaseLoginReq):
             try:
                 firebase_admin.get_app()
             except ValueError:
-                firebase_admin.initialize_app()
+                service_account_json = os.environ.get("FIREBASE_SERVICE_ACCOUNT")
+                if service_account_json:
+                    try:
+                        import json
+                        cred_dict = json.loads(service_account_json)
+                        cred = firebase_admin.credentials.Certificate(cred_dict)
+                        firebase_admin.initialize_app(cred)
+                    except Exception as env_err:
+                        raise HTTPException(500, f"Failed to initialize Firebase from env: {str(env_err)}")
+                elif os.path.exists("serviceAccountKey.json"):
+                    try:
+                        cred = firebase_admin.credentials.Certificate("serviceAccountKey.json")
+                        firebase_admin.initialize_app(cred)
+                    except Exception as file_err:
+                        raise HTTPException(500, f"Failed to initialize Firebase from file: {str(file_err)}")
+                else:
+                    firebase_admin.initialize_app()
             
             decoded_token = firebase_auth.verify_id_token(req.id_token)
             phone_number = decoded_token.get("phone_number")

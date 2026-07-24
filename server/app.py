@@ -745,6 +745,8 @@ def login(req: LoginReq):
 
     if not (valid_login or valid_upi):
         record_failed_pin(con, req.vpa, attempts)
+        con.close()
+        raise HTTPException(401, "Incorrect PIN. Please try again.")
 
     # Success -> reset lockout
     reset_lockout(con, req.vpa)

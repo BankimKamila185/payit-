@@ -2419,7 +2419,10 @@ def ledger_verify(con=Depends(get_db)):
 @app.get("/dashboard/stats")
 def stats():
     con = db()
-    def one(sql, *a): return con.execute(sql, a).fetchone()[0]
+    def one(sql, *a):
+        r = con.execute(sql, a if a else ()).fetchone()
+        if not r: return 0
+        return list(r.values())[0] if isinstance(r, dict) or hasattr(r, 'values') else r[0]
     total = one("SELECT COUNT(*) FROM transactions")
     blocked = one("SELECT COUNT(*) FROM transactions WHERE label='BLOCK'")
     review = one("SELECT COUNT(*) FROM transactions WHERE label='REVIEW'")

@@ -263,19 +263,22 @@ function App() {
 
   // --- NOTIFICATION BANNER SYSTEM ---
   const triggerNotification = (message, type = 'info') => {
+    if (!message) return;
     const id = Date.now();
-    setNotifications(prev => [...prev, { id, message, type }]);
+    // Keep ONLY the latest single notification on screen to prevent stacking clutter
+    setNotifications([{ id, message, type }]);
     
     // Add to audit log
     const timeStr = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
     setSecurityLog(prev => [
       { message, type, time: timeStr },
-      ...prev.slice(0, 19)
+      ...prev.filter(item => item.message !== message).slice(0, 19)
     ]);
 
-    setTimeout(() => {
-      setNotifications(prev => prev.filter(n => n.id !== id));
-    }, 4500);
+    if (window._notifTimer) clearTimeout(window._notifTimer);
+    window._notifTimer = setTimeout(() => {
+      setNotifications([]);
+    }, 3500);
   };
 
   // Log Kill Switch changes (skip the initial mount so nothing pops on load)
@@ -451,7 +454,7 @@ function App() {
       refreshTxns();                            // reload real history after any result
     } catch (e) {
       setAiScanningTx(null);
-      triggerNotification("⚠️ Backend not reachable — start server on :8001", "alert");
+      triggerNotification("⚠️ Network Error: Unable to connect to payment server. Please try again.", "alert");
     }
   };
 

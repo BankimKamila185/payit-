@@ -86,8 +86,8 @@ const PaidSuccess = ({
             margin: '12px auto' 
           }}>
             {(transactionDetails.score || 0) >= 35 
-              ? `⚠️ Ye payment fraud lag raha. Confirm hone pe ₹${amount} aapke account mein 60 seconds mein wapas aa jayega.`
-              : `⚠️ Naya recipient / VPA detected. Suraksha ke liye ₹${amount} hold pe hai (60 seconds mein settle hoga). Recall available.`}
+              ? `⚠️ Security Alert: Payment flagged by Fraud Shield. If confirmed fraudulent, ₹${amount} will be refunded automatically within 60 seconds.`
+              : `⚠️ Security Hold: New recipient detected. For your safety, ₹${amount} is in cooling-off window (settles in 60s). Instant Recall available.`}
           </p>
           <div style={styles.pendingActions}>
             <button

@@ -1881,6 +1881,59 @@ def _execute_reversal(con, tx):
     return True, {"reason": "reversed"}
 
 
+def _find_chain_hops_for_txn(con, txn_id):
+    """If txn_id is a leg of a detected mule chain, return that chain's ordered hops
+    and its VICTIM (the chain origin). The engine files the whole path + per-hop
+    transaction ids in the fraud_report evidence, so a reversal can unwind the ENTIRE
+    chain back to the person who was actually defrauded — not just one leg."""
+    rows = con.execute(
+        """SELECT reason FROM fraud_reports
+           WHERE reporter_vpa='SYSTEM/ML' ORDER BY id DESC LIMIT 100""").fetchall()
+    for r in rows:
+        raw = r["reason"] or ""
+        if not raw.startswith("{"):
+            continue
+        try:
+            bundle = json.loads(raw)
+        except Exception:
+            continue
+        hops = bundle.get("hops") or []
+        if any(h.get("transaction_id") == txn_id for h in hops):
+            path = bundle.get("path") or []
+            return {"hops": hops, "path": path, "victim": path[0] if path else None}
+    return None
+
+
+def _reverse_chain(con, hops):
+    """Unwind an entire mule chain, LAST hop first, so the money cascades back up to
+    the genuine victim (the chain origin). Each leg is booked with _execute_reversal
+    (the bank's settlement action); reversing terminal->origin guarantees the funds
+    are present at each step — they were just credited by the leg below. Legs whose
+    money has already moved on are reported, not hidden (honest partial recovery)."""
+    legs = []
+    for h in reversed(hops):
+        txid = h.get("transaction_id")
+        if not txid:
+            legs.append({"hop": f"{h.get('from')}->{h.get('to')}", "ok": False, "reason": "no_txn_id"})
+            continue
+        tx = con.execute("SELECT * FROM transactions WHERE id=?", (txid,)).fetchone()
+        if not tx:
+            legs.append({"transaction_id": txid, "ok": False, "reason": "not_found"})
+            continue
+        if tx["status"] == "reversed":
+            legs.append({"transaction_id": txid, "from": h.get("from"), "to": h.get("to"),
+                         "amount": float(tx["amount"]), "ok": True, "reason": "already_reversed"})
+            continue
+        ok, info = _execute_reversal(con, tx)
+        legs.append({"transaction_id": txid, "from": h.get("from"), "to": h.get("to"),
+                     "amount": float(tx["amount"]), "ok": ok, "reason": info["reason"],
+                     "remaining": info.get("remaining")})
+        if ok:
+            con.execute("""UPDATE alerts SET status='reversal_done'
+                           WHERE transaction_id=? AND status='reversal_pending'""", (txid,))
+    return legs
+
+
 @app.get("/bank/pending")
 def bank_pending(con=Depends(get_db)):
     """The BANK's inbox — what the fraud engine has escalated, and what the bank decided.
@@ -1968,6 +2021,30 @@ def bank_resolve_reversal(req: ReversalResolveReq, con=Depends(get_db)):
     if not req.cfcfrms_ref.strip():
         raise HTTPException(400, "A law-enforcement reference (1930 / CFCFRMS) is required "
                                  "before this bank can reverse a settled payment.")
+
+    # If this payment is one leg of a detected MULE CHAIN, reversing just this leg
+    # would hand the money to the mule one hop upstream, not the person who was
+    # actually defrauded. The engine filed the whole path, so unwind EVERY leg — the
+    # money cascades back to the genuine VICTIM (the chain origin), the intermediate
+    # mules net to zero, and it is pulled out of wherever it finally landed.
+    chain = _find_chain_hops_for_txn(con, req.txn_id)
+    if chain and chain.get("hops"):
+        legs = _reverse_chain(con, chain["hops"])
+        con.commit()
+        victim = chain.get("victim")
+        first_amt = float((chain["hops"][0] or {}).get("amount", 0) or 0)
+        any_ok = any(l.get("ok") for l in legs)
+        return {
+            "decision": "ACCR" if any_ok else "RJCR",
+            "reason_code": "FOCR" if any_ok else "AM04",
+            "outcome": "reversed" if any_ok else "funds_gone",
+            "transaction_id": req.txn_id, "chain": chain.get("path"), "victim": victim,
+            "amount_returned_to_victim": first_amt if any_ok else 0.0, "legs": legs,
+            "message": (f"Bank reversed the full mule chain — ₹{first_amt:.0f} returned to the "
+                        f"victim ({victim}). Intermediate mule accounts net to zero.")
+                       if any_ok else
+                       "Bank could not reverse — the money had already moved on (1930/court matter).",
+        }
 
     # Re-run the same adjudication, now WITH the reference the operator holds.
     result = bank_reversal_request(

@@ -158,9 +158,18 @@ export default function OnboardingFlow({ onLogin, deviceId }) {
           const fbLoginRes = await api.firebaseLogin(fbVerify.idToken);
           setBusy(false);
           if (fbLoginRes.ok) {
+            if (fbLoginRes.data?.registered && fbLoginRes.data?.token) {
+              setUserProfile(fbLoginRes.data);
+            }
             setStep('permissions');
             return;
           }
+        } else if (fbVerify.error) {
+          setBusy(false);
+          setErr(fbVerify.error.includes('invalid-verification-code') 
+            ? 'Incorrect Firebase OTP code. Please check and try again.' 
+            : (fbVerify.error || 'Firebase OTP verification failed.'));
+          return;
         }
       }
 

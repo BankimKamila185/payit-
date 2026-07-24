@@ -117,9 +117,10 @@ app = FastAPI(title="Payit Backend", version="1.0")
 import os
 # 5173/5174 = customer app (vite), 5180 = auth-lab, 5190 = the BANK's own console
 # (a separate operator-facing UI, because the bank is a separate authority).
-ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:5174,http://localhost:5180,http://localhost:5190,http://127.0.0.1:5173,http://127.0.0.1:5174,http://127.0.0.1:5180,http://127.0.0.1:5190,https://payit-mu.vercel.app").split(",")
+ALLOWED_ORIGINS = ["*"]
 app.add_middleware(CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"])
 

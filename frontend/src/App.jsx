@@ -1475,7 +1475,24 @@ triggerNotification("Identity verified. Account unlocked.", "info");
                          </button>
                        </div>
                      ) : (
-                       <p style={appGateStyles.subtitle}>(Check server logs for demo.)</p>
+                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, margin: '4px 0 12px 0' }}>
+                         <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>(Check server logs)</span>
+                         <button
+                           type="button"
+                           onClick={async () => {
+                             try {
+                               const r = await api.forgotPin(currentUser);
+                               if (r.ok && r.data && r.data.otp_demo) {
+                                 setForgotOtpDemo(r.data.otp_demo);
+                                 setForgotOtp(r.data.otp_demo);
+                               }
+                             } catch (e) {}
+                           }}
+                           style={{ background: 'rgba(255,140,0,0.2)', color: '#ff8c00', border: '1px solid rgba(255,140,0,0.4)', borderRadius: 6, padding: '2px 8px', fontSize: 10, fontWeight: 700, cursor: 'pointer' }}
+                         >
+                           🔑 Get Demo OTP
+                         </button>
+                       </div>
                      )}
                     <input
                       type="text" maxLength={6} value={forgotOtp}

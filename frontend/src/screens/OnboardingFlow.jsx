@@ -111,6 +111,9 @@ export default function OnboardingFlow({ onLogin, deviceId }) {
       if (fbRes.success && fbRes.confirmationResult) {
         setFbConfirmation(fbRes.confirmationResult);
       } else {
+        if (fbRes.error) {
+          console.warn("[Firebase Phone Auth Error]:", fbRes.error);
+        }
         // Fallback to server OTP
         const otpRes = await api.sendOtp(cleanPhone);
         if (otpRes.ok && otpRes.data && otpRes.data.otp_demo) {

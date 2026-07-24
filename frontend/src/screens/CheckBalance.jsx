@@ -7,6 +7,7 @@ const CheckBalance = ({ onBack, upiId = "you@payit", realBalance = 0 }) => {
   const [loading, setLoading] = useState(false);
   const [balance, setBalance] = useState(null);
   const [err, setErr] = useState('');
+  const [accountType, setAccountType] = useState('savings'); // 'savings' | 'credit'
 
   // Masking the UPI ID in compliance with security guidelines
   const maskUpiId = (rawId) => {
@@ -43,18 +44,31 @@ const CheckBalance = ({ onBack, upiId = "you@payit", realBalance = 0 }) => {
         setPin('');
         return;
       }
-      // Fetch live balance from DB
-      const balRes = await api.balance(upiId);
-      setLoading(false);
-      if (balRes.ok) {
-        setBalance(Math.round(Number(balRes.data.balance) || 0));
+      
+      if (accountType === 'savings') {
+        // Fetch live balance from DB
+        const balRes = await api.balance(upiId);
+        setLoading(false);
+        if (balRes.ok) {
+          setBalance(Math.round(Number(balRes.data.balance) || 0));
+        } else {
+          setBalance(Math.round(Number(realBalance) || 0));
+        }
       } else {
-        setBalance(Math.round(Number(realBalance) || 0));
+        // Fetch credit info from DB
+        const creditRes = await api.getCreditInfo(upiId);
+        setLoading(false);
+        if (creditRes.ok) {
+          const availLimit = (creditRes.data.limit || 100000) - (creditRes.data.spends || 0);
+          setBalance(Math.round(Number(availLimit) || 0));
+        } else {
+          setBalance(100000);
+        }
       }
     } catch {
       setLoading(false);
       // Fallback to prop balance if server unreachable
-      setBalance(Math.round(Number(realBalance) || 0));
+      setBalance(accountType === 'savings' ? Math.round(Number(realBalance) || 0) : 100000);
     }
   };
 
@@ -65,11 +79,43 @@ const CheckBalance = ({ onBack, upiId = "you@payit", realBalance = 0 }) => {
         <span style={styles.upiLabel}>UPI ID: {maskUpiId(upiId)}</span>
       </div>
 
+      {/* Account Type Toggle Selector */}
+      {balance === null && !loading && (
+        <div style={styles.toggleContainer}>
+          <button 
+            onClick={() => { setAccountType('savings'); setPin(''); setErr(''); }}
+            style={{
+              ...styles.toggleBtn,
+              backgroundColor: accountType === 'savings' ? 'var(--surface-hover)' : 'transparent',
+              color: accountType === 'savings' ? 'var(--accent-neon)' : 'var(--text-secondary)',
+              border: accountType === 'savings' ? '1px solid var(--border-color)' : '1px solid transparent',
+              boxShadow: accountType === 'savings' ? '0 2px 8px rgba(0,0,0,0.2)' : 'none'
+            }}
+          >
+            🏦 Savings
+          </button>
+          <button 
+            onClick={() => { setAccountType('credit'); setPin(''); setErr(''); }}
+            style={{
+              ...styles.toggleBtn,
+              backgroundColor: accountType === 'credit' ? 'var(--surface-hover)' : 'transparent',
+              color: accountType === 'credit' ? '#eb3b88' : 'var(--text-secondary)',
+              border: accountType === 'credit' ? '1px solid var(--border-color)' : '1px solid transparent',
+              boxShadow: accountType === 'credit' ? '0 2px 8px rgba(0,0,0,0.2)' : 'none'
+            }}
+          >
+            💳 payit Credit
+          </button>
+        </div>
+      )}
+
       {/* Main Display Area */}
       <div style={styles.displayArea}>
         {balance !== null ? (
           <div style={styles.balanceWrapper} className="animate-fade-in">
-            <span style={styles.balanceLabel}>Account Balance</span>
+            <span style={styles.balanceLabel}>
+              {accountType === 'savings' ? 'Savings Account Balance' : 'Available Credit Limit'}
+            </span>
             <h2 style={styles.balanceAmount}>₹{balance.toLocaleString('en-IN')}.00</h2>
             <button onClick={() => { setBalance(null); setPin(""); }} style={styles.resetBtn}>
               Check another
@@ -77,7 +123,9 @@ const CheckBalance = ({ onBack, upiId = "you@payit", realBalance = 0 }) => {
           </div>
         ) : (
           <div style={styles.pinWrapper}>
-            <span style={styles.pinPromptText}>Enter 6-digit UPI PIN</span>
+            <span style={styles.pinPromptText}>
+              Enter 6-digit UPI PIN for {accountType === 'savings' ? 'Savings' : 'Credit Card'}
+            </span>
             <div style={styles.dotsRow}>
               {[0, 1, 2, 3, 4, 5].map((idx) => (
                 <div 
@@ -294,6 +342,30 @@ const styles = {
     fontWeight: '700',
     marginTop: '16px',
     transition: 'all 0.2s ease',
+  },
+  toggleContainer: {
+    display: 'flex',
+    background: 'var(--surface-color)',
+    borderRadius: '16px',
+    padding: '4px',
+    margin: '16px auto 0 auto',
+    width: '90%',
+    maxWidth: '320px',
+    border: '1px solid var(--border-color)',
+  },
+  toggleBtn: {
+    flex: 1,
+    padding: '10px 0',
+    borderRadius: '12px',
+    border: 'none',
+    fontSize: '14px',
+    fontWeight: '600',
+    cursor: 'pointer',
+    transition: 'all 0.2s ease',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '6px',
   }
 };
 

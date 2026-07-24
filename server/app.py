@@ -2418,21 +2418,26 @@ def ledger_verify(con=Depends(get_db)):
 
 @app.get("/dashboard/stats")
 def stats():
-    con = db()
-    def one(sql, *a):
-        r = con.execute(sql, a if a else ()).fetchone()
-        if not r: return 0
-        return list(r.values())[0] if isinstance(r, dict) or hasattr(r, 'values') else r[0]
-    total = one("SELECT COUNT(*) FROM transactions")
-    blocked = one("SELECT COUNT(*) FROM transactions WHERE label='BLOCK'")
-    review = one("SELECT COUNT(*) FROM transactions WHERE label='REVIEW'")
-    alerts = one("SELECT COUNT(*) FROM alerts WHERE status='open'")
-    recent = [dict(r) for r in con.execute("""SELECT t.amount, t.label, t.score, sa.vpa sender, ra.vpa receiver
-        FROM transactions t JOIN accounts sa ON sa.id=t.sender_account_id
-        JOIN accounts ra ON ra.id=t.receiver_account_id
-        WHERE t.label IS NOT NULL ORDER BY t.id DESC LIMIT 10""").fetchall()]
-    con.close()
-    return {"total": total, "blocked": blocked, "review": review, "open_alerts": alerts, "recent": recent}
+    try:
+        con = db()
+        def one(sql, *a):
+            r = con.execute(sql, a if a else ()).fetchone()
+            if not r: return 0
+            d = dict(r) if hasattr(r, 'keys') else {}
+            return list(d.values())[0] if d else (r[0] if r else 0)
+        total = one("SELECT COUNT(*) FROM transactions")
+        blocked = one("SELECT COUNT(*) FROM transactions WHERE label='BLOCK'")
+        review = one("SELECT COUNT(*) FROM transactions WHERE label='REVIEW'")
+        alerts = one("SELECT COUNT(*) FROM alerts WHERE status='open'")
+        recent_rows = con.execute("""SELECT t.amount, t.label, t.score, sa.vpa sender, ra.vpa receiver
+            FROM transactions t JOIN accounts sa ON sa.id=t.sender_account_id
+            JOIN accounts ra ON ra.id=t.receiver_account_id
+            WHERE t.label IS NOT NULL ORDER BY t.id DESC LIMIT 10""").fetchall()
+        recent = [dict(r) for r in recent_rows] if recent_rows else []
+        con.close()
+        return {"total": total, "blocked": blocked, "review": review, "open_alerts": alerts, "recent": recent}
+    except Exception as e:
+        return {"total": 0, "blocked": 0, "review": 0, "open_alerts": 0, "recent": [], "error": str(e)}
 
 
 # ============================================================================

@@ -2581,42 +2581,48 @@ def analyzer_trace(req: AnalyzeReq):
 @app.get("/analyzer/feed")
 def analyzer_feed(limit: int = 20):
     """Recent transactions already scored by the app, for the live analyser feed."""
-    con = db()
-    rows = con.execute("""
-        SELECT t.id, t.txn_ref, t.amount, t.type, t.status, t.label, t.score,
-               t.reasons, t.created_at, sa.vpa sender, ra.vpa receiver
-        FROM transactions t
-        JOIN accounts sa ON sa.id = t.sender_account_id
-        JOIN accounts ra ON ra.id = t.receiver_account_id
-        WHERE t.label IS NOT NULL
-        ORDER BY t.id DESC LIMIT ?""", (limit,)).fetchall()
-    con.close()
-    out = []
-    for r in rows:
-        d = dict(r)
-        try:
-            d["reasons"] = json.loads(d["reasons"]) if d.get("reasons") else []
-        except Exception:
-            d["reasons"] = []
-        out.append(d)
-    return out
+    try:
+        con = db()
+        rows = con.execute("""
+            SELECT t.id, t.txn_ref, t.amount, t.type, t.status, t.label, t.score,
+                   t.reasons, t.created_at, sa.vpa sender, ra.vpa receiver
+            FROM transactions t
+            JOIN accounts sa ON sa.id = t.sender_account_id
+            JOIN accounts ra ON ra.id = t.receiver_account_id
+            WHERE t.label IS NOT NULL
+            ORDER BY t.id DESC LIMIT %s""", (limit,)).fetchall()
+        con.close()
+        out = []
+        for r in rows:
+            d = dict(r)
+            try:
+                d["reasons"] = json.loads(d["reasons"]) if d.get("reasons") else []
+            except Exception:
+                d["reasons"] = []
+            out.append(d)
+        return out
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"analyzer/feed error: {e}")
 
 
 @app.get("/analyzer/counts")
 def analyzer_counts():
     """Aggregate score counts for the dashboard header tiles."""
-    con = db()
-    def one(sql, *a): return con.execute(sql, a).fetchone()[0]
-    res = {
-        "total": one("SELECT COUNT(*) FROM transactions"),
-        "safe": one("SELECT COUNT(*) FROM transactions WHERE label='SAFE'"),
-        "review": one("SELECT COUNT(*) FROM transactions WHERE label='REVIEW'"),
-        "block": one("SELECT COUNT(*) FROM transactions WHERE label='BLOCK'"),
-        "blocked_amount": one("SELECT COALESCE(SUM(amount),0) FROM transactions WHERE label='BLOCK'"),
-        "avg_score": round(one("SELECT COALESCE(AVG(score),0) FROM transactions WHERE score IS NOT NULL"), 1),
-    }
-    con.close()
-    return res
+    try:
+        con = db()
+        def one(sql, *a): return con.execute(sql, *([a] if a else [])).fetchone()[0]
+        res = {
+            "total": one("SELECT COUNT(*) FROM transactions"),
+            "safe": one("SELECT COUNT(*) FROM transactions WHERE label='SAFE'"),
+            "review": one("SELECT COUNT(*) FROM transactions WHERE label='REVIEW'"),
+            "block": one("SELECT COUNT(*) FROM transactions WHERE label='BLOCK'"),
+            "blocked_amount": one("SELECT COALESCE(SUM(amount),0) FROM transactions WHERE label='BLOCK'"),
+            "avg_score": round(float(one("SELECT COALESCE(AVG(score),0) FROM transactions WHERE score IS NOT NULL")), 1),
+        }
+        con.close()
+        return res
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"analyzer/counts error: {e}")
 
 
 @app.get("/health")

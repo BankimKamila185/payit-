@@ -359,7 +359,18 @@ export default function OnboardingFlow({ onLogin, deviceId }) {
           setBiometricBusy(false);
         }
       } else {
-        setErr(res.data?.detail || 'Registration failed');
+        const isAlreadyReg = res.data?.detail?.includes('already registered');
+        if (isAlreadyReg) {
+          setErr('UPI ID / VPA already registered. Redirecting to Login...');
+          setUserProfile(prev => ({ ...prev, registered: true, vpa: payload.vpa }));
+          setTimeout(() => {
+            setStep('pin_login');
+            setPin('');
+            setErr('');
+          }, 1200);
+        } else {
+          setErr(res.data?.detail || 'Registration failed');
+        }
       }
     } catch {
       setBusy(false);
@@ -782,7 +793,35 @@ export default function OnboardingFlow({ onLogin, deviceId }) {
             })}
           </div>
 
-          {err && <div style={S.errText}>{err}</div>}
+          {err && (
+            <div style={{ textAlign: 'center', margin: '8px 0 4px' }}>
+              <div style={S.errText}>{err}</div>
+              {err.includes('already registered') && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setStep('pin_login');
+                    setPin('');
+                    setErr('');
+                  }}
+                  style={{
+                    marginTop: 8,
+                    background: 'var(--accent-neon, #22e67b)',
+                    color: '#000',
+                    border: 'none',
+                    borderRadius: 16,
+                    padding: '8px 18px',
+                    fontWeight: 700,
+                    fontSize: 12,
+                    cursor: 'pointer',
+                    boxShadow: '0 2px 10px rgba(34,230,123,0.2)'
+                  }}
+                >
+                  🔑 Switch to PIN Login
+                </button>
+              )}
+            </div>
+          )}
 
           {/* Numeric Keypad */}
           <div style={S.keypadContainer}>

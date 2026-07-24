@@ -29,17 +29,23 @@ export async function sendFirebaseOtp(phoneNumber, recaptchaContainerId = "recap
     return { success: false, fallback: true };
   }
   try {
-    if (!window.recaptchaVerifier) {
-      window.recaptchaVerifier = new RecaptchaVerifier(auth, recaptchaContainerId, {
-        size: "invisible"
-      });
+    if (window.recaptchaVerifier) {
+      try { window.recaptchaVerifier.clear(); } catch (_) {}
+      window.recaptchaVerifier = null;
     }
+    window.recaptchaVerifier = new RecaptchaVerifier(auth, recaptchaContainerId, {
+      size: "invisible"
+    });
     const cleanDigits = phoneNumber.replace(/\D/g, "");
     const formattedPhone = phoneNumber.startsWith("+") ? phoneNumber : "+91" + cleanDigits.slice(-10);
     const confirmationResult = await signInWithPhoneNumber(auth, formattedPhone, window.recaptchaVerifier);
     return { success: true, confirmationResult };
   } catch (error) {
     console.error("Firebase sendOtp error:", error);
+    if (window.recaptchaVerifier) {
+      try { window.recaptchaVerifier.clear(); } catch (_) {}
+      window.recaptchaVerifier = null;
+    }
     return { success: false, error: error.message };
   }
 }

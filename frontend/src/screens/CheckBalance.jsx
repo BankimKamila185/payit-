@@ -177,13 +177,13 @@ const CheckBalance = ({ onBack, upiId = "you@payit", realBalance = 0 }) => {
 
           {/* Action Button */}
           <button 
-            onClick={handleCheckBalance} 
-            disabled={pin.length < 4}
+            onClick={() => handleCheckBalance()} 
+            disabled={pin.length < 6}
             style={{
               ...styles.checkBalanceBtn,
-              backgroundColor: pin.length === 4 ? 'var(--accent-neon)' : 'var(--surface-hover)',
-              color: pin.length === 4 ? '#000000' : 'var(--text-muted)',
-              cursor: pin.length === 4 ? 'pointer' : 'not-allowed'
+              backgroundColor: pin.length === 6 ? 'var(--accent-neon)' : 'var(--surface-hover)',
+              color: pin.length === 6 ? '#000000' : 'var(--text-muted)',
+              cursor: pin.length === 6 ? 'pointer' : 'not-allowed'
             }}
           >
             Submit PIN

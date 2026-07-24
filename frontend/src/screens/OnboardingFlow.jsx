@@ -19,6 +19,7 @@ export default function OnboardingFlow({ onLogin, deviceId }) {
   const [fullName, setFullName] = useState('');
   const [vpa, setVpa] = useState('');
   const [onboardingOtpDemo, setOnboardingOtpDemo] = useState('');
+  const [fbConfirmation, setFbConfirmation] = useState(null);
   const [selectedBank, setSelectedBank] = useState(null); // {id, name, upi_handle}
   const [banks, setBanks] = useState([]);
   

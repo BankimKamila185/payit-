@@ -21,6 +21,7 @@ db/*.db-shm
 .env
 .env.*
 !.env.example
+serviceAccountKey.json
 
 # DB backups — account data, never commit
 db/backups/

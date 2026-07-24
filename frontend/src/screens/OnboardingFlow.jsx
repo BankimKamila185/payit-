@@ -4,6 +4,7 @@ import {
   ArrowRight, ChevronLeft, Building, User, CreditCard, Sparkles, Check 
 } from 'lucide-react';
 import { api, registerPasskey, loginWithPasskey, hasPasskey } from '../api';
+import { sendFirebaseOtp, verifyFirebaseOtp } from '../firebase';
 
 export default function OnboardingFlow({ onLogin, deviceId }) {
   // Onboarding steps: 'welcome' | 'phone_input' | 'otp_verify' | 'register_profile' | 'permissions' | 'bank_select' | 'pin_create' | 'pin_confirm' | 'pin_login'
@@ -79,10 +80,11 @@ export default function OnboardingFlow({ onLogin, deviceId }) {
     return () => clearInterval(t);
   }, [step, otpTimer]);
 
-  const handlePhoneSubmit = async () => {
+  const handlePhoneSubmit = async (e) => {
+    if (e) e.preventDefault();
     const cleanPhone = phone.replace(/\D/g, '');
     if (cleanPhone.length < 10) {
-      setErr('Enter a valid 10-digit mobile number');
+      setErr('Please enter a valid 10-digit mobile number');
       return;
     }
     setBusy(true); setErr('');
@@ -102,11 +104,19 @@ export default function OnboardingFlow({ onLogin, deviceId }) {
         setFullName('');
         setVpa(cleanPhone + '@payit');
       }
-      const otpRes = await api.sendOtp(cleanPhone);
-      if (otpRes.ok && otpRes.data && otpRes.data.otp_demo) {
-        setOnboardingOtpDemo(otpRes.data.otp_demo);
+
+      // 1. Try Firebase Phone Auth
+      const fbRes = await sendFirebaseOtp(cleanPhone, 'recaptcha-container');
+      if (fbRes.success && fbRes.confirmationResult) {
+        setFbConfirmation(fbRes.confirmationResult);
       } else {
-        setOnboardingOtpDemo('123456');
+        // Fallback to server OTP
+        const otpRes = await api.sendOtp(cleanPhone);
+        if (otpRes.ok && otpRes.data && otpRes.data.otp_demo) {
+          setOnboardingOtpDemo(otpRes.data.otp_demo);
+        } else {
+          setOnboardingOtpDemo('123456');
+        }
       }
       setBusy(false);
       setOtp(['', '', '', '', '', '']);
@@ -136,6 +146,21 @@ export default function OnboardingFlow({ onLogin, deviceId }) {
     setBusy(true); setErr('');
     try {
       const cleanPhone = phone.replace(/\D/g, '');
+
+      // Try Firebase verification if confirmationResult exists
+      if (fbConfirmation) {
+        const fbVerify = await verifyFirebaseOtp(fbConfirmation, code);
+        if (fbVerify.success && fbVerify.idToken) {
+          const fbLoginRes = await api.firebaseLogin(fbVerify.idToken);
+          setBusy(false);
+          if (fbLoginRes.ok) {
+            setStep('permissions');
+            return;
+          }
+        }
+      }
+
+      // Backend / Demo OTP verification
       const res = await api.verifyOnboardingOtp(cleanPhone, code);
       setBusy(false);
       if (res.ok) {
@@ -348,6 +373,7 @@ export default function OnboardingFlow({ onLogin, deviceId }) {
   // Render screens based on current step state
   return (
     <div style={S.wrap}>
+      <div id="recaptcha-container"></div>
       
       {/* -------------------- STEP 1: Welcome/Splash Screen -------------------- */}
       {step === 'welcome' && (

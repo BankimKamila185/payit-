@@ -219,6 +219,19 @@ function App() {
   const [otpModalError, setOtpModalError] = useState('');
   const [otpResendStatus, setOtpResendStatus] = useState(''); // '' | 'sending' | 'sent'
 
+  // Auto-fetch demo OTP if modal opens without code
+  useEffect(() => {
+    if (otpModalOpen && otpModalTx && !otpModalTx.otpDemo) {
+      api.resendOtp(otpModalTx.transaction_id)
+        .then(rr => {
+          if (rr.ok && rr.data && rr.data.otp_demo) {
+            setOtpModalTx(prev => prev ? { ...prev, otpDemo: rr.data.otp_demo } : null);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [otpModalOpen, otpModalTx?.transaction_id]);
+
   // AI Scanning Loader
   const [aiScanningTx, setAiScanningTx] = useState(null);
   const [aiScanProgress, setAiScanProgress] = useState("");
@@ -1203,7 +1216,33 @@ triggerNotification("Identity verified. Account unlocked.", "info");
                     </button>
                   </div>
                 ) : (
-                  <p style={{ color: 'var(--text-muted)', fontSize: 10, margin: '4px 0 0 0' }}>Check server logs if testing locally.</p>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 }}>
+                    <p style={{ color: 'var(--text-muted)', fontSize: 10, margin: 0 }}>Testing locally? Click to reveal code.</p>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          const rr = await api.resendOtp(otpModalTx.transaction_id);
+                          if (rr.ok && rr.data && rr.data.otp_demo) {
+                            setOtpModalTx(prev => ({ ...prev, otpDemo: rr.data.otp_demo }));
+                            setOtpModalCode(rr.data.otp_demo);
+                          }
+                        } catch (e) {}
+                      }}
+                      style={{
+                        background: 'rgba(255,140,0,0.2)',
+                        color: '#ff8c00',
+                        border: '1px solid rgba(255,140,0,0.4)',
+                        borderRadius: 6,
+                        padding: '4px 10px',
+                        fontSize: 11,
+                        fontWeight: 700,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      🔑 Get Demo OTP
+                    </button>
+                  </div>
                 )}
               </div>
 

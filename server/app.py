@@ -22,6 +22,9 @@ from __future__ import annotations
 import time
 import random
 import secrets
+import base64
+import urllib.parse
+import urllib.request
 import json
 import hashlib
 import traceback
@@ -75,6 +78,75 @@ SMS_DISCLAIMER = ("Sending SMS in India needs TRAI DLT registration (requires a 
 UPI_PER_TXN_CAP = 100_000        # ₹1,00,000 max in a single transfer (default)
 UPI_DAILY_AMOUNT_CAP = 100_000   # ₹1,00,000 total outgoing per 24h
 UPI_DAILY_COUNT_CAP = 20         # 20 outgoing transfers per 24h
+
+
+def send_sms_otp(phone_number: str, otp_code: str, context: str = "verification") -> dict:
+    """
+    Sends SMS OTP via Twilio or Fast2SMS if API credentials exist in environment variables.
+    Falls back gracefully to server log / demo mode if no SMS gateway credentials are configured.
+    """
+    clean_phone = "".join(ch for ch in str(phone_number) if ch.isdigit()) if phone_number else ""
+    if not clean_phone:
+        return {"delivered": False, "provider": "none", "otp_demo": otp_code}
+
+    if len(clean_phone) == 10:
+        full_phone = "+91" + clean_phone
+    elif not str(phone_number).startswith("+"):
+        full_phone = "+" + clean_phone
+    else:
+        full_phone = str(phone_number)
+
+    twilio_sid = os.environ.get("TWILIO_ACCOUNT_SID")
+    twilio_token = os.environ.get("TWILIO_AUTH_TOKEN")
+    twilio_from = os.environ.get("TWILIO_PHONE_NUMBER")
+    fast2sms_key = os.environ.get("FAST2SMS_API_KEY")
+
+    message_body = f"Your PayIt OTP for {context} is {otp_code}. Valid for 5 minutes. Do not share this code."
+
+    # 1. Twilio SMS Integration
+    if twilio_sid and twilio_token and twilio_from:
+        try:
+            url = f"https://api.twilio.com/2010-04-01/Accounts/{twilio_sid}/Messages.json"
+            post_data = urllib.parse.urlencode({
+                "To": full_phone,
+                "From": twilio_from,
+                "Body": message_body
+            }).encode('utf-8')
+
+            req = urllib.request.Request(url, data=post_data, method="POST")
+            auth_header = base64.b64encode(f"{twilio_sid}:{twilio_token}".encode()).decode()
+            req.add_header("Authorization", f"Basic {auth_header}")
+
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                if resp.status in (200, 201):
+                    print(f"[SMS SENT - TWILIO] Delivered OTP to {full_phone}")
+                    return {"delivered": True, "provider": "twilio", "otp_demo": otp_code}
+        except Exception as err:
+            print(f"[SMS TWILIO ERROR] Could not send SMS to {full_phone}: {err}")
+
+    # 2. Fast2SMS Integration (popular Indian SMS API)
+    if fast2sms_key:
+        try:
+            url = "https://www.fast2sms.com/dev/bulkV2"
+            payload = json.dumps({
+                "route": "otp",
+                "variables_values": otp_code,
+                "numbers": clean_phone[-10:]
+            }).encode('utf-8')
+            req = urllib.request.Request(url, data=payload, method="POST")
+            req.add_header("authorization", fast2sms_key)
+            req.add_header("Content-Type", "application/json")
+
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                if resp.status == 200:
+                    print(f"[SMS SENT - FAST2SMS] Delivered OTP to {clean_phone[-10:]}")
+                    return {"delivered": True, "provider": "fast2sms", "otp_demo": otp_code}
+        except Exception as err:
+            print(f"[SMS FAST2SMS ERROR] Could not send SMS to {clean_phone[-10:]}: {err}")
+
+    # 3. Fallback: Demo / Dev Mode (Log code to server terminal)
+    print(f"[OTP CHALLENGE ({context})] phone={full_phone} → OTP: {otp_code} (No SMS API credentials in .env - Demo mode)")
+    return {"delivered": False, "provider": "demo", "otp_demo": otp_code}
 
 
 def _peppered(pin: str) -> str:
@@ -929,13 +1001,20 @@ def forgot_pin(req: ForgotPinReq):
     con.commit(); con.close()
     phone = acc["phone"] or ""
     masked = f"****{phone[-4:]}" if len(phone) >= 4 else "****"
-    print(f"[Forgot PIN OTP] vpa={req.vpa} → OTP: {otp_code}  (check server logs)")
-    # Say what actually happened. No SMS leaves this box: sending one in India needs
-    # TRAI DLT registration, which needs a registered business. Claiming "OTP sent"
-    # would be a lie the demo can't back up.
-    return {"result": "sent",
-            "message": f"Demo mode — no SMS sent to +91 {masked}. {SMS_DISCLAIMER}",
-            "delivery": "server_log"}
+    sms_res = send_sms_otp(phone, otp_code, context="PIN Reset")
+    if sms_res.get("delivered"):
+        return {
+            "result": "sent",
+            "message": f"OTP sent via SMS ({sms_res.get('provider')}) to +91 {masked}.",
+            "delivery": "sms",
+            "provider": sms_res.get("provider")
+        }
+    return {
+        "result": "sent",
+        "message": f"Demo mode — no SMS sent to +91 {masked}. {SMS_DISCLAIMER}",
+        "delivery": "server_log",
+        "otp_demo": otp_code
+    }
 
 
 @app.post("/auth/reset-pin")
@@ -1553,13 +1632,22 @@ def pay(req: PayReq, current_user: dict = Depends(get_current_user),
         otp_code = f"{secrets.randbelow(900000) + 100000}"
         con.execute("INSERT INTO otp_verifications (user_id, code, status, attempts, expires_at, created_at) VALUES (?,?,?,?,?,?)",
                     (feats["_user_id"], otp_code, "pending", 0, (datetime.now()+timedelta(minutes=5)).isoformat(), now_iso()))
-        # No SMS gateway is wired (see SMS_DISCLAIMER). The code is deliberately NOT
-        # returned in this response — a step-up challenge you hand back to the caller
-        # is not a second factor at all. Server logs only.
-        print(f"[OTP CHALLENGE] Transaction #{txid} → user_id={feats['_user_id']} → OTP: {otp_code}  (no SMS sent — read it here)")
+        
+        u_row = con.execute("SELECT phone FROM users WHERE id=?", (feats["_user_id"],)).fetchone()
+        u_phone = u_row["phone"] if u_row else ""
+        sms_res = send_sms_otp(u_phone, otp_code, context="Payment Verification")
+
+        if sms_res.get("delivered"):
+            msg_text = f"Extra verification needed — enter the 6-digit OTP sent to your registered mobile via SMS ({sms_res.get('provider')})."
+            del_type = "sms"
+        else:
+            msg_text = f"Extra verification needed — enter the OTP. Demo mode: no SMS sent, the code is in the server logs. {SMS_DISCLAIMER}"
+            del_type = "server_log"
+
         resp = {"result": "REVIEW", "transaction_id": txid, **out,
-                "message": f"Extra verification needed — enter the OTP. Demo mode: no SMS sent, the code is in the server logs. {SMS_DISCLAIMER}",
-                "delivery": "server_log"}
+                "message": msg_text,
+                "delivery": del_type,
+                "otp_demo": otp_code}
         if chain_case:
             resp["chain_case"] = chain_case
             resp["message"] += " A mule chain was detected and reported to the bank with full evidence."
@@ -1740,11 +1828,22 @@ def resend_otp(req: ResendOtpReq):
     new_code = f"{secrets.randbelow(900000) + 100000}"
     con.execute("INSERT INTO otp_verifications (user_id, code, status, attempts, expires_at, created_at) VALUES (?,?,?,?,?,?)",
                 (user_id, new_code, "pending", 0, (datetime.now()+timedelta(minutes=5)).isoformat(), now_iso()))
-    con.commit(); con.close()
-    print(f"[OTP RESEND] Transaction #{req.pending_txn_id} → user_id={user_id} → OTP: {new_code}  (no SMS sent — read it here)")
+    u_row = con.execute("SELECT phone FROM users WHERE id=?", (user_id,)).fetchone()
+    u_phone = u_row["phone"] if u_row else ""
+    sms_res = send_sms_otp(u_phone, new_code, context="Resend OTP")
+
+    if sms_res.get("delivered"):
+        return {
+            "result": "reissued",
+            "message": f"New OTP sent via SMS ({sms_res.get('provider')}) to your registered phone.",
+            "delivery": "sms",
+            "provider": sms_res.get("provider")
+        }
+
     return {"result": "reissued",
             "message": f"New OTP generated. Demo mode: no SMS sent, the code is in the server logs. {SMS_DISCLAIMER}",
-            "delivery": "server_log"}
+            "delivery": "server_log",
+            "otp_demo": new_code}
 
 
 def _execute_reversal(con, tx):
@@ -2106,10 +2205,14 @@ def auth_send_otp(req: SendOtpReq):
          (datetime.now() + timedelta(minutes=10)).isoformat(), now_iso())
     )
     con.commit(); con.close()
-    print(f"[OTP] Onboarding → phone={phone_clean} → OTP: {otp_code}  (no SMS sent — read it here)")
-    # "result": "shown", not "sent" — nothing was sent. otp_demo is what makes the
-    # demo usable at all, and returning the challenge to the caller is exactly why
-    # this is an onboarding-only path and NOT a security control.
+    sms_res = send_sms_otp(phone_clean, otp_code, context="Onboarding Verification")
+    if sms_res.get("delivered"):
+        return {
+            "result": "sent",
+            "message": f"OTP sent via SMS ({sms_res.get('provider')}) to +91 ****{phone_clean[-4:]}.",
+            "delivery": "sms",
+            "provider": sms_res.get("provider")
+        }
     return {"result": "shown",
             "message": f"Demo mode — no SMS sent to +91 ****{phone_clean[-4:]}. {SMS_DISCLAIMER}",
             "delivery": "on_screen",

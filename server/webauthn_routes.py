@@ -132,7 +132,7 @@ def _fp_drift(baseline_json: str | None, current: dict | None) -> dict:
 
 
 # --------------------------------------------------------------- registration
-@router.post("/auth/webauthn/register-options")
+@router.post("/register-options")
 def register_options(req: OptionsReq, current_user: dict = Depends(_authed_account)):
     from server.app import db
     _assert_own_vpa(current_user, req.vpa)
@@ -155,7 +155,7 @@ def register_options(req: OptionsReq, current_user: dict = Depends(_authed_accou
     return json.loads(options_to_json(opts))
 
 
-@router.post("/auth/webauthn/register")
+@router.post("/register")
 def register_verify(req: VerifyReq, current_user: dict = Depends(_authed_account)):
     from server.app import db, now_iso
     _assert_own_vpa(current_user, req.vpa)
@@ -204,7 +204,7 @@ def register_verify(req: VerifyReq, current_user: dict = Depends(_authed_account
 
 
 # --------------------------------------------------------------- authentication
-@router.post("/auth/webauthn/login-options")
+@router.post("/login-options")
 def login_options(req: OptionsReq):
     from server.app import db
     con = db()
@@ -229,7 +229,7 @@ def login_options(req: OptionsReq):
     return json.loads(options_to_json(opts))
 
 
-@router.post("/auth/webauthn/login")
+@router.post("/login")
 def login_verify(req: VerifyReq):
     from server.app import db, now_iso, _issue_token_for_user
     expected = _challenges.pop(req.vpa, None)      # single use

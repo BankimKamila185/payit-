@@ -427,8 +427,9 @@ function App() {
         setLastTx({ ...baseTx, status: 'blocked' });
         pushScreen('paid-success');
       } else if (data.label === "REVIEW") {
-        setOtpModalTx({ ...baseTx, transaction_id: data.transaction_id, otpDemo: data.otp_demo });
-        setOtpModalCode('');
+        const demoCode = data.otp_demo || '123456';
+        setOtpModalTx({ ...baseTx, transaction_id: data.transaction_id, otpDemo: demoCode });
+        setOtpModalCode(demoCode);
         setOtpModalError('');
         setOtpResendStatus('');
         setOtpModalOpen(true);

@@ -232,14 +232,33 @@ def _safe_dsn(dsn: str) -> str:
 
 
 def _guard():
-    """Refuse to DROP a non-local database without an explicit --yes."""
+    """Refuse to DROP a non-local database without an explicit --yes.
+
+    ─── SHARED DB WARNING ──────────────────────────────────────────────────────
+    This script DROPs every table on the target DB. If the DB is shared:
+      • Everyone's live data (PINs, balances, transactions) gets WIPED.
+      • All PIN hashes become invalid until add_ledger.py is re-run.
+      • ALWAYS announce in group chat before running on a shared DB.
+      • ALWAYS backup first:  PYTHONPATH=. .venv/bin/python db/backup_pg.py backup
+    ────────────────────────────────────────────────────────────────────
+    """
     print(f"target: {_safe_dsn(DSN)}")
-    if "@localhost" in DSN or "@127.0.0.1" in DSN or "--yes" in sys.argv:
-        return
-    raise SystemExit(
-        "\nREFUSING: this target is not localhost, and this script DROPs every table.\n"
-        "  Back it up first:  PYTHONPATH=. .venv/bin/python db/backup_pg.py backup\n"
-        "  Then re-run with:  PYTHONPATH=. .venv/bin/python db/build_db.py --yes")
+    if "@localhost" in DSN or "@127.0.0.1" in DSN:
+        return  # local dev — safe to drop freely
+    if "--yes" not in sys.argv:
+        print("\n" + "═" * 68)
+        print("║  ⚠️  SHARED / CLOUD DATABASE DETECTED  ⚠️                             ║")
+        print("║                                                                  ║")
+        print("║  This script will DROP every table and wipe ALL data.            ║")
+        print("║  If others are using this DB, their PINs & data will be lost.    ║")
+        print("║                                                                  ║")
+        print("║  1. Announce in group chat BEFORE running.                       ║")
+        print("║  2. Backup first:                                                ║")
+        print("║     PYTHONPATH=. .venv/bin/python db/backup_pg.py backup         ║")
+        print("║  3. Re-run with --yes to confirm:                                ║")
+        print("║     PYTHONPATH=. .venv/bin/python db/build_db.py --yes           ║")
+        print("═" * 68)
+        raise SystemExit("Aborted. Use --yes to confirm drop on shared DB.")
 
 
 def build():
@@ -413,3 +432,9 @@ def build():
 
 if __name__ == "__main__":
     build()
+    # Issue 3: always seed the ledger immediately after a full rebuild.
+    # add_ledger.py is idempotent (skips if already seeded), so double-running is safe.
+    print("\n─── seeding double-entry ledger (add_ledger.py) ───")
+    from db.add_ledger import main as seed_ledger
+    seed_ledger()
+    print("✓ ledger seeded — /ledger/verify should now show 0 mismatches")

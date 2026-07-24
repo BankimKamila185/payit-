@@ -3,294 +3,216 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Beneficiary Bank — Fraud Desk</title>
 <style>
-  /* Deliberately NOT the consumer app's look. This is an internal bank
-     operator console: institutional, dense, no marketing gloss. */
   :root{
-    --bg:#0f141c; --panel:#151c27; --line:#26303f; --ink:#e8edf5;
-    --muted:#8b98ab; --blue:#4a9eff; --amber:#f0a52e; --red:#ff5f6d; --green:#3ecf8e;
+    --bg:#0f141c; --panel:#161d29; --line:#26303f; --ink:#e8edf5; --muted:#8b98ab;
+    --blue:#4a9eff; --amber:#f0a52e; --red:#ff5f6d; --green:#3ecf8e;
   }
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--ink);
-       font:14px/1.5 ui-sans-serif,-apple-system,"Segoe UI",Roboto,sans-serif}
-  header{background:linear-gradient(180deg,#182231,#131a24);border-bottom:1px solid var(--line);
-         padding:16px 22px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
-  .crest{width:38px;height:38px;border-radius:8px;background:var(--blue);color:#06101f;
-         display:flex;align-items:center;justify-content:center;font-weight:800;font-size:17px}
-  h1{font-size:17px;margin:0;letter-spacing:.2px}
-  .sub{font-size:11.5px;color:var(--muted);margin-top:2px}
+       font:15px/1.55 ui-sans-serif,-apple-system,"Segoe UI",Roboto,sans-serif}
+  header{background:#131a24;border-bottom:1px solid var(--line);padding:16px 22px;
+         display:flex;align-items:center;gap:14px;flex-wrap:wrap;position:sticky;top:0;z-index:5}
+  .crest{width:40px;height:40px;border-radius:10px;background:var(--blue);color:#06101f;
+         display:flex;align-items:center;justify-content:center;font-size:20px}
+  h1{font-size:18px;margin:0}
+  .sub{font-size:12px;color:var(--muted);margin-top:2px}
   .spacer{flex:1}
   .dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:6px}
-  .status{font-size:11.5px;color:var(--muted);border:1px solid var(--line);
-          padding:6px 10px;border-radius:20px;background:#111823}
-  main{max-width:1080px;margin:0 auto;padding:20px 22px 60px}
-  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:22px}
-  .kpi{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
-  .kpi .n{font-size:26px;font-weight:700;line-height:1.1}
-  .kpi .l{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-top:4px}
-  h2{font-size:12px;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);
-     margin:26px 0 10px;padding-bottom:8px;border-bottom:1px solid var(--line)}
-  .case{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--amber);
-        border-radius:8px;padding:14px 16px;margin-bottom:10px}
-  .case.done{border-left-color:var(--muted);opacity:.85}
-  .row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-  .vpa{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:14px;font-weight:600}
-  .tag{font-size:10px;font-weight:700;letter-spacing:.5px;padding:3px 8px;border-radius:5px}
-  .t-amber{background:rgba(240,165,46,.13);color:var(--amber)}
-  .t-red{background:rgba(255,95,109,.13);color:var(--red)}
-  .t-green{background:rgba(62,207,142,.13);color:var(--green)}
-  .t-blue{background:rgba(74,158,255,.13);color:var(--blue)}
-  .reason{font-size:12px;color:var(--muted);margin-top:7px}
-  .ev{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-top:11px}
-  .ev div{background:#111823;border:1px solid var(--line);border-radius:6px;padding:8px 10px}
-  .ev .k{font-size:9.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
-  .ev .v{font-size:14px;font-weight:600;margin-top:2px}
-  button{font:inherit;cursor:pointer;border-radius:7px;border:1px solid var(--line);
-         background:#1b2432;color:var(--ink);padding:8px 14px}
-  button:hover{background:#212c3d}
+  .status{font-size:12px;color:var(--muted)}
+  button{font:inherit;cursor:pointer;border-radius:9px;border:1px solid var(--line);
+         background:#1b2432;color:var(--ink);padding:9px 15px;transition:background .15s}
+  button:hover{background:#232f40}
   button.primary{background:var(--blue);color:#06101f;border-color:transparent;font-weight:700}
-  button:disabled{opacity:.55;cursor:default}
-  .actions{margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-  .verdict{font-size:12px;margin-top:10px;padding:10px 12px;border-radius:7px;line-height:1.5}
-  .v-ok{background:rgba(62,207,142,.08);border:1px solid rgba(62,207,142,.25)}
-  .v-no{background:rgba(255,95,109,.08);border:1px solid rgba(255,95,109,.25)}
-  .empty{color:var(--muted);font-size:13px;padding:16px;text-align:center;
-         border:1px dashed var(--line);border-radius:8px}
-  .note{margin-top:30px;background:#111823;border:1px solid var(--line);border-left:3px solid var(--blue);
-        border-radius:8px;padding:14px 16px;font-size:12px;color:var(--muted);line-height:1.65}
+  button.danger{background:rgba(255,95,109,.14);color:var(--red);border-color:rgba(255,95,109,.3)}
+  button.good{background:rgba(62,207,142,.14);color:var(--green);border-color:rgba(62,207,142,.3)}
+  button:disabled{opacity:.5;cursor:default}
+  main{max-width:840px;margin:0 auto;padding:22px 20px 70px}
+  .kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:26px}
+  .kpi{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px}
+  .kpi .n{font-size:30px;font-weight:800;line-height:1}
+  .kpi .l{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-top:6px}
+  h2{font-size:12px;text-transform:uppercase;letter-spacing:.9px;color:var(--muted);
+     margin:24px 0 12px;font-weight:700}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+        padding:16px 18px;margin-bottom:12px;border-left:3px solid var(--amber)}
+  .card.rev{border-left-color:var(--blue)}
+  .card.done{border-left-color:var(--muted);opacity:.9}
+  .top{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .vpa{font-family:ui-monospace,Menlo,monospace;font-size:15px;font-weight:600}
+  .chip{font-size:10.5px;font-weight:700;letter-spacing:.4px;padding:3px 9px;border-radius:6px}
+  .c-red{background:rgba(255,95,109,.14);color:var(--red)}
+  .c-amber{background:rgba(240,165,46,.14);color:var(--amber)}
+  .c-blue{background:rgba(74,158,255,.14);color:var(--blue)}
+  .c-green{background:rgba(62,207,142,.14);color:var(--green)}
+  .why{font-size:13.5px;color:var(--ink);margin:11px 0 4px}
+  .why b{color:var(--amber)}
+  .money{font-size:15px;font-weight:700}
+  .actions{margin-top:14px;display:flex;gap:9px;flex-wrap:wrap;align-items:center}
+  input{background:#0c121b;border:1px solid var(--line);border-radius:9px;color:var(--ink);
+        padding:9px 12px;font:inherit;flex:1;min-width:190px}
+  .toggle{font-size:12px;color:var(--blue);cursor:pointer;user-select:none;margin-top:11px;display:inline-block}
+  .ev{display:none;margin-top:12px;background:#0e141d;border:1px solid var(--line);border-radius:10px;padding:14px}
+  .ev.open{display:block}
+  .ev .h{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin:2px 0 6px}
+  .ev .hop,.ev .acc{font-family:ui-monospace,Menlo,monospace;font-size:12px;padding:5px 0;
+                    border-bottom:1px solid var(--line);color:var(--muted)}
+  .ev .acc b{color:var(--ink)}
+  .verdict{font-size:13px;margin-top:12px;padding:11px 13px;border-radius:9px;line-height:1.5}
+  .v-ok{background:rgba(62,207,142,.09);border:1px solid rgba(62,207,142,.25)}
+  .v-no{background:rgba(255,95,109,.09);border:1px solid rgba(255,95,109,.25)}
+  .empty{color:var(--muted);font-size:14px;padding:22px;text-align:center;
+         border:1px dashed var(--line);border-radius:12px}
+  .foot{margin-top:28px;font-size:12px;color:var(--muted);line-height:1.6;
+        border-top:1px solid var(--line);padding-top:14px}
   code{background:#0c121b;padding:1px 5px;border-radius:4px;font-size:11.5px}
 </style>
 
 <header>
   <div class="crest">🏦</div>
   <div>
-    <h1>Beneficiary Bank — Fraud Desk</h1>
-    <div class="sub">Adjudication console · requests received from the PSP fraud engine</div>
+    <h1>Bank Fraud Desk</h1>
+    <div class="sub">Cases the payment app's fraud engine escalated — the bank decides</div>
   </div>
   <div class="spacer"></div>
-  <span class="status" id="status"><span class="dot" style="background:#8b98ab"></span>connecting…</span>
+  <span class="status" id="status"><span class="dot" style="background:#8b98ab"></span>…</span>
   <button id="refresh">Refresh</button>
 </header>
 
 <main>
   <div class="kpis">
-    <div class="kpi"><div class="n" id="kPend" style="color:var(--amber)">–</div><div class="l">Awaiting review</div></div>
-    <div class="kpi"><div class="n" id="kLien" style="color:var(--blue)">–</div><div class="l">Reversals held</div></div>
-    <div class="kpi"><div class="n" id="kRuled">–</div><div class="l">Rulings issued</div></div>
+    <div class="kpi"><div class="n" id="kPend" style="color:var(--amber)">–</div><div class="l">Accounts to review</div></div>
+    <div class="kpi"><div class="n" id="kLien" style="color:var(--blue)">–</div><div class="l">Money to return</div></div>
+    <div class="kpi"><div class="n" id="kRuled" style="color:var(--green)">–</div><div class="l">Decided</div></div>
   </div>
 
-  <h2>Inbound — account blocks awaiting the bank's decision</h2>
-  <div id="pending"></div>
+  <h2>🔴 Accounts flagged — block or clear?</h2>
+  <div id="accounts"></div>
 
-  <h2>Held — reversal requests without a law-enforcement reference</h2>
-  <div id="liens"></div>
+  <h2>💰 Victims' money held — approve reversal?</h2>
+  <div id="reversals"></div>
 
-  <h2>Issued rulings</h2>
-  <div id="ruled"></div>
+  <h2>✅ Decisions made</h2>
+  <div id="decisions"></div>
 
-  <div class="note">
-    <b>Why this console exists.</b> The payment app and its fraud engine have no authority over an
-    account at this bank — they can only <b>request</b>. When the engine is confident, it places a
-    <b>provisional</b> block and files the case here. This desk rules on the bank's <i>own</i>
-    evidence (recent fan-in, account age, independent customer reports) and will
-    <b>CLEAR &amp; unblock</b> an account the engine got wrong. The engine's own report is not
-    counted as evidence — a block cannot justify itself.<br><br>
-    Reversals follow the same principle (ISO 20022 <code>camt.056</code> request →
-    <code>camt.029</code> resolution): a reversal needs a law-enforcement reference
-    (India: 1930 / CFCFRMS), otherwise the bank can only hold a lien — reject code
-    <code>RQDA</code>. Funds already moved on → <code>AM04</code>.
+  <div class="foot">
+    The app can only <b>request</b> — it has no authority over an account at this bank.
+    This desk rules on the bank's <i>own</i> evidence and <b>unblocks</b> anything the engine got
+    wrong. A reversal needs a police reference (India: 1930 / CFCFRMS) — otherwise only a hold.
   </div>
 </main>
 
 <script>
 const API = "https://payit-ru7o.onrender.com";
 const $ = (id) => document.getElementById(id);
-
+const money = (n) => "₹" + Number(n||0).toLocaleString("en-IN");
 async function jget(p){ const r = await fetch(API+p); return {ok:r.ok, data: await r.json().catch(()=>({}))}; }
 async function jpost(p,b){ const r = await fetch(API+p,{method:"POST",headers:{"Content-Type":"application/json"},
                           body:JSON.stringify(b)}); return {ok:r.ok, data: await r.json().catch(()=>({}))}; }
-const money = (n) => "₹" + Number(n||0).toLocaleString("en-IN");
-const when  = (s) => { try { return new Date(s).toLocaleString("en-IN",{dateStyle:"medium",timeStyle:"short"}); } catch { return s||""; } };
+const setStatus = (ok,m) => $("status").innerHTML =
+  `<span class="dot" style="background:${ok?"#3ecf8e":"#ff5f6d"}"></span>${m}`;
 
-/* The engine files a structured case, not an assertion. Render it so the reviewer
-   can check the claim instead of taking "ML flagged it" on trust: every hop with the
-   gap to the next (layering = value preserved while moving fast), and each account's
-   attributes the bank can verify against its own records. */
-function evidenceHtml(ev){
-  if(!ev) return "";
-  const hops = (ev.hops || []).map(h => {
-    const gap = h.seconds_after_previous != null
-      ? `<span class="tag t-amber" style="margin-left:6px">+${h.seconds_after_previous}s</span>` : "";
-    return `<div style="font-family:ui-monospace,Menlo,monospace;font-size:12px;padding:5px 0;
-              border-bottom:1px solid var(--line)">
-        <b>${money(h.amount)}</b> &nbsp;${h.from} <span style="color:var(--blue)">→</span> ${h.to}${gap}
-        <span style="color:var(--muted)"> · txn #${h.transaction_id ?? "—"}</span></div>`;
-  }).join("");
-  const last = (ev.path || [])[(ev.path || []).length - 1];
-  const accs = (ev.accounts || []).map((a, i) => {
-    const isVictim = i === 0, isEnd = a.vpa === last;
-    const role = isVictim ? '<span class="tag t-blue">VICTIM</span>'
-               : isEnd ? '<span class="tag t-red">MONEY LANDED HERE</span>'
-               : '<span class="tag t-amber">PASS-THROUGH</span>';
-    // Forwarding ~everything it receives is the behaviour that separates a mule
-    // from someone who simply got paid, so it is shown for every account.
-    const fw = a.forwarded_pct >= 70
-      ? `<b style="color:var(--red)">${a.forwarded_pct}% forwarded on</b>`
-      : `${a.forwarded_pct}% forwarded on`;
-    const acts = (a.recent_activity || []).map(x =>
-      `<div style="font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:var(--muted);padding-left:10px">
-         ${money(x.amount)} &nbsp;${x.from.split("@")[0]} → ${x.to.split("@")[0]}</div>`).join("");
-    return `
-      <div style="padding:8px 0;border-bottom:1px solid var(--line)">
-        <div class="row" style="gap:8px">
-          <span style="font-family:ui-monospace,Menlo,monospace;font-size:12px">${a.vpa}</span>${role}
-          <span style="color:var(--muted);font-size:11px">${a.name || ""}</span>
-        </div>
-        <div style="color:var(--muted);font-size:11px;margin-top:3px">
-          age <b style="color:${a.age_days < 10 ? "var(--red)" : "var(--ink)"}">${a.age_days}d</b> ·
-          KYC ${a.kyc} · ${a.is_merchant ? "merchant" : "personal"} ·
-          lifetime ${a.lifetime_txns} txns · fan-in 24h
-          <b style="color:${a.fan_in_24h >= 5 ? "var(--red)" : "var(--ink)"}">${a.fan_in_24h}</b>
-          ${a.already_blacklisted ? ' · <b style="color:var(--red)">already blacklisted</b>' : ""}
-        </div>
-        <div style="color:var(--muted);font-size:11px;margin-top:2px">
-          24h: in ${money(a.received_24h)} · out ${money(a.sent_24h)} · ${fw}
-        </div>
-        ${acts ? `<div style="margin-top:4px">${acts}</div>` : ""}
-      </div>`;
-  }).join("");
-  return `
-    <div style="margin-top:11px;background:#111823;border:1px solid var(--line);border-radius:8px;padding:12px 14px">
-      <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px">
-        Evidence filed by the engine · ${ev.pattern || ""} ·
-        engine said ${ev.engine?.label || "—"} ${ev.engine?.score ?? ""}</div>
-      <div style="font-size:10.5px;color:var(--muted);margin:8px 0 3px">MONEY PATH</div>${hops}
-      <div style="font-size:10.5px;color:var(--muted);margin:10px 0 3px">ACCOUNTS IN THE PATH (verify against your own records)</div>${accs}
-      ${(ev.engine?.reasons || []).length ? `<div style="font-size:10.5px;color:var(--muted);margin:10px 0 3px">ENGINE SIGNALS</div>` +
-        ev.engine.reasons.map(r => `<div style="font-size:11.5px;color:var(--muted)">• ${r}</div>`).join("") : ""}
-    </div>`;
+// one-line "why" from the evidence, so the reviewer sees the point without opening anything
+function whyLine(ev, vpa){
+  const a = (ev?.accounts||[]).find(x=>x.vpa===vpa);
+  if(!a) return ev?.path ? "In a mule chain: " + ev.path.map(v=>v.split("@")[0]).join(" → ") : "";
+  const bits = [];
+  if(a.age_days < 10) bits.push(`only <b>${a.age_days} days old</b>`);
+  if(a.fan_in_24h >= 5) bits.push(`took money from <b>${a.fan_in_24h}</b> people in 24h`);
+  if(a.forwarded_pct >= 70) bits.push(`forwarded on <b>${a.forwarded_pct}%</b>`);
+  if(!bits.length && a.kyc) bits.push(`KYC ${a.kyc}`);
+  return bits.join(", ");
 }
 
-function setStatus(ok, msg){
-  $("status").innerHTML = `<span class="dot" style="background:${ok?"#3ecf8e":"#ff5f6d"}"></span>${msg}`;
+function evidenceBox(ev, idx){
+  if(!ev) return "";
+  const hops = (ev.hops||[]).map(h=>{
+    const g = h.seconds_after_previous!=null ? ` <span class="chip c-amber">+${h.seconds_after_previous}s</span>` : "";
+    return `<div class="hop"><b style="color:var(--ink)">${money(h.amount)}</b> ${h.from} → ${h.to}${g}</div>`;
+  }).join("");
+  const accs = (ev.accounts||[]).map(a=>`
+    <div class="acc"><b>${a.vpa}</b> · age ${a.age_days}d · KYC ${a.kyc} ·
+      ${a.is_merchant?"merchant":"personal"} · fan-in 24h ${a.fan_in_24h}
+      ${a.forwarded_pct!=null?`· forwarded ${a.forwarded_pct}%`:""}</div>`).join("");
+  return `<span class="toggle" onclick="document.getElementById('ev${idx}').classList.toggle('open')">View evidence ▾</span>
+    <div class="ev" id="ev${idx}">
+      <div class="h">Money path</div>${hops}
+      <div class="h" style="margin-top:10px">Accounts in the path</div>${accs}
+    </div>`;
 }
 
 async function load(){
   const r = await jget("/bank/pending");
-  if(!r.ok){ setStatus(false,"backend unreachable ("+API+")"); return; }
-  setStatus(true,"connected · "+API.replace("http://",""));
+  if(!r.ok){ setStatus(false,"backend not reachable"); return; }
+  setStatus(true,"live");
   const d = r.data;
-  const pend = d.pending_account_reviews || [], liens = d.pending_reversals || [], ruled = d.bank_decisions || [];
-  $("kPend").textContent = pend.length;
-  $("kLien").textContent = liens.length;
-  $("kRuled").textContent = ruled.length;
+  const acc = d.pending_account_reviews||[], rev = d.pending_reversals||[], dec = d.bank_decisions||[];
+  $("kPend").textContent = acc.length;
+  $("kLien").textContent = rev.length;
+  $("kRuled").textContent = dec.length;
 
-  /* ---- inbound account blocks ---- */
-  $("pending").innerHTML = pend.length === 0
-    ? `<div class="empty">No cases awaiting a decision.</div>`
-    : pend.map((c,i) => `
-      <div class="case" id="case${i}">
-        <div class="row">
+  /* accounts to review */
+  $("accounts").innerHTML = acc.length===0 ? `<div class="empty">Nothing to review.</div>` :
+    acc.map((c,i)=>`
+      <div class="card">
+        <div class="top">
           <span class="vpa">${c.vpa}</span>
-          <span class="tag t-amber">PROVISIONAL BLOCK</span>
-          <span class="tag t-blue">${c.is_merchant ? "MERCHANT" : "PERSONAL"}</span>
+          <span class="chip c-red">FLAGGED</span>
           <div class="spacer"></div>
-          <span style="font-size:11px;color:var(--muted)">filed ${when(c.created_at)}</span>
+          <span class="chip c-blue">age ${c.age_days}d</span>
         </div>
-        <div class="reason">Engine's reason: ${c.reason || "—"}</div>
-        ${evidenceHtml(c.evidence_bundle)}
-        <div class="ev">
-          <div><div class="k">Account age</div><div class="v">${c.age_days}d</div></div>
-          <div><div class="k">Type</div><div class="v">${c.is_merchant ? "Merchant" : "Personal"}</div></div>
-          <div><div class="k">Currently</div><div class="v">${c.blacklisted ? "Blocked" : "Open"}</div></div>
-        </div>
+        <div class="why">Why: ${whyLine(c.evidence_bundle, c.vpa) || c.reason || "escalated by the engine"}</div>
+        ${evidenceBox(c.evidence_bundle, "a"+i)}
         <div class="actions">
-          <button class="primary" data-vpa="${c.vpa}" data-i="${i}">Adjudicate on bank evidence</button>
-          <span style="font-size:11px;color:var(--muted)">runs the bank's own checks, then rules</span>
+          <button class="danger" data-act="confirm" data-vpa="${c.vpa}" data-i="a${i}">Confirm fraud · keep blocked</button>
+          <button class="good"   data-act="clear"   data-vpa="${c.vpa}" data-i="a${i}">Clear · unblock</button>
         </div>
-        <div id="verdict${i}"></div>
+        <div id="va${i}"></div>
       </div>`).join("");
 
-  document.querySelectorAll("#pending button[data-vpa]").forEach(btn => {
-    btn.onclick = async () => {
-      const i = btn.dataset.i;
-      btn.disabled = true; btn.textContent = "Adjudicating…";
-      const res = await jpost("/bank/review-account", { vpa: btn.dataset.vpa });
-      const v = res.data || {};
-      const cleared = v.decision === "CLEARED";
-      $("verdict"+i).innerHTML = `
-        <div class="verdict ${cleared ? "v-ok" : "v-no"}">
-          <b>${v.decision || "ERROR"}</b> — ${v.outcome || ""}<br>${v.message || ""}
-          ${v.evidence ? `<br><span style="color:var(--muted)">bank evidence: fan-in 24h ${v.evidence.fan_in_24h},
-            age ${v.evidence.account_age_days}d, independent reports ${v.evidence.human_reports}</span>` : ""}
-        </div>`;
-      setTimeout(load, 1400);   // refresh the queue so it moves into "issued rulings"
-    };
+  document.querySelectorAll('#accounts button[data-vpa]').forEach(b=>b.onclick=async()=>{
+    b.disabled=true; const box=$("v"+b.dataset.i);
+    const res=await jpost("/bank/review-account",{vpa:b.dataset.vpa}); const v=res.data||{};
+    const cleared=v.decision==="CLEARED";
+    box.innerHTML=`<div class="verdict ${cleared?"v-ok":"v-no"}"><b>${v.decision||"ERR"}</b> — ${v.message||""}</div>`;
+    setTimeout(load,1400);
   });
 
-  /* ---- held reversals ---- */
-  $("liens").innerHTML = liens.length === 0
-    ? `<div class="empty">No reversals on hold.</div>`
-    : liens.map((l,i) => `
-      <div class="case" style="border-left-color:var(--blue)">
-        <div class="row">
-          <span class="vpa">TXN #${l.transaction_id}</span>
-          <span class="tag t-blue">LIEN · RQDA</span>
+  /* reversals */
+  $("reversals").innerHTML = rev.length===0 ? `<div class="empty">No money on hold.</div>` :
+    rev.map((l,i)=>`
+      <div class="card rev">
+        <div class="top">
+          <span class="vpa">${l.payer.split("@")[0]} → ${l.payee.split("@")[0]}</span>
           <div class="spacer"></div>
-          <span style="font-size:13px;font-weight:700">${money(l.amount)}</span>
+          <span class="money">${money(l.amount)}</span>
         </div>
-        <div class="reason">${l.payer} → ${l.payee} · reported ${when(l.created_at)}</div>
-        <div class="reason">The payer can only report. This desk reverses <b>only</b> against a
-          law-enforcement reference the operator actually holds.</div>
+        <div class="why">Held for the victim — needs a police reference to return.</div>
         <div class="actions">
-          <input id="ref${i}" placeholder="1930 / CFCFRMS reference"
-            style="flex:1;min-width:200px;background:#0c121b;border:1px solid var(--line);
-                   border-radius:7px;color:var(--ink);padding:8px 11px;font:inherit">
-          <button class="primary" data-act="ok" data-tx="${l.transaction_id}" data-i="${i}">Approve reversal</button>
-          <button data-act="no" data-tx="${l.transaction_id}" data-i="${i}">Reject</button>
+          <input id="ref${i}" placeholder="1930 / CFCFRMS reference">
+          <button class="primary" data-tx="${l.transaction_id}" data-i="${i}" data-ok="1">Approve · return money</button>
+          <button class="danger"  data-tx="${l.transaction_id}" data-i="${i}" data-ok="0">Reject</button>
         </div>
-        <div id="lv${i}"></div>
+        <div id="vr${i}"></div>
       </div>`).join("");
 
-  document.querySelectorAll("#liens button[data-tx]").forEach(btn => {
-    btn.onclick = async () => {
-      const i = btn.dataset.i, approve = btn.dataset.act === "ok";
-      const ref = approve ? ($("ref"+i)?.value || "").trim() : "";
-      if (approve && !ref) {
-        $("lv"+i).innerHTML = `<div class="verdict v-no">A law-enforcement reference is required
-          before this bank can reverse a settled payment.</div>`;
-        return;
-      }
-      btn.disabled = true; btn.textContent = approve ? "Reversing…" : "Rejecting…";
-      const res = await jpost("/bank/resolve-reversal",
-                              { txn_id: Number(btn.dataset.tx), cfcfrms_ref: ref, approve });
-      const v = res.data || {};
-      const good = v.outcome === "reversed";
-      $("lv"+i).innerHTML = `<div class="verdict ${good ? "v-ok" : "v-no"}">
-        <b>${v.decision || "ERROR"}</b>${v.reason_code ? " / " + v.reason_code : ""} —
-        ${v.message || v.detail || ""}</div>`;
-      setTimeout(load, 1500);
-    };
+  document.querySelectorAll('#reversals button[data-tx]').forEach(b=>b.onclick=async()=>{
+    const ok=b.dataset.ok==="1", ref=ok?($("ref"+b.dataset.i)?.value||"").trim():"";
+    const box=$("vr"+b.dataset.i);
+    if(ok && !ref){ box.innerHTML=`<div class="verdict v-no">Enter a police reference first.</div>`; return; }
+    b.disabled=true;
+    const res=await jpost("/bank/resolve-reversal",{txn_id:Number(b.dataset.tx),cfcfrms_ref:ref,approve:ok});
+    const v=res.data||{}; const good=v.outcome==="reversed";
+    box.innerHTML=`<div class="verdict ${good?"v-ok":"v-no"}"><b>${v.decision||"ERR"}</b> — ${v.message||v.detail||""}</div>`;
+    setTimeout(load,1500);
   });
 
-  /* ---- issued rulings ---- */
-  $("ruled").innerHTML = ruled.length === 0
-    ? `<div class="empty">No rulings issued yet.</div>`
-    : ruled.map(x => {
-        const cleared = x.status === "cleared";
-        return `<div class="case done" style="border-left-color:${cleared ? "var(--green)" : "var(--red)"}">
-          <div class="row">
-            <span class="vpa">${x.vpa}</span>
-            <span class="tag ${cleared ? "t-green" : "t-red"}">
-              ${cleared ? "CLEARED · ACCOUNT UNBLOCKED" : "CONFIRMED · STAYS BLOCKED"}</span>
-            <div class="spacer"></div>
-            <span style="font-size:11px;color:var(--muted)">${when(x.created_at)}</span>
-          </div>
-          <div class="reason">${x.reason || ""}</div>
-        </div>`;
-      }).join("");
+  /* decisions */
+  $("decisions").innerHTML = dec.length===0 ? `<div class="empty">No decisions yet.</div>` :
+    dec.map(x=>{ const c=x.status==="cleared";
+      return `<div class="card done" style="border-left-color:${c?"var(--green)":"var(--red)"}">
+        <div class="top"><span class="vpa">${x.vpa}</span>
+          <span class="chip ${c?"c-green":"c-red"}">${c?"CLEARED · UNBLOCKED":"CONFIRMED · BLOCKED"}</span></div>
+      </div>`; }).join("");
 }
-
-$("refresh").onclick = load;
-load();
-setInterval(load, 15000);   // keep the desk live
+$("refresh").onclick=load; load(); setInterval(load,15000);
 </script>

@@ -151,6 +151,10 @@ export const api = {
   // each balance == SUM(its ledger entries), and the whole system nets to zero.
   verifyLedger: () => get("/ledger/verify"),
 
+  // ---- Credit Card ----
+  getCreditInfo: (vpa) => get(`/credit/info/${encodeURIComponent(vpa)}`),
+  payCreditBill: (vpa, amount, pin) => post('/credit/pay-bill', { vpa, amount, pin }),
+
   // ---- Bank server ----
   // The bank's inbox: what the fraud engine escalated (provisional account blocks,
   // reversals held for a law-enforcement ref) and what the bank already ruled.

@@ -10,13 +10,21 @@ const TransferKeypad = ({
   onCheckBalance,
   userInitial = "U",
   recipientVpa = "",
-  onChangePayee
+  onChangePayee,
+  balance = 14580,
+  ccSpends = 314,
+  initialSource = "bank"
 }) => {
   const [amount, setAmount] = useState(prefilledAmount ? prefilledAmount.toString() : "");
+  const [paymentSource, setPaymentSource] = useState(initialSource); // 'bank' | 'credit'
 
   useEffect(() => {
     setAmount(prefilledAmount ? prefilledAmount.toString() : "");
   }, [prefilledAmount]);
+
+  useEffect(() => {
+    setPaymentSource(initialSource);
+  }, [initialSource]);
 
   const handleKeyPress = (val) => {
     if (amount === "" && val === "0") return;
@@ -43,7 +51,7 @@ const TransferKeypad = ({
     if (!numericAmount || numericAmount <= 0 || isNaN(numericAmount)) return;
     const cleanAmt = parseFloat(numericAmount.toFixed(2));
     setAmount("");
-    onTransferSuccess(cleanAmt);
+    onTransferSuccess(cleanAmt, paymentSource);
   };
 
   const handleInvest = () => {
@@ -164,6 +172,50 @@ const TransferKeypad = ({
           </button>
         </div>
 
+        {/* Payment Source Selector (Bank Account vs Credit Card) */}
+        <div style={{
+          display: 'flex', gap: 8, marginTop: 12, marginBottom: 8,
+          background: 'rgba(255, 255, 255, 0.04)', padding: 4, borderRadius: 14,
+          border: '1px solid var(--border-color)'
+        }}>
+          <button
+            type="button"
+            onClick={() => setPaymentSource('bank')}
+            style={{
+              flex: 1, padding: '8px 10px', borderRadius: 10, border: 'none',
+              background: paymentSource === 'bank' ? 'var(--surface-hover)' : 'transparent',
+              color: paymentSource === 'bank' ? 'var(--accent-neon)' : 'var(--text-secondary)',
+              fontWeight: paymentSource === 'bank' ? '700' : '500',
+              fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+              transition: 'all 0.2s'
+            }}
+          >
+            🏦 Bank (₹{Number(balance).toLocaleString('en-IN')})
+          </button>
+          <button
+            type="button"
+            onClick={() => setPaymentSource('credit')}
+            style={{
+              flex: 1, padding: '8px 10px', borderRadius: 10,
+              border: paymentSource === 'credit' ? '1px solid rgba(235, 59, 136, 0.5)' : 'none',
+              background: paymentSource === 'credit' ? 'rgba(235, 59, 136, 0.15)' : 'transparent',
+              color: paymentSource === 'credit' ? '#eb3b88' : 'var(--text-secondary)',
+              fontWeight: paymentSource === 'credit' ? '700' : '500',
+              fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+              transition: 'all 0.2s'
+            }}
+          >
+            💳 payit Credit (₹{Math.max(0, 100000 - Number(ccSpends)).toLocaleString('en-IN')})
+          </button>
+        </div>
+
+        {/* Selected source badge */}
+        <div style={{ textAlign: 'center', marginBottom: 10 }}>
+          <span style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: '600' }}>
+            Paying via: {paymentSource === 'credit' ? '💳 payit Credit Card (0% interest for 45 days)' : '🏦 Bank Account (UPI Direct)'}
+          </span>
+        </div>
+
         {/* Action Buttons matching the reference image styling */}
         <div style={styles.actionButtonsRow}>
           <button 
@@ -171,13 +223,15 @@ const TransferKeypad = ({
             disabled={!amount || parseFloat(amount) <= 0}
             style={{
               ...styles.transferBtn,
-              backgroundColor: amount && parseFloat(amount) > 0 ? 'var(--accent-neon)' : 'rgba(255, 255, 255, 0.05)',
+              backgroundColor: amount && parseFloat(amount) > 0 
+                ? (paymentSource === 'credit' ? '#eb3b88' : 'var(--accent-neon)') 
+                : 'rgba(255, 255, 255, 0.05)',
               color: amount && parseFloat(amount) > 0 ? '#000000' : 'var(--text-secondary)',
               cursor: amount && parseFloat(amount) > 0 ? 'pointer' : 'default',
               flex: 1
             }}
           >
-            Transfer
+            {paymentSource === 'credit' ? 'Pay with Credit Card' : 'Transfer'}
           </button>
         </div>
       </div>

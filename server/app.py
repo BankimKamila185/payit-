@@ -1395,7 +1395,7 @@ def pay(req: PayReq, current_user: dict = Depends(get_current_user),
         con.close()
         raise HTTPException(403, "New device — ₹2,000 limit until you verify this device with an OTP. Use your usual device for higher amounts.")
 
-    if feats["_sender_bal"] < req.amount:
+    if feats["_sender_bal"] < req.amount and req.channel != "CREDIT_CARD":
         con.close()
         raise HTTPException(400, "insufficient balance")
 
@@ -1500,9 +1500,12 @@ def pay(req: PayReq, current_user: dict = Depends(get_current_user),
     # SAFE -> atomic transfer
     try:
         with con:
-            cursor = con.execute("UPDATE accounts SET balance = balance - ?, txn_count = txn_count + 1 WHERE id=? AND balance >= ?", (req.amount, sid, req.amount))
-            if cursor.rowcount == 0:
-                raise ValueError("Insufficient balance")
+            if req.channel == "CREDIT_CARD":
+                con.execute("UPDATE accounts SET txn_count = txn_count + 1 WHERE id=?", (sid,))
+            else:
+                cursor = con.execute("UPDATE accounts SET balance = balance - ?, txn_count = txn_count + 1 WHERE id=? AND balance >= ?", (req.amount, sid, req.amount))
+                if cursor.rowcount == 0:
+                    raise ValueError("Insufficient balance")
             con.execute("UPDATE accounts SET balance = balance + ?, txn_count = txn_count + 1 WHERE id=?", (req.amount, rid))
             # Double-entry: record the movement immutably, IN this same transaction
             # so the ledger and the balances commit together (no dual-write gap).
@@ -2547,6 +2550,75 @@ def analyzer_counts():
 @app.head("/health")
 def health():
     return {"status": "ok", "db": _db_label()}
+
+# ---------------------------------------------------------------- Credit & Cards
+class PayCreditBillReq(BaseModel):
+    vpa: str
+    amount: float
+    pin: str = ""
+
+@app.get("/credit/info/{vpa}")
+def get_credit_info(vpa: str, current_user: dict = Depends(get_current_user)):
+    con = db()
+    acc = con.execute("SELECT id, balance FROM accounts WHERE vpa=?", (vpa,)).fetchone()
+    if not acc:
+        con.close()
+        raise HTTPException(404, "Account not found")
+    
+    # Calculate credit card spends from transactions
+    spent_row = con.execute(
+        """SELECT COALESCE(SUM(amount), 0) s FROM transactions 
+           WHERE sender_account_id=? AND channel='CREDIT_CARD' AND status IN ('success','flagged')""",
+        (acc["id"],)).fetchone()
+    repaid_row = con.execute(
+        """SELECT COALESCE(SUM(amount), 0) s FROM transactions 
+           WHERE sender_account_id=? AND channel='CREDIT_BILL_PAY' AND status='success'""",
+        (acc["id"],)).fetchone()
+    
+    cc_spends = max(0.0, float(spent_row["s"]) - float(repaid_row["s"]))
+    limit = 100000.0
+    con.close()
+    
+    return {
+        "vpa": vpa,
+        "credit_limit": limit,
+        "cc_spends": cc_spends,
+        "available_limit": max(0.0, limit - cc_spends),
+        "due_date": "15th of next month",
+        "min_due": round(cc_spends * 0.05, 2)
+    }
+
+@app.post("/credit/pay-bill")
+def pay_credit_bill(req: PayCreditBillReq, current_user: dict = Depends(get_current_user)):
+    con = db()
+    acc = con.execute("SELECT * FROM accounts WHERE vpa=?", (req.vpa,)).fetchone()
+    if not acc:
+        con.close()
+        raise HTTPException(404, "Account not found")
+    
+    if req.amount <= 0:
+        con.close()
+        raise HTTPException(400, "Invalid bill amount")
+        
+    if acc["balance"] < req.amount:
+        con.close()
+        raise HTTPException(400, "Insufficient savings balance to pay credit card bill")
+    
+    upi_hash = acc["upi_pin_hash"]
+    if req.pin and upi_hash and not verify_pin(req.pin, upi_hash):
+        con.close()
+        raise HTTPException(401, "Incorrect PIN")
+        
+    with con:
+        con.execute("UPDATE accounts SET balance = balance - ?, txn_count = txn_count + 1 WHERE id=?", (req.amount, acc["id"]))
+        con.execute("""INSERT INTO transactions 
+                       (sender_account_id, receiver_account_id, amount, status, channel, created_at)
+                       VALUES (?,?,?,?,?,?)""",
+                    (acc["id"], acc["id"], req.amount, "success", "CREDIT_BILL_PAY", now_iso()))
+    
+    new_bal = con.execute("SELECT balance FROM accounts WHERE id=?", (acc["id"],)).fetchone()["balance"]
+    con.close()
+    return {"status": "success", "message": "Credit card bill paid successfully", "balance": new_bal}
 
 
 

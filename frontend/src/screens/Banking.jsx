@@ -18,17 +18,27 @@ const Banking = ({
   liveTxns = [],
   me = "",
   balance = 0,
+  ccSpends = 314,
   userName = "",
-  theme = "dark"
+  theme = "dark",
+  onSendWithCreditCard,
+  onPayCreditBillSuccess
 }) => {
   const savingsBalance = Number(balance) || 0;          // REAL logged-in balance
   const holderName = (userName || 'Account Holder').toUpperCase();
   const moniesPoints = 3902;
+  const availableCredit = Math.max(0, 100000 - Number(ccSpends));
 
   const [activeCardIndex, setActiveCardIndex] = useState(0);
   const [isFlipped, setIsFlipped] = useState(false);
   const [isLocked, setIsLocked] = useState(false);
   const [showCvv, setShowCvv] = useState(false);
+
+  // Bill payment modal state
+  const [showRepayModal, setShowRepayModal] = useState(false);
+  const [repayPin, setRepayPin] = useState('');
+  const [repayBusy, setRepayBusy] = useState(false);
+  const [repayErr, setRepayErr] = useState('');
 
   const cards = [
     {
@@ -49,8 +59,8 @@ const Banking = ({
       title: 'payit credit',
       themeClass: 'theme-credit',
       balanceLabel: 'Available Limit',
-      balanceValue: '₹99,686',
-      subText: 'Spends this month: ₹314',
+      balanceValue: `₹${availableCredit.toLocaleString('en-IN')}`,
+      subText: `Spends this month: ₹${Number(ccSpends).toLocaleString('en-IN')}`,
       number: '4129 8251 3065 1983',
       holder: holderName,
       expiry: '12/30',
@@ -312,25 +322,25 @@ const Banking = ({
         ) : activeCardIndex === 1 ? (
           <>
             <button 
-              onClick={() => onAddMoney()} 
-              disabled={isLocked}
+              onClick={() => setShowRepayModal(true)} 
+              disabled={isLocked || Number(ccSpends) <= 0}
               style={{ 
                 ...styles.checkBalanceBtn, 
                 flex: 1, 
-                opacity: isLocked ? 0.4 : 1,
-                cursor: isLocked ? 'not-allowed' : 'pointer',
+                opacity: (isLocked || Number(ccSpends) <= 0) ? 0.4 : 1,
+                cursor: (isLocked || Number(ccSpends) <= 0) ? 'not-allowed' : 'pointer',
                 height: '44px',
-                backgroundColor: 'var(--surface-hover)',
-                border: '1px solid var(--border-color)',
-                color: 'var(--text-primary)',
+                backgroundColor: 'rgba(235, 59, 136, 0.15)',
+                border: '1px solid rgba(235, 59, 136, 0.4)',
+                color: '#eb3b88',
                 fontWeight: '700',
                 fontSize: '13px'
               }}
             >
-              Repay bill
+              Repay bill (₹{Number(ccSpends).toLocaleString('en-IN')})
             </button>
             <button 
-              onClick={onCheckBalance} 
+              onClick={() => onSendWithCreditCard && onSendWithCreditCard()} 
               disabled={isLocked}
               style={{ 
                 ...styles.addMoneyBtn, 
@@ -338,10 +348,10 @@ const Banking = ({
                 opacity: isLocked ? 0.4 : 1,
                 cursor: isLocked ? 'not-allowed' : 'pointer',
                 marginTop: 0,
-                backgroundColor: 'var(--accent-purple)'
+                backgroundColor: '#aa33ff'
               }}
             >
-              Card settings
+              Transfer via Card
             </button>
           </>
         ) : (
@@ -456,6 +466,78 @@ const Banking = ({
           ))}
         </div>
       </div>
+
+      {/* --- CREDIT CARD BILL REPAYMENT MODAL --- */}
+      {showRepayModal && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0, 0, 0, 0.75)', backdropFilter: 'blur(8px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 999
+        }} className="animate-fade-in">
+          <div style={{
+            background: 'var(--surface-color)', borderRadius: 24, padding: 24, width: 320,
+            textAlign: 'center', border: '1px solid var(--border-color)', boxShadow: '0 20px 40px rgba(0,0,0,0.5)'
+          }} className="animate-scale-in">
+            <h3 style={{ color: 'var(--text-primary)', margin: '4px 0 8px', fontSize: 18, fontWeight: 700 }}>Pay Credit Card Bill</h3>
+            <div style={{ background: 'rgba(235, 59, 136, 0.1)', padding: 12, borderRadius: 14, margin: '12px 0', border: '1px solid rgba(235, 59, 136, 0.3)' }}>
+              <span style={{ color: 'var(--text-secondary)', fontSize: 12, display: 'block' }}>Total Outstanding Bill</span>
+              <h2 style={{ color: '#eb3b88', fontSize: 24, margin: '2px 0 0', fontWeight: 800 }}>₹{Number(ccSpends).toLocaleString('en-IN')}</h2>
+            </div>
+            <p style={{ color: 'var(--text-muted)', fontSize: 11, marginBottom: 14 }}>
+              Deducted from Savings Account (Bal: ₹{savingsBalance.toLocaleString('en-IN')})
+            </p>
+            
+            <input
+              type="password"
+              maxLength={6}
+              placeholder="Enter PIN (e.g. 123456)"
+              value={repayPin}
+              onChange={(e) => setRepayPin(e.target.value)}
+              style={{
+                width: '100%', padding: '12px', borderRadius: 12, border: '1px solid var(--border-color)',
+                background: 'var(--surface-hover)', color: 'var(--text-primary)', textAlign: 'center',
+                fontSize: 16, letterSpacing: 4, marginBottom: 12, outline: 'none'
+              }}
+              autoFocus
+            />
+
+            {repayErr && <p style={{ color: 'var(--accent-pink)', fontSize: 12, marginBottom: 8, fontWeight: 600 }}>{repayErr}</p>}
+
+            <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
+              <button
+                type="button"
+                onClick={() => { setShowRepayModal(false); setRepayPin(''); setRepayErr(''); }}
+                style={{ flex: 1, padding: 12, borderRadius: 12, border: '1px solid var(--border-color)', background: 'transparent', color: 'var(--text-secondary)', fontWeight: 600, cursor: 'pointer' }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={repayBusy || !repayPin}
+                onClick={async () => {
+                  setRepayBusy(true); setRepayErr('');
+                  try {
+                    const r = await api.payCreditBill(me, ccSpends, repayPin);
+                    setRepayBusy(false);
+                    if (r.ok) {
+                      setShowRepayModal(false); setRepayPin('');
+                      if (onPayCreditBillSuccess) onPayCreditBillSuccess(ccSpends, r.data?.balance);
+                    } else {
+                      setRepayErr(r.data?.detail || 'Bill payment failed.');
+                    }
+                  } catch {
+                    setRepayBusy(false);
+                    setRepayErr('Server error while processing bill payment.');
+                  }
+                }}
+                style={{ flex: 1, padding: 12, borderRadius: 12, border: 'none', background: '#eb3b88', color: '#fff', fontWeight: '700', cursor: 'pointer' }}
+              >
+                {repayBusy ? 'Paying…' : 'Confirm & Pay'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

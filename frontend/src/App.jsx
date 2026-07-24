@@ -84,6 +84,7 @@ function App() {
     setCurrentUserName(name || vpa);
     if (balance != null) setBalance(balance);
     saveSession(vpa);                                   // remember on this device (like GPay)
+    setAppLocked(false);                                // unlock app interface after successful login
     api.history(vpa).then((r) => { if (r.ok) setRealTxns(r.data); }).catch(() => {});
     return { ok: true };
   };
@@ -98,11 +99,26 @@ function App() {
   // then LOCK the app — user must re-enter PIN or use fingerprint before home screen.
   useEffect(() => {
     const saved = getSession();
-    if (!saved) { setBooting(false); setAppLocked(false); return; }  // no session = show login (not the lock gate)
-    handleLogin(saved)
-      .then((r) => { if (!r || !r.ok) { clearSession(); setAppLocked(false); } })  // account gone -> clean login
+    if (!saved) { setBooting(false); setAppLocked(false); return; }  // no session = show login
+    api.resolve(saved)
+      .then((r) => {
+        if (r.ok && r.data) {
+          setCurrentUser(saved);
+          setCurrentUserName(r.data.name || saved);
+          setAppLocked(true);
+        } else {
+          clearSession();
+          setCurrentUser(null);
+          setAppLocked(false);
+        }
+      })
+      .catch(() => {
+        // Fallback: if server is temporarily unreachable, maintain session and show lock screen
+        setCurrentUser(saved);
+        setCurrentUserName(saved);
+        setAppLocked(true);
+      })
       .finally(() => setBooting(false));
-    // appLocked remains true — the PIN gate will display on top of home
   }, []);
 
   const refreshTxns = () => {
@@ -346,17 +362,19 @@ function App() {
   // the same mistake the backend's old server-side random RRN made.
   const idemKeyRef = useRef(null);
 
+  const [initialPaymentSource, setInitialPaymentSource] = useState('bank');
+
   // Step A: user confirms amount -> show the UPI PIN pad (2nd factor)
-  const handlePaymentProcess = (amount, isInvest = false) => {
+  const handlePaymentProcess = (amount, source = 'bank', isInvest = false) => {
     if (isFrozen) { triggerNotification("Blocked: Kill Switch is currently active", "alert"); return; }
     if (isAccountLocked) { triggerNotification("Blocked: Account is locked", "alert"); return; }
     setPinInput("");
     idemKeyRef.current = newIdempotencyKey();  // this attempt starts here
-    setPinModal({ amount, isInvest });        // open PIN entry screen
+    setPinModal({ amount, source, isInvest });        // open PIN entry screen
   };
 
   // Step B: user entered UPI PIN -> run REAL backend payment + fraud engine
-  const executePayment = async (amount, isInvest, pin) => {
+  const executePayment = async (amount, source = 'bank', isInvest = false, pin = "") => {
     setPinModal(null);
     setTempPayDetails({ amount, isInvest, recipientName: recipient });
     // exact VPA of a tapped real contact wins; else map the display name; else default
@@ -366,20 +384,21 @@ function App() {
 
     // fraud-scan animation (the REAL engine runs on the backend)
     setAiScanningTx({ amount, recipientName: recipient });
-    setAiScanProgress("Verifying UPI PIN...");
+    setAiScanProgress(source === 'credit' ? "Authorizing Credit Card..." : "Verifying PIN...");
     setTimeout(() => setAiScanProgress("Running fraud engine (behavioral + device + graph)..."), 500);
 
     try {
+      const channel = source === 'credit' ? 'CREDIT_CARD' : 'MANUAL';
       const { ok, status, data } = await api.pay({
         sender_vpa: currentUser, receiver_vpa: receiver,
-        amount, pin, channel: "MANUAL",
+        amount, pin, channel,
         idempotency_key: idemKeyRef.current || newIdempotencyKey(),
         rooted: isDeviceRooted ? 1 : 0,
         screen_share: isActiveScreenShare ? 1 : 0,
       });
       setAiScanningTx(null);
       if (!ok) {
-        triggerNotification(status === 401 ? "❌ Incorrect UPI PIN"
+        triggerNotification(status === 401 ? "❌ Incorrect PIN"
                             : (data.detail || "Payment failed"), "alert");
         return;
       }
@@ -388,7 +407,7 @@ function App() {
       const now = new Date().toLocaleString('en-IN', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit', hour12:true });
       const baseTx = { id:`TX-${data.transaction_id}`, recipient, recipientVpa: receiver, amount, date: now,
                        upiRef: data.txn_ref || "-", transId: String(data.transaction_id),
-                       reasons: data.reasons, score: data.score };
+                       reasons: data.reasons, score: data.score, channel };
 
       if (data.label === "BLOCK") {
         triggerNotification("🔴 Blocked by Fraud Shield", "alert");
@@ -401,13 +420,17 @@ function App() {
         setOtpResendStatus('');
         setOtpModalOpen(true);
       } else {                                  // SAFE
-        setBalance(data.sender_balance);
+        if (source === 'credit') {
+          setCcSpends(prev => prev + amount);
+        } else {
+          if (data.sender_balance != null) setBalance(data.sender_balance);
+        }
         if (data.post_review) {                 // F3: completed but flagged in hindsight
           setLastTx({ ...baseTx, status: 'flagged', postMessage: data.post_message, txId: data.transaction_id });
           triggerNotification("⚠️ Payment flagged after completion — recall available", "alert");
         } else {
           setLastTx({ ...baseTx, status: 'success' });
-          triggerNotification("Payment successful", "info");
+          triggerNotification(source === 'credit' ? "Paid via payit Credit Card" : "Payment successful", "info");
         }
         pushScreen('paid-success');
       }
@@ -617,11 +640,13 @@ triggerNotification("Identity verified. Account unlocked.", "info");
             liveTxns={realTxns}
             me={currentUser}
             balance={balance}
+            ccSpends={ccSpends}
             userName={currentUserName}
             theme={theme}
             onAddMoney={(name, amount) => {
               setRecipient(name && typeof name === 'string' ? name : "Add money");
               setPayAmount(amount || "");
+              setInitialPaymentSource("bank");
               pushScreen('transfer');
             }}
             onSendToContact={(displayName, vpa) => {   // real person from txn history
@@ -629,7 +654,20 @@ triggerNotification("Identity verified. Account unlocked.", "info");
               setSelectedPayee({ name: displayName, vpa });   // exact target, wins over name-map
               runPrecheck(vpa);                               // F2: early beneficiary warning
               setPayAmount("");
+              setInitialPaymentSource("bank");
               pushScreen('transfer');
+            }}
+            onSendWithCreditCard={() => {
+              setInitialPaymentSource("credit");
+              setRecipient("");
+              setSelectedPayee(null);
+              pushScreen("payee-selector");
+            }}
+            onPayCreditBillSuccess={(paidAmt, newBal) => {
+              setCcSpends(0);
+              if (newBal != null) setBalance(newBal);
+              triggerNotification("Credit Card bill paid successfully!", "info");
+              refreshTxns();
             }}
             onCheckBalance={() => pushScreen('check-balance')}
             onFixedDepositClick={() => {
@@ -795,15 +833,19 @@ triggerNotification("Identity verified. Account unlocked.", "info");
             recipientVpa={hasRecipient ? resolvedVpa : ''}
             userInitial={(currentUserName || 'U').trim().charAt(0).toUpperCase()}
             prefilledAmount={payAmount}
-            onTransferSuccess={(amt) => {
+            balance={balance}
+            ccSpends={ccSpends}
+            initialSource={initialPaymentSource}
+            onTransferSuccess={(amt, source = 'bank') => {
+              setInitialPaymentSource(source);
               if (hasRecipient) {
-                handlePaymentProcess(amt, false);
+                handlePaymentProcess(amt, source, false);
               } else {
                 setPayAmount(amt.toString());
                 pushScreen('payee-selector');
               }
             }}
-            onInvestSuccess={(amt) => handlePaymentProcess(amt, true)}
+            onInvestSuccess={(amt) => handlePaymentProcess(amt, 'bank', true)}
             onOpenScanner={() => pushScreen('qr-scanner')}
             onCheckBalance={() => pushScreen('check-balance')}
             onChangePayee={() => {
@@ -968,11 +1010,13 @@ triggerNotification("Identity verified. Account unlocked.", "info");
               <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 2 }}>
                 Paying ₹{pinModal.amount} to {recipient}
               </p>
-              <p style={{ color: 'var(--text-muted)', fontSize: 11, marginBottom: 16 }}>(demo PIN: 123456)</p>
+              <p style={{ color: pinModal.source === 'credit' ? '#eb3b88' : 'var(--accent-neon)', fontSize: 11, fontWeight: '700', marginBottom: 14 }}>
+                {pinModal.source === 'credit' ? '💳 Payment Source: payit Credit Card' : '🏦 Payment Source: Bank Account (UPI)'}
+              </p>
               <div style={{ display: 'flex', justifyContent: 'center', gap: 12, marginBottom: 20 }}>
                 {[0,1,2,3,4,5].map(i => (
                   <div key={i} style={{ width: 14, height: 14, borderRadius: '50%',
-                    background: i < pinInput.length ? 'var(--accent-neon)' : 'var(--border-color)' }} />
+                    background: i < pinInput.length ? (pinModal.source === 'credit' ? '#eb3b88' : 'var(--accent-neon)') : 'var(--border-color)' }} />
                 ))}
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
@@ -985,7 +1029,7 @@ triggerNotification("Identity verified. Account unlocked.", "info");
                       setPinInput(next);
                       if (next.length === 6) {
                         const pm = pinModal;
-                        setTimeout(() => executePayment(pm.amount, pm.isInvest, next), 150);
+                        setTimeout(() => executePayment(pm.amount, pm.source || 'bank', pm.isInvest, next), 150);
                       }
                     }}
                     style={{ padding: '14px 0', fontSize: 20, borderRadius: 12,
@@ -1496,7 +1540,12 @@ triggerNotification("Identity verified. Account unlocked.", "info");
                       setAppPinBusy(true); setAppPinError('');
                       const r = await loginWithPasskey(currentUser);
                       setAppPinBusy(false);
-                      if (r.ok) setAppLocked(false);
+                      if (r.ok) {
+                        if (r.data?.token) setToken(r.data.token);
+                        if (r.data?.name) setCurrentUserName(r.data.name);
+                        if (r.data?.balance != null) setBalance(r.data.balance);
+                        setAppLocked(false);
+                      }
                       else setAppPinError(r.error || 'Biometric verification failed. Please enter App PIN.');
                     }}
                   >
@@ -1528,8 +1577,11 @@ triggerNotification("Identity verified. Account unlocked.", "info");
                             .then(r => {
                               setAppPinBusy(false);
                               if (r.ok) {
+                                if (r.data?.token) setToken(r.data.token);
+                                if (r.data?.name) setCurrentUserName(r.data.name);
                                 if (r.data?.balance != null) setBalance(r.data.balance);
                                 setAppLocked(false);
+                                setAppPinInput('');
                               } else {
                                 setAppPinError('Incorrect PIN. Try again.');
                                 setAppPinInput('');

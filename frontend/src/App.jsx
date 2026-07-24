@@ -123,6 +123,15 @@ function App() {
   const [appPinError, setAppPinError] = useState('');
   const [appPinBusy, setAppPinBusy] = useState(false);
 
+  const [biometricAvailable, setBiometricAvailable] = useState(false);
+  useEffect(() => {
+    if (window.PublicKeyCredential) {
+      PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable()
+        .then(ok => setBiometricAvailable(ok))
+        .catch(() => setBiometricAvailable(false));
+    }
+  }, []);
+
   // Live balance + history. Only the PAYER ever saw their balance move, because it
   // came back on the /pay response — whoever RECEIVED the money sat on a stale
   // number until they reloaded the whole page. Poll so both sides update on their
@@ -1479,7 +1488,7 @@ triggerNotification("Identity verified. Account unlocked.", "info");
                 <p style={appGateStyles.subtitle}>{currentUserName || currentUser}</p>
 
                 {/* Fingerprint / passkey button */}
-                {hasPasskey(currentUser) && (
+                {(biometricAvailable || hasPasskey(currentUser)) && (
                   <button
                     style={appGateStyles.fingerprintBtn}
                     disabled={appPinBusy}
@@ -1488,7 +1497,7 @@ triggerNotification("Identity verified. Account unlocked.", "info");
                       const r = await loginWithPasskey(currentUser);
                       setAppPinBusy(false);
                       if (r.ok) setAppLocked(false);
-                      else setAppPinError(r.error || 'Biometric failed. Use PIN.');
+                      else setAppPinError(r.error || 'Biometric verification failed. Please enter App PIN.');
                     }}
                   >
                     <Fingerprint size={28} color="var(--accent-neon)" />

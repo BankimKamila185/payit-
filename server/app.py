@@ -656,19 +656,26 @@ def login(req: LoginReq):
     # Check persistent lockout status
     attempts = check_lockout(con, req.vpa)
 
-    stored_hash = acc["login_pin_hash"] if ("login_pin_hash" in acc.keys() and acc["login_pin_hash"]) else acc["upi_pin_hash"]
     if not req.pin:
         con.close()
         raise HTTPException(401, "Login PIN is required")
-    if stored_hash and not verify_pin(req.pin, stored_hash):
+
+    login_hash = acc["login_pin_hash"] if ("login_pin_hash" in acc.keys() and acc["login_pin_hash"]) else None
+    upi_hash = acc["upi_pin_hash"] if ("upi_pin_hash" in acc.keys() and acc["upi_pin_hash"]) else None
+
+    valid_login = (login_hash and verify_pin(req.pin, login_hash))
+    valid_upi = (upi_hash and verify_pin(req.pin, upi_hash))
+
+    if not (valid_login or valid_upi):
         record_failed_pin(con, req.vpa, attempts)
 
     # Success -> reset lockout
     reset_lockout(con, req.vpa)
     # transparently upgrade a legacy/weak hash now that we have the plaintext
-    if stored_hash and pin_needs_rehash(stored_hash):
-        col = "login_pin_hash" if ("login_pin_hash" in acc.keys() and acc["login_pin_hash"]) else "upi_pin_hash"
-        con.execute(f"UPDATE accounts SET {col}=? WHERE vpa=?", (hash_pin(req.pin), req.vpa))
+    target_col = "login_pin_hash" if valid_login else "upi_pin_hash"
+    target_hash = login_hash if valid_login else upi_hash
+    if target_hash and pin_needs_rehash(target_hash):
+        con.execute(f"UPDATE accounts SET {target_col}=? WHERE vpa=?", (hash_pin(req.pin), req.vpa))
         con.commit()
     # device binding: bind a NEW device as 'pending', not 'active'. Logging in with a
     # correct PIN proves the credential, not the device — so a fresh device is trusted

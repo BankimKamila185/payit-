@@ -280,14 +280,19 @@ export default function OnboardingFlow({ onLogin, deviceId }) {
   const handleFingerprintLogin = async () => {
     if (!userProfile?.vpa) return;
     setBiometricBusy(true); setErr('');
-    const result = await loginWithPasskey(userProfile.vpa);
+    let result = await loginWithPasskey(userProfile.vpa);
+    if (!result.ok && result.error && (result.error.includes('No passkey') || result.error.includes('not supported'))) {
+      const reg = await registerPasskey(userProfile.vpa);
+      if (reg.ok) {
+        result = await loginWithPasskey(userProfile.vpa);
+      }
+    }
     setBiometricBusy(false);
     if (result.ok) {
-      // Passkey verified — log the user in with the returned session data
       const d = result.data;
-      await onLogin(d.vpa, null, d); // pass pre-verified data
+      await onLogin(d.vpa, null, d);
     } else {
-      setErr(result.error || 'Biometric login failed. Use UPI PIN instead.');
+      setErr(result.error || 'Biometric login failed. Use App PIN instead.');
     }
   };
 
@@ -772,12 +777,12 @@ export default function OnboardingFlow({ onLogin, deviceId }) {
             <p style={S.loginPhoneSub}>+91 {phone.slice(0, 3)}••••••{phone.slice(-4)}</p>
           </div>
 
-          {/* Fingerprint quick-login (only shown if passkey is registered on this device) */}
-          {biometricAvailable && hasPasskey(userProfile?.vpa) && (
+          {/* Fingerprint quick-login (shown if biometrics available on device or passkey registered) */}
+          {(biometricAvailable || hasPasskey(userProfile?.vpa)) && (
             <div style={{ textAlign: 'center', margin: '8px 0 4px' }}>
               <button
                 style={{
-                  background: biometricBusy ? 'rgba(170,51,255,0.1)' : 'rgba(170,51,255,0.08)',
+                  background: biometricBusy ? 'rgba(170,51,255,0.15)' : 'rgba(170,51,255,0.08)',
                   border: '1px solid rgba(170,51,255,0.35)',
                   borderRadius: 20,
                   padding: '14px 28px',
@@ -805,7 +810,7 @@ export default function OnboardingFlow({ onLogin, deviceId }) {
 
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '12px 0 6px', padding: '0 24px' }}>
                 <div style={{ flex: 1, height: 1, background: 'var(--border-color)' }} />
-                <span style={{ color: 'var(--text-muted)', fontSize: 11, fontWeight: 600 }}>or enter PIN</span>
+                <span style={{ color: 'var(--text-muted)', fontSize: 11, fontWeight: 600 }}>OR ENTER APP LOGIN PIN</span>
                 <div style={{ flex: 1, height: 1, background: 'var(--border-color)' }} />
               </div>
             </div>

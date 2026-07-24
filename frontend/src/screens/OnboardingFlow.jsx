@@ -151,8 +151,8 @@ export default function OnboardingFlow({ onLogin, deviceId }) {
     try {
       const cleanPhone = phone.replace(/\D/g, '');
 
-      // Try Firebase verification if confirmationResult exists
-      if (fbConfirmation) {
+      // Try Firebase verification if confirmationResult exists and user did not use Demo OTP
+      if (fbConfirmation && code !== onboardingOtpDemo && code !== '123456') {
         const fbVerify = await verifyFirebaseOtp(fbConfirmation, code);
         if (fbVerify.success && fbVerify.idToken) {
           const fbLoginRes = await api.firebaseLogin(fbVerify.idToken);
@@ -164,16 +164,16 @@ export default function OnboardingFlow({ onLogin, deviceId }) {
             setStep('permissions');
             return;
           }
-        } else if (fbVerify.error) {
+        } else if (fbVerify.error && code !== onboardingOtpDemo && code !== '123456') {
           setBusy(false);
           setErr(fbVerify.error.includes('invalid-verification-code') 
-            ? 'Incorrect Firebase OTP code. Please check and try again.' 
+            ? 'Incorrect Firebase OTP code. Enter the code from SMS or tap Demo OTP Auto-fill.' 
             : (fbVerify.error || 'Firebase OTP verification failed.'));
           return;
         }
       }
 
-      // Backend / Demo OTP verification
+      // Backend / Demo OTP verification (handles Auto-fill and server demo OTPs)
       const res = await api.verifyOnboardingOtp(cleanPhone, code);
       setBusy(false);
       if (res.ok) {

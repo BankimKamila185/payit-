@@ -92,8 +92,14 @@ class OptionsReq(BaseModel):
 
 class VerifyReq(BaseModel):
     vpa: str
-    credential: dict           # raw JSON from @simplewebauthn/browser
+    credential: dict | None = None           # raw JSON from @simplewebauthn/browser
     fingerprint: dict | None = None   # env snapshot -> baseline / drift signal
+    credential_id: str | None = None
+    public_key: str | None = None
+    client_data_json: str | None = None
+    attestation_object: str | None = None
+    authenticator_data: str | None = None
+    signature: str | None = None
 
 
 def _user(con, vpa: str):
@@ -126,7 +132,7 @@ def _fp_drift(baseline_json: str | None, current: dict | None) -> dict:
 
 
 # --------------------------------------------------------------- registration
-@router.post("/register-options")
+@router.post("/auth/webauthn/register-options")
 def register_options(req: OptionsReq, current_user: dict = Depends(_authed_account)):
     from server.app import db
     _assert_own_vpa(current_user, req.vpa)
@@ -149,13 +155,24 @@ def register_options(req: OptionsReq, current_user: dict = Depends(_authed_accou
     return json.loads(options_to_json(opts))
 
 
-@router.post("/register-verify")
+@router.post("/auth/webauthn/register")
 def register_verify(req: VerifyReq, current_user: dict = Depends(_authed_account)):
     from server.app import db, now_iso
     _assert_own_vpa(current_user, req.vpa)
     expected = _challenges.pop(req.vpa, None)      # single use
     if not expected:
         raise HTTPException(400, "no pending challenge — request options first")
+
+    if not req.credential:
+        req.credential = {
+            "id": req.credential_id,
+            "rawId": req.credential_id,
+            "type": "public-key",
+            "response": {
+                "clientDataJSON": req.client_data_json,
+                "attestationObject": req.attestation_object
+            }
+        }
 
     con = db()
     u = _user(con, req.vpa)
@@ -187,7 +204,7 @@ def register_verify(req: VerifyReq, current_user: dict = Depends(_authed_account
 
 
 # --------------------------------------------------------------- authentication
-@router.post("/login-options")
+@router.post("/auth/webauthn/login-options")
 def login_options(req: OptionsReq):
     from server.app import db
     con = db()
@@ -212,12 +229,24 @@ def login_options(req: OptionsReq):
     return json.loads(options_to_json(opts))
 
 
-@router.post("/login-verify")
+@router.post("/auth/webauthn/login")
 def login_verify(req: VerifyReq):
     from server.app import db, now_iso, _issue_token_for_user
     expected = _challenges.pop(req.vpa, None)      # single use
     if not expected:
         raise HTTPException(400, "no pending challenge — request options first")
+
+    if not req.credential:
+        req.credential = {
+            "id": req.credential_id,
+            "rawId": req.credential_id,
+            "type": "public-key",
+            "response": {
+                "authenticatorData": req.authenticator_data,
+                "clientDataJSON": req.client_data_json,
+                "signature": req.signature
+            }
+        }
 
     con = db()
     u = _user(con, req.vpa)

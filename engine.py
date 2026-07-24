@@ -41,10 +41,10 @@ class FraudEngine:
 
         # graph of recent transfers for mule-ring detection
         # edges_in[v]  = deque of (src, amount, ts) ending at v
-        self.edges_in = defaultdict(lambda: deque(maxlen=50))
+        self.edges_in = defaultdict(lambda: deque(maxlen=200))
 
         # velocity tracking: recent send timestamps per user
-        self.recent_sends = defaultdict(lambda: deque(maxlen=20))
+        self.recent_sends = defaultdict(lambda: deque(maxlen=50))
 
         # devices we've actually seen a user transact from
         self.seen_devices = defaultdict(set)
@@ -74,7 +74,9 @@ class FraudEngine:
             reasons.append(f"Unusual time: {txn['hour']:02d}:xx (user rarely active at night)")
 
         # velocity: count this user's sends in the last 20 seconds
-        now = txn["ts"]
+        # Use authoritative server time if txn ts is missing or invalid
+        raw_ts = txn.get("ts")
+        now = raw_ts if isinstance(raw_ts, (int, float)) and raw_ts > 0 else time.time()
         sends = self.recent_sends[txn["sender"]]
         recent = [s for s in sends if now - s <= 20]
         if len(recent) >= 4:
@@ -103,8 +105,11 @@ class FraudEngine:
             hops = " -> ".join(ring)
             reasons.append(f"MULE RING: money forwarded through {hops}")
 
-        # record this edge for future ring detection
-        self.edges_in[txn["receiver"]].append((txn["sender"], txn["amount"], now))
+        # prune stale edges older than RING_WINDOW_SEC * 3 to keep graph fresh
+        rx_edges = self.edges_in[txn["receiver"]]
+        while rx_edges and now - rx_edges[0][2] > RING_WINDOW_SEC * 3:
+            rx_edges.popleft()
+        rx_edges.append((txn["sender"], txn["amount"], now))
 
         # --- finalise --------------------------------------------------------
         score = min(score, 100)

@@ -117,10 +117,10 @@ app = FastAPI(title="Payit Backend", version="1.0")
 import os
 # 5173/5174 = customer app (vite), 5180 = auth-lab, 5190 = the BANK's own console
 # (a separate operator-facing UI, because the bank is a separate authority).
-ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:5174,http://localhost:5180,http://localhost:5190,https://payit-mu.vercel.app").split(",")
+ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:5174,http://localhost:5180,http://localhost:5190,http://127.0.0.1:5173,http://127.0.0.1:5174,http://127.0.0.1:5180,http://127.0.0.1:5190,https://payit-mu.vercel.app").split(",")
 app.add_middleware(CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
-    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_methods=["*"],
     allow_headers=["*"])
 
 engine: FraudEngine | None = None
@@ -169,15 +169,12 @@ class PostgresCursorWrapper:
         self.cur = pg_cursor
 
     def execute(self, sql, params=None):
-        # Mirrors PostgresConnectionWrapper.execute so BOTH access paths behave the
-        # same. Without the RETURNING/lastrowid handling here, code that goes via
-        # con.cursor() (e.g. /auth/register) silently got lastrowid = None and
-        # inserted a NULL foreign key.
         is_insert = False
         if sql:
             sql = sql.replace('?', '%s')
-            is_insert = sql.strip().upper().startswith("INSERT")
-            if is_insert and "RETURNING" not in sql.upper():
+            upper = sql.strip().upper()
+            is_insert = upper.startswith("INSERT")
+            if is_insert and "RETURNING" not in upper and "ON CONFLICT" not in upper and "SELECT" not in upper:
                 sql = sql.rstrip().rstrip(';') + " RETURNING id"
         self.cur.execute(sql, params)
         if is_insert:
@@ -216,11 +213,13 @@ class PostgresConnectionWrapper:
         return PostgresCursorWrapper(self.conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor))
 
     def execute(self, sql, params=None):
-        sql = sql.replace('?', '%s')
-        is_insert = sql.strip().upper().startswith("INSERT")
-        if is_insert and "RETURNING" not in sql.upper():
-            sql = sql.rstrip().rstrip(';')
-            sql += " RETURNING id"
+        is_insert = False
+        if sql:
+            sql = sql.replace('?', '%s')
+            upper = sql.strip().upper()
+            is_insert = upper.startswith("INSERT")
+            if is_insert and "RETURNING" not in upper and "ON CONFLICT" not in upper and "SELECT" not in upper:
+                sql = sql.rstrip().rstrip(';') + " RETURNING id"
         
         cur = self.conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         cur.execute(sql, params)
@@ -1043,9 +1042,21 @@ def _claim_idempotency(con, user_id: int, key: str, fingerprint: str):
             "Use a new key for a new payment.")
 
     if row["response_code"] is None:
-        # Claimed but no response yet: the first attempt is still in flight.
-        # Returning a fresh payment here is exactly the double-charge we are
-        # preventing, so the honest answer is "ask again".
+        # Claimed but no response yet: check if lease expired (> 30s old) due to server crash/timeout
+        created_str = row.get("created_at")
+        try:
+            created_dt = datetime.fromisoformat(created_str) if created_str else None
+        except Exception:
+            created_dt = None
+        if created_dt and (datetime.now() - created_dt).total_seconds() > 30:
+            # Lease expired -> delete stale claim and re-claim for this retry
+            con.execute("DELETE FROM idempotency_keys WHERE user_id=? AND idempotency_key=?", (user_id, key))
+            con.commit()
+            con.execute("""INSERT INTO idempotency_keys
+                             (user_id, idempotency_key, request_fingerprint, created_at)
+                           VALUES (?,?,?,?)""", (user_id, key, fingerprint, now_iso()))
+            con.commit()
+            return None
         raise HTTPException(409, "This payment is already being processed. Please wait.")
 
     print(f"[IDEMPOTENT REPLAY] user={user_id} key={key} -> replaying original response")

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Delete, Sparkles, MessageCircle, AlertTriangle, ShieldCheck } from 'lucide-react';
 
 const TransferKeypad = ({
@@ -14,11 +14,23 @@ const TransferKeypad = ({
 }) => {
   const [amount, setAmount] = useState(prefilledAmount ? prefilledAmount.toString() : "");
 
+  useEffect(() => {
+    setAmount(prefilledAmount ? prefilledAmount.toString() : "");
+  }, [prefilledAmount]);
+
   const handleKeyPress = (val) => {
     if (amount === "" && val === "0") return;
     if (val === "." && amount.includes(".")) return;
+    // Limit decimal precision to 2 digits
+    if (amount.includes(".") && val !== ".") {
+      const decimals = amount.split(".")[1];
+      if (decimals && decimals.length >= 2) return;
+    }
+    const nextStr = amount + val;
+    const num = parseFloat(nextStr);
+    if (!isNaN(num) && num > 100000) return; // NPCI single transaction limit ₹1,00,000
     if (amount.replace(".", "").length < 7) {
-      setAmount(prev => prev + val);
+      setAmount(nextStr);
     }
   };
 
@@ -28,14 +40,18 @@ const TransferKeypad = ({
 
   const handleTransfer = () => {
     const numericAmount = parseFloat(amount);
-    if (!numericAmount || numericAmount <= 0) return;
-    onTransferSuccess(numericAmount);
+    if (!numericAmount || numericAmount <= 0 || isNaN(numericAmount)) return;
+    const cleanAmt = parseFloat(numericAmount.toFixed(2));
+    setAmount("");
+    onTransferSuccess(cleanAmt);
   };
 
   const handleInvest = () => {
     const numericAmount = parseFloat(amount);
-    if (!numericAmount || numericAmount <= 0) return;
-    onInvestSuccess(numericAmount);
+    if (!numericAmount || numericAmount <= 0 || isNaN(numericAmount)) return;
+    const cleanAmt = parseFloat(numericAmount.toFixed(2));
+    setAmount("");
+    onInvestSuccess(cleanAmt);
   };
 
   // NOTE: Fraud/scam risk is NOT decided here. This screen must never show a

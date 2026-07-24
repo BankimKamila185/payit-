@@ -2,7 +2,7 @@
 // Talks to our Python backend (server/app.py). The port comes from
 // frontend/.env (VITE_API_URL); the fallback below is only used if that's missing.
 
-const BASE = import.meta.env.VITE_API_URL || "http://localhost:8001";
+const BASE = import.meta.env.VITE_API_URL || "http://127.0.0.1:8001";
 
 // ---- device fingerprint (browser) -> stable device_id ----
 // Real fraud systems use FingerprintJS; here a lightweight canvas+env hash,
@@ -62,12 +62,20 @@ async function post(path, body) {
     headers: { "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify(body),
   });
+  if (res.status === 401) {
+    setToken(null);
+    clearSession();
+  }
   const data = await res.json().catch(() => ({}));
   return { ok: res.ok, status: res.status, data };
 }
 
 async function get(path) {
   const res = await fetch(BASE + path, { headers: authHeaders() });
+  if (res.status === 401) {
+    setToken(null);
+    clearSession();
+  }
   return { ok: res.ok, data: await res.json().catch(() => ({})) };
 }
 

@@ -375,6 +375,7 @@ function App() {
         return;
       }
 
+      setPayAmount("");
       const now = new Date().toLocaleString('en-IN', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit', hour12:true });
       const baseTx = { id:`TX-${data.transaction_id}`, recipient, recipientVpa: receiver, amount, date: now,
                        upiRef: data.txn_ref || "-", transId: String(data.transaction_id),
@@ -1126,7 +1127,28 @@ triggerNotification("Identity verified. Account unlocked.", "info");
               <div style={{ backgroundColor: 'rgba(255,140,0,0.06)', border: '1px solid rgba(255,140,0,0.2)', borderRadius: 12, padding: '10px 14px', marginBottom: 16, textAlign: 'left' }}>
                 <p style={{ color: '#ff8c00', fontSize: 11, fontWeight: 600, margin: 0 }}>📱 OTP sent to your registered mobile number</p>
                 {otpModalTx.otpDemo ? (
-                  <p style={{ color: '#22e67b', fontSize: 12, margin: '4px 0 0 0' }}>Demo OTP: <b>{otpModalTx.otpDemo}</b> (real app: SMS only)</p>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 }}>
+                    <p style={{ color: '#22e67b', fontSize: 12, margin: 0 }}>Demo OTP: <b>{otpModalTx.otpDemo}</b></p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setOtpModalCode(otpModalTx.otpDemo);
+                        handleOtpSubmit(otpModalTx.otpDemo);
+                      }}
+                      style={{
+                        background: 'var(--accent-neon)',
+                        color: '#000000',
+                        border: 'none',
+                        borderRadius: 6,
+                        padding: '4px 10px',
+                        fontSize: 11,
+                        fontWeight: 700,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      ⚡ Auto-fill
+                    </button>
+                  </div>
                 ) : (
                   <p style={{ color: 'var(--text-muted)', fontSize: 10, margin: '4px 0 0 0' }}>Check server logs if testing locally.</p>
                 )}
@@ -1139,7 +1161,11 @@ triggerNotification("Identity verified. Account unlocked.", "info");
                 onChange={(e) => {
                   const val = e.target.value.replace(/\D/g, '').slice(0, 6);
                   setOtpModalCode(val);
+                  if (val.length === 6) {
+                    handleOtpSubmit(val);
+                  }
                 }}
+                autoFocus
                 placeholder="------"
                 style={{
                   width: '100%',
@@ -1342,13 +1368,33 @@ triggerNotification("Identity verified. Account unlocked.", "info");
                   <>
                     <p style={appGateStyles.subtitle}>Enter the 6-digit OTP sent to your mobile.</p>
                      {forgotOtpDemo ? (
-                       <p style={{ color: '#22e67b', fontSize: 12, margin: '4px 0 12px 0', textAlign: 'center', fontWeight: 'bold' }}>Demo OTP: {forgotOtpDemo} (real app: SMS only)</p>
+                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, margin: '4px 0 12px 0' }}>
+                         <span style={{ color: '#22e67b', fontSize: 12, fontWeight: 'bold' }}>Demo OTP: {forgotOtpDemo}</span>
+                         <button
+                           type="button"
+                           onClick={() => {
+                             setForgotOtp(forgotOtpDemo);
+                             setForgotStep('newpin');
+                             setForgotErr('');
+                           }}
+                           style={{ background: 'var(--accent-neon)', color: '#000', border: 'none', borderRadius: 6, padding: '2px 8px', fontSize: 10, fontWeight: 700, cursor: 'pointer' }}
+                         >
+                           ⚡ Auto-fill
+                         </button>
+                       </div>
                      ) : (
                        <p style={appGateStyles.subtitle}>(Check server logs for demo.)</p>
                      )}
                     <input
                       type="text" maxLength={6} value={forgotOtp}
-                      onChange={e => setForgotOtp(e.target.value.replace(/\D/g,'').slice(0,6))}
+                      onChange={e => {
+                        const val = e.target.value.replace(/\D/g,'').slice(0,6);
+                        setForgotOtp(val);
+                        if (val.length === 6) {
+                          setForgotStep('newpin');
+                          setForgotErr('');
+                        }
+                      }}
                       placeholder="------"
                       style={appGateStyles.otpInput}
                       autoFocus

@@ -54,6 +54,24 @@ export default function PayeeSelector({ amount, balance = 5000.00, onBack, onPay
   const [searchQuery, setSearchQuery] = useState('');
   const [resolvedPayee, setResolvedPayee] = useState(null);
 
+  const handleQueryChange = (val) => {
+    setSearchQuery(val);
+    const clean = val.trim();
+    if (!clean) {
+      setResolvedPayee(null);
+      return;
+    }
+    // Auto check if it contains '@' with content before and after, or is 10 digits, or matches known map/favorites
+    const isUpiId = clean.includes('@') && clean.indexOf('@') > 0 && clean.indexOf('@') < clean.length - 1;
+    const is10DigitPhone = /^\d{10}$/.test(clean);
+    const isKnownPayee = !!RESOLVED_MAP[clean] || FAVOURITES.some(f => f.vpa.toLowerCase() === clean.toLowerCase());
+
+    if (isUpiId || is10DigitPhone || isKnownPayee) {
+      const payee = resolvePayee(clean);
+      setResolvedPayee(payee);
+    }
+  };
+
   const handleSearchSubmit = (e) => {
     if (e) e.preventDefault();
     const query = searchQuery.trim();
@@ -61,7 +79,6 @@ export default function PayeeSelector({ amount, balance = 5000.00, onBack, onPay
 
     const payee = resolvePayee(query);
     setResolvedPayee(payee);
-    // Keep VPA in the search input as shown in the screenshot
     setSearchQuery(payee.vpa);
   };
 
@@ -117,11 +134,8 @@ export default function PayeeSelector({ amount, balance = 5000.00, onBack, onPay
               type="text"
               placeholder="To: Name, phone number or UPI ID"
               value={searchQuery}
-              onChange={(e) => {
-                setSearchQuery(e.target.value);
-                // Reset resolved payee if user clears the box completely
-                if (!e.target.value) setResolvedPayee(null);
-              }}
+              onChange={(e) => handleQueryChange(e.target.value)}
+              autoFocus
               style={styles.searchInput}
             />
             {searchQuery && (

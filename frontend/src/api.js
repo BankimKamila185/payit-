@@ -96,6 +96,7 @@ export const api = {
 
   // Auth
   login:       (vpa, pin) => post("/auth/login", { vpa, pin, device_id: getDeviceId() }),
+  firebaseLogin: (idToken) => post("/auth/firebase", { id_token: idToken, device_id: getDeviceId() }),
   phoneLookup: (phone) => post("/auth/phone-lookup", { phone }),
   register:    ({ phone, name, vpa, bank_id, upi_pin, login_pin }) =>
     post("/auth/register", { phone, name, vpa, bank_id, upi_pin, login_pin, device_id: getDeviceId() }),

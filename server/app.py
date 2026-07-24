@@ -580,6 +580,10 @@ class LoginReq(BaseModel):
     device_id: str = ""
     pin: str = ""
 
+class FirebaseLoginReq(BaseModel):
+    id_token: str
+    device_id: str = ""
+
 class PhoneLookupReq(BaseModel):
     phone: str
 
@@ -695,6 +699,58 @@ def login(req: LoginReq):
     user = con.execute("SELECT name FROM users WHERE id=?", (acc["user_id"],)).fetchone()
     con.close()
     return {"token": token, "vpa": req.vpa, "name": user["name"], "balance": acc["balance"]}
+
+
+@app.post("/auth/firebase")
+def firebase_login(req: FirebaseLoginReq):
+    try:
+        import firebase_admin
+        from firebase_admin import auth as firebase_auth
+    except ImportError:
+        # Fallback for local testing/demo if firebase-admin is not installed
+        if req.id_token.startswith("demo_"):
+            phone_clean = "".join(ch for ch in req.id_token if ch.isdigit())[-10:]
+        else:
+            raise HTTPException(500, "firebase-admin library not installed on server")
+    else:
+        try:
+            try:
+                firebase_admin.get_app()
+            except ValueError:
+                firebase_admin.initialize_app()
+            
+            decoded_token = firebase_auth.verify_id_token(req.id_token)
+            phone_number = decoded_token.get("phone_number")
+            if not phone_number:
+                raise HTTPException(400, "Phone number missing in Firebase token")
+            phone_clean = "".join(ch for ch in phone_number if ch.isdigit())[-10:]
+        except Exception as e:
+            raise HTTPException(401, f"Firebase token verification failed: {str(e)}")
+
+    con = db()
+    user = con.execute("SELECT * FROM users WHERE phone LIKE ?", (f"%{phone_clean}",)).fetchone()
+    if not user:
+        con.close()
+        return {"registered": False, "phone": phone_clean}
+
+    acc = con.execute("SELECT * FROM accounts WHERE user_id=? LIMIT 1", (user["id"],)).fetchone()
+    if not acc:
+        con.close()
+        return {"registered": False, "phone": phone_clean}
+
+    if req.device_id:
+        known = con.execute("SELECT COUNT(*) c FROM devices WHERE user_id=? AND device_fingerprint=?",
+                            (acc["user_id"], req.device_id)).fetchone()["c"]
+        if not known:
+            con.execute("INSERT INTO devices (user_id, device_fingerprint, status, binding_age_days, is_rooted, created_at) VALUES (?,?,?,?,?,?)",
+                        (acc["user_id"], req.device_id, "pending", 0, 0, now_iso()))
+
+    token = f"tok_{secrets.token_urlsafe(32)}"
+    con.execute("INSERT INTO sessions (user_id, device_id, token, expires_at, created_at) VALUES (?,?,?,?,?)",
+                (acc["user_id"], None, token, (datetime.now()+timedelta(hours=6)).isoformat(), now_iso()))
+    con.commit()
+    con.close()
+    return {"token": token, "vpa": acc["vpa"], "name": user["name"], "balance": acc["balance"]}
 
 
 @app.post("/auth/phone-lookup")

@@ -42,12 +42,13 @@ def pay(s, r, amt, pin="123456", dev="x", ch="MANUAL", ty="PAY"):
                          "pin": pin, "device_id": dev, "channel": ch, "type": ty}, token=token)
 
 
-# real accounts + their home devices
-c = sqlite3.connect(DB).cursor()
-users = [r[0] for r in c.execute("SELECT vpa FROM accounts WHERE is_merchant=0 AND blacklisted=0 AND balance>80000 LIMIT 12")]
-home = {r[0]: r[1] for r in c.execute("SELECT vpa, home_device FROM accounts")}
-mule = c.execute("SELECT vpa FROM accounts WHERE blacklisted=1 LIMIT 1").fetchone()[0]
-merch = c.execute("SELECT vpa FROM accounts WHERE is_merchant=1 LIMIT 1").fetchone()[0]
+from server.app import db
+con = db()
+users = [r["vpa"] for r in con.execute("SELECT vpa FROM accounts WHERE is_merchant=0 AND blacklisted=0 AND balance>80000 LIMIT 12").fetchall()]
+home = {r["vpa"]: r["home_device"] for r in con.execute("SELECT vpa, home_device FROM accounts").fetchall()}
+mule = con.execute("SELECT vpa FROM accounts WHERE blacklisted=1 LIMIT 1").fetchone()["vpa"]
+merch = con.execute("SELECT vpa FROM accounts WHERE is_merchant=1 LIMIT 1").fetchone()["vpa"]
+con.close()
 u = users
 results = []
 

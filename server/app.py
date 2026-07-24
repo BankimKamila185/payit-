@@ -214,13 +214,13 @@ def _fraud_call(path: str, feats: dict):
 
 
 def fraud_score(feats: dict) -> dict:
-    """Score a transaction via the fraud service. Falls back to the in-process
-    engine only if the service is unreachable, so a demo never hard-stops — but the
-    real path is the network call, and we log when the fallback is used."""
+    global engine
     try:
         return _fraud_call("/score", feats)
     except Exception as e:                              # any failure -> local fallback
         print(f"[FRAUD SERVICE DOWN] {type(e).__name__}: {e} — using in-process fallback")
+        if engine is None:
+            engine = FraudEngine()
         return engine.score(feats, observe=False)
 
 

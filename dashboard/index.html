@@ -107,6 +107,45 @@
   .reasons li{font-size:12px;color:var(--ink-2)}
 
   .device-banner{background:var(--surface-2);border:1px solid var(--border);border-radius:8px;padding:8px 12px;font-size:12px;display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+
+  /* Transaction Risk Analysis */
+  .risk-card{background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:10px;transition:border-color .2s,box-shadow .2s}
+  .risk-card:hover{border-color:rgba(255,255,255,.15);box-shadow:0 4px 20px rgba(0,0,0,.4)}
+  .risk-header{display:flex;align-items:center;gap:14px;margin-bottom:12px}
+  .risk-gauge{position:relative;width:52px;height:52px;flex-shrink:0}
+  .risk-gauge svg{transform:rotate(-90deg)}
+  .risk-gauge .rg-num{position:absolute;inset:0;display:grid;place-content:center;font-size:14px;font-weight:800}
+  .risk-meta{flex:1;min-width:0}
+  .risk-meta .risk-parties{font-size:13px;font-weight:600;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .risk-meta .risk-time{font-size:11px;color:var(--muted);margin-top:2px}
+  .risk-badges{display:flex;gap:6px;flex-shrink:0;align-items:center}
+  .risk-badge{font-size:10px;font-weight:700;padding:3px 8px;border-radius:5px;text-transform:uppercase;letter-spacing:.03em}
+  .rb-low{background:rgba(39,174,96,.12);color:var(--good)}
+  .rb-medium{background:rgba(242,153,74,.12);color:var(--warn)}
+  .rb-high{background:rgba(235,87,87,.12);color:var(--crit)}
+  .rb-critical{background:rgba(235,87,87,.25);color:#ff6b6b;border:1px solid rgba(235,87,87,.4)}
+  .rb-approved{background:rgba(39,174,96,.1);color:var(--good)}
+  .rb-flagged{background:rgba(242,153,74,.1);color:var(--warn)}
+  .rb-blocked{background:rgba(235,87,87,.1);color:var(--crit)}
+  .risk-bar{height:4px;border-radius:2px;background:var(--surface);margin-bottom:10px;overflow:hidden}
+  .risk-bar-fill{height:100%;border-radius:2px;transition:width .4s ease}
+  .risk-details{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}
+  .risk-detail-item{font-size:11px;color:var(--muted);display:flex;align-items:center;gap:5px}
+  .risk-detail-item b{color:var(--ink-2);font-weight:600}
+  .risk-reasons{margin-top:10px;padding:10px 12px;border-radius:8px;background:rgba(155,81,224,.06);border:1px solid rgba(155,81,224,.15)}
+  .risk-reasons .rr-title{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--engine);margin-bottom:6px}
+  .risk-reasons ul{margin:0;padding-left:16px;list-style:none}
+  .risk-reasons li{font-size:12px;color:var(--ink-2);padding:2px 0;position:relative}
+  .risk-reasons li::before{content:'⚑';position:absolute;left:-16px;color:var(--engine);font-size:10px}
+  .risk-reversal{margin-top:8px;padding:8px 10px;border-radius:6px;font-size:11px;font-weight:600;display:flex;align-items:center;gap:6px}
+  .risk-reversal.reversed{background:rgba(155,81,224,.08);border:1px solid rgba(155,81,224,.2);color:var(--engine)}
+  .risk-reversal.blocked{background:rgba(235,87,87,.08);border:1px solid rgba(235,87,87,.2);color:var(--crit)}
+  .risk-reversal.flagged{background:rgba(242,153,74,.08);border:1px solid rgba(242,153,74,.2);color:var(--warn)}
+  .risk-amount{font-size:15px;font-weight:700}
+  .risk-summary-bar{display:flex;gap:12px;padding:12px 14px;border-radius:10px;background:var(--surface-2);border:1px solid var(--border);margin-bottom:14px;flex-wrap:wrap}
+  .risk-summary-stat{display:flex;flex-direction:column;align-items:center;min-width:70px}
+  .risk-summary-stat .rss-val{font-size:18px;font-weight:800}
+  .risk-summary-stat .rss-lbl{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-top:2px}
 </style>
 </head>
 <body>
@@ -204,6 +243,14 @@
           <h2>📜 Transaction History</h2>
           <div id="history-box">
             <div style="padding:10px;text-align:center;color:var(--muted)">No transactions loaded.</div>
+          </div>
+        </div>
+
+        <div class="card" id="risk-analysis-card" style="display:none">
+          <h2>🔍 Transaction Risk Analysis</h2>
+          <div id="risk-summary-bar"></div>
+          <div id="risk-analysis-box">
+            <div style="padding:10px;text-align:center;color:var(--muted)">No risk data available.</div>
           </div>
         </div>
       </div>
@@ -400,6 +447,7 @@
 
         if (!data.length) {
           $('history-box').innerHTML = `<div style="padding:10px;text-align:center;color:var(--muted)">No transactions yet.</div>`;
+          $('risk-analysis-card').style.display = 'none';
           return;
         }
 
@@ -428,9 +476,156 @@
             </div>
           `;
         }).join('');
+
+        // Render Transaction Risk Analysis
+        renderRiskAnalysis(data);
       } catch (e) {
         console.error(e);
       }
+    }
+
+    function getRiskLevel(score) {
+      if (score >= 75) return { level: 'Critical', cls: 'rb-critical', color: '#ff6b6b' };
+      if (score >= 50) return { level: 'High', cls: 'rb-high', color: 'var(--crit)' };
+      if (score >= 25) return { level: 'Medium', cls: 'rb-medium', color: 'var(--warn)' };
+      return { level: 'Low', cls: 'rb-low', color: 'var(--good)' };
+    }
+
+    function getDecision(tx) {
+      const label = (tx.label || '').toUpperCase();
+      const status = (tx.status || '').toLowerCase();
+      if (label === 'BLOCK' || status === 'blocked' || status === 'rejected')
+        return { text: 'Blocked', cls: 'rb-blocked' };
+      if (label === 'REVIEW' || status === 'pending' || status === 'flagged')
+        return { text: 'Flagged', cls: 'rb-flagged' };
+      return { text: 'Approved', cls: 'rb-approved' };
+    }
+
+    function getReversalStatus(tx) {
+      const status = (tx.status || '').toLowerCase();
+      if (status === 'reversed' || status === 'recalled')
+        return { show: true, text: '↩ Money returned — transaction reversed', cls: 'reversed' };
+      if (status === 'blocked' || status === 'rejected')
+        return { show: true, text: '🛡 Transaction blocked — money never moved', cls: 'blocked' };
+      if (status === 'flagged')
+        return { show: true, text: '⚠ Flagged for post-payment review', cls: 'flagged' };
+      return { show: false };
+    }
+
+    function renderMiniGauge(score) {
+      const r = 20, circ = 2 * Math.PI * r;
+      const risk = getRiskLevel(score);
+      const offset = circ * (1 - Math.min(score, 100) / 100);
+      return `
+        <div class="risk-gauge">
+          <svg width="52" height="52" viewBox="0 0 52 52">
+            <circle cx="26" cy="26" r="${r}" fill="none" stroke="var(--grid)" stroke-width="5"/>
+            <circle cx="26" cy="26" r="${r}" fill="none" stroke="${risk.color}" stroke-width="5"
+                    stroke-dasharray="${circ}" stroke-dashoffset="${offset}"
+                    stroke-linecap="round" style="transition:stroke-dashoffset .4s ease"/>
+          </svg>
+          <div class="rg-num" style="color:${risk.color}">${score}</div>
+        </div>`;
+    }
+
+    function renderRiskAnalysis(transactions) {
+      const card = $('risk-analysis-card');
+      // Only analyze outgoing (sent) transactions
+      const sentTxns = transactions.filter(tx => tx.sender === currentUser.vpa);
+      if (!sentTxns.length) {
+        card.style.display = 'none';
+        return;
+      }
+      card.style.display = 'block';
+
+      // Summary stats
+      let safe = 0, flagged = 0, blocked = 0, reversed = 0, totalScore = 0;
+      sentTxns.forEach(tx => {
+        const score = tx.score || 0;
+        totalScore += score;
+        const decision = getDecision(tx);
+        if (decision.text === 'Approved') safe++;
+        else if (decision.text === 'Flagged') flagged++;
+        else blocked++;
+        const st = (tx.status || '').toLowerCase();
+        if (st === 'reversed' || st === 'recalled') reversed++;
+      });
+      const avgScore = Math.round(totalScore / sentTxns.length);
+      const avgRisk = getRiskLevel(avgScore);
+
+      $('risk-summary-bar').innerHTML = `
+        <div class="risk-summary-bar">
+          <div class="risk-summary-stat">
+            <span class="rss-val tnum">${sentTxns.length}</span>
+            <span class="rss-lbl">Analyzed</span>
+          </div>
+          <div class="risk-summary-stat">
+            <span class="rss-val tnum" style="color:${avgRisk.color}">${avgScore}</span>
+            <span class="rss-lbl">Avg Score</span>
+          </div>
+          <div class="risk-summary-stat">
+            <span class="rss-val tnum" style="color:var(--good)">${safe}</span>
+            <span class="rss-lbl">Approved</span>
+          </div>
+          <div class="risk-summary-stat">
+            <span class="rss-val tnum" style="color:var(--warn)">${flagged}</span>
+            <span class="rss-lbl">Flagged</span>
+          </div>
+          <div class="risk-summary-stat">
+            <span class="rss-val tnum" style="color:var(--crit)">${blocked}</span>
+            <span class="rss-lbl">Blocked</span>
+          </div>
+          <div class="risk-summary-stat">
+            <span class="rss-val tnum" style="color:var(--engine)">${reversed}</span>
+            <span class="rss-lbl">Reversed</span>
+          </div>
+        </div>`;
+
+      $('risk-analysis-box').innerHTML = sentTxns.map(tx => {
+        const score = tx.score || 0;
+        const risk = getRiskLevel(score);
+        const decision = getDecision(tx);
+        const reversal = getReversalStatus(tx);
+        const reasons = tx.reasons || [];
+        const dateStr = new Date(tx.created_at).toLocaleString([], {
+          month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+        });
+        const amtStr = '₹' + Number(tx.amount).toLocaleString('en-IN');
+
+        const reasonsHtml = reasons.length ? `
+          <div class="risk-reasons">
+            <div class="rr-title">Contributing Risk Factors</div>
+            <ul>${reasons.map(r => `<li>${r}</li>`).join('')}</ul>
+          </div>` : '';
+
+        const reversalHtml = reversal.show ? `
+          <div class="risk-reversal ${reversal.cls}">${reversal.text}</div>` : '';
+
+        return `
+          <div class="risk-card">
+            <div class="risk-header">
+              ${renderMiniGauge(score)}
+              <div class="risk-meta">
+                <div class="risk-parties">→ ${tx.receiver}</div>
+                <div class="risk-time">${dateStr} · ${tx.type || 'PAY'} · ${tx.channel || 'MANUAL'}</div>
+              </div>
+              <span class="risk-amount" style="color:var(--crit)">- ${amtStr}</span>
+              <div class="risk-badges">
+                <span class="risk-badge ${risk.cls}">${risk.level}</span>
+                <span class="risk-badge ${decision.cls}">${decision.text}</span>
+              </div>
+            </div>
+            <div class="risk-bar"><div class="risk-bar-fill" style="width:${Math.min(score,100)}%;background:${risk.color}"></div></div>
+            <div class="risk-details">
+              <div class="risk-detail-item">🎯 Risk Score: <b>${score}/100</b></div>
+              <div class="risk-detail-item">📊 Risk Level: <b style="color:${risk.color}">${risk.level}</b></div>
+              <div class="risk-detail-item">⚖️ Decision: <b>${decision.text}</b></div>
+              <div class="risk-detail-item">📋 Status: <b>${tx.status}</b></div>
+            </div>
+            ${reasonsHtml}
+            ${reversalHtml}
+          </div>`;
+      }).join('');
     }
 
     // ---------------- PAYMENTS
